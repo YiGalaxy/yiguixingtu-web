@@ -12,9 +12,29 @@
 
 import { ElMessage } from 'element-plus'
 
+/**
+ * 选后端地址：服务端渲染时走内网地址，浏览器里走公开地址。
+ *
+ * 【为什么单独抽成一个函数】
+ *   import.meta.server 是【编译期常量】——构建时就被替换成 true / false 了，
+ *   在测试里没法两种情形都跑到（Nuxt 测试环境里它固定是客户端那一侧）。
+ *   抽成纯函数之后，只要传一个布尔值就能把两条分支都测到，
+ *   而 useApi 里仍然是"用真实标志调用"，没有为了测试而改变生产行为。
+ *
+ * @param {boolean} isServer 是否在服务端渲染
+ * @param {object}  config   useRuntimeConfig() 的结果
+ */
+export const resolveApiBase = (isServer, config) =>
+  isServer ? config.apiBaseServer : config.public.apiBase
+
 export const useApi = () => {
   // 这几个必须在 setup 阶段取好；放进 request 内部调用会丢 Nuxt 上下文
-  const config = useRuntimeConfig()          // nuxt.config.ts 里的 apiBase
+  const config = useRuntimeConfig()
+  // 【服务端与浏览器用不同的地址】
+  //   · SSR（文章详情页那种）在服务器上发请求 → 走 apiBaseServer（内网/本机），
+  //     不必绕一圈公网域名再回到同一台机器
+  //   · 浏览器里 → 走 public.apiBase（对外可访问的那个地址）
+  const apiBase = resolveApiBase(import.meta.server, config)
   const token = useCookie('token')           // 登录通行证
   const { openLogin } = useAuthUi()          // 401 时弹登录框用
 
@@ -51,7 +71,7 @@ export const useApi = () => {
     try {
       // ---- 2. 发请求 ----
       const res = await $fetch(url, {
-        baseURL: config.public.apiBase,   // http://localhost:8082
+        baseURL: apiBase,                 // 服务端/浏览器各自解析出来的地址
         ...options,
         headers,
       })

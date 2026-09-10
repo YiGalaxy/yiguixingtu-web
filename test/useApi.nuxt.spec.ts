@@ -116,6 +116,59 @@ describe('useApi', () => {
     expect(errorSpy).not.toHaveBeenCalled()
   })
 
+  // ---------------------------------------------------------------
+  // 后端地址的选择：服务端走内网、浏览器走对外地址
+  // ---------------------------------------------------------------
+
+  describe('resolveApiBase（两种 baseURL 都要能正确解析）', () => {
+    // 模拟一份"服务端与浏览器地址不一样"的线上配置：
+    // 服务端直连内网容器，浏览器走对外域名
+    const config = {
+      apiBaseServer: 'http://backend:8082',
+      public: { apiBase: 'https://blog.example.com/api' },
+    }
+
+    it('在服务端_should用 apiBaseServer 走内网地址', () => {
+      // 为什么不绕公网：SSR 的请求发生在服务器上，
+      // 去请求自己的公网域名等于绕一圈 DNS + Nginx 再回到同一台机器，
+      // 白白多几十毫秒；域名没配好时 SSR 还会直接失败
+      expect(resolveApiBase(true, config)).toBe('http://backend:8082')
+    })
+
+    it('在浏览器_should用 public.apiBase 走对外地址', () => {
+      expect(resolveApiBase(false, config)).toBe('https://blog.example.com/api')
+    })
+
+    it('两种情形_should取到不同的地址（不能取成同一个）', () => {
+      // 这条用来防止"两个配置项被写成同一个值"这种看起来没事、
+      // 实际上等于没分离的情况
+      expect(resolveApiBase(true, config)).not.toBe(resolveApiBase(false, config))
+    })
+
+    it('本地开发时两者相同_should也正常工作', () => {
+      // 本地没有内网/公网之分，两个值都是 http://localhost:8082，
+      // 所以这条分支也必须能跑通，不能假设它们一定不同
+      const local = {
+        apiBaseServer: 'http://localhost:8082',
+        public: { apiBase: 'http://localhost:8082' },
+      }
+      expect(resolveApiBase(true, local)).toBe('http://localhost:8082')
+      expect(resolveApiBase(false, local)).toBe('http://localhost:8082')
+    })
+  })
+
+  it('浏览器侧发请求时_should用 public 里的地址作为 baseURL', async () => {
+    // 上面测的是纯函数，这条补上"useApi 实际用的就是它"，
+    // 避免出现"函数改对了但 useApi 忘了改"的情况
+    fetchMock.mockResolvedValue({ code: 200, data: null })
+
+    const { request } = useApi()
+    await request('/article/page')
+
+    const options = fetchMock.mock.calls[0][1]
+    expect(options.baseURL).toBe(resolveApiBase(import.meta.server, useRuntimeConfig()))
+  })
+
   it('有 token 时_should自动带上 Authorization 请求头', async () => {
     fetchMock.mockResolvedValue({ code: 200, data: null })
     tokenRef.value = 'fake-jwt-token'

@@ -90,10 +90,36 @@ cp .env.example .env
 
 ```properties
 NUXT_PUBLIC_API_BASE=http://localhost:8082
+NUXT_API_BASE_SERVER=http://localhost:8082
 ```
 
-> Nuxt 的 `runtimeConfig` 会自动把 `NUXT_PUBLIC_API_BASE` 映射到
-> `runtimeConfig.public.apiBase`，所以改地址**不需要动代码**。
+> Nuxt 的 `runtimeConfig` 按名字自动读取环境变量
+> （`NUXT_PUBLIC_API_BASE` → `runtimeConfig.public.apiBase`，
+> `NUXT_API_BASE_SERVER` → `runtimeConfig.apiBaseServer`），
+> 所以改地址**不需要动代码**。
+
+#### 为什么是两个地址，不是一个
+
+**服务端和浏览器要用的后端地址经常不是同一个。**
+
+| | 用哪个 | 为什么 |
+|---|---|---|
+| **浏览器** | `NUXT_PUBLIC_API_BASE`（会打进产物，**不能放密钥**） | 必须是对外可访问的地址，否则用户浏览器请求不到 |
+| **服务端渲染** | `NUXT_API_BASE_SERVER`（不会打进产物） | SSR 的请求发生在服务器上，去请求自己的公网域名等于绕一圈 DNS + Nginx 再回到同一台机器，白白多几十毫秒；域名没配好时 SSR 还会直接失败 |
+
+本地开发时两者都是 `http://localhost:8082`，看起来没区别；
+但部署时就分开了，例如：
+
+```properties
+# 服务器上：浏览器走域名，SSR 直连内网容器
+NUXT_PUBLIC_API_BASE=https://你的域名/api
+NUXT_API_BASE_SERVER=http://backend:8082
+```
+
+> 选地址的逻辑在 `app/composables/useApi.ts` 的 `resolveApiBase()`。
+> 它被单独抽成一个纯函数，是因为 `import.meta.server` 是**编译期常量**，
+> 测试里没法两种情形都跑到；抽出来之后传一个布尔值就能把两条分支都测到
+> （见 `test/useApi.nuxt.spec.ts` 的 5 个用例）。
 
 ### 4. 启动开发服务器
 
@@ -265,11 +291,13 @@ npm run lint:fix     # 自动修掉能修的部分
 **工程**
 
 - 分类数据已经拉取但**还没有筛选 UI**
-- 后端地址目前写在 `nuxt.config.ts` 里，尚未按环境区分
 - **测试只覆盖了组合式函数**，还没有组件测试与端到端（Playwright）测试
 - **仓库还没有 GitHub 远程地址**，CI 工作流已就位但尚未真正跑过一次
 - `app/pages/admin.vue` 单文件 **1001 行**，用户表格 / 文章表格 / 编辑器弹窗都挤在一个文件里
 - Element Plus 是全量引入（`app/plugins/element-plus.ts`），没有按需加载
+- 用了 Element Plus 的 `el-dialog` 但**没有注入 z-index / id provider**，
+  服务端渲染时控制台会刷一大堆 `ZIndexInjection` / `IdInjection` 警告
+  （不影响功能，但把真正的报错淹掉了，该修）
 
 ## 许可证
 
