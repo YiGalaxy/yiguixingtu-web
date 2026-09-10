@@ -116,7 +116,8 @@ describe('后台 · 标签管理', () => {
 
     expect(wrapper.findAll('.panel .el-table__row').length).toBe(0)
     expect(wrapper.text()).toContain('还没有标签')
-    expect(wrapper.findAll('.side-nav a').length).toBe(6)
+    // 菜单项数量：概览 / 文章 / 用户 / 标签 / 分类 / 评论 / 设置
+    expect(wrapper.findAll('.side-nav .nv-label').length).toBe(7)
   })
 
   it('标签接口返回了非数组_should当成空列表，而不是把渲染打挂', async () => {

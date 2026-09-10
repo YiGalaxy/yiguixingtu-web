@@ -1,0 +1,458 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { mockNuxtImport, mountSuspended } from '@nuxt/test-utils/runtime'
+import { flushPromises, enableAutoUnmount } from '@vue/test-utils'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import AdminPage from '~/pages/admin.vue'
+
+// =====================================================================
+// 后台「评论管理」的组件测试
+//
+// 【这一组守的是什么】
+//   这个页面是评论模块能不能真正跑起来的最后一环：评论默认【待审核】，
+//   不点通过，前台永远看不到它 —— 前台那句"等待审核"就是靠这里兑现的。
+//   所以它的错法都指向同一件事：**待办被漏掉或者假装处理了**。
+//     · 默认筛选不是「待审核」→ 新评论淹没在已处理的评论里，站长每次都要手动筛
+//     · 审核后不刷新 → 表格里还列着已经通过的，看起来像"点了没反应"
+//     · 只刷新列表不刷新角标 → 菜单上的数字和实际待办对不上
+//     · 审核接口传错参数（比如把 status 当成 body 传）→ 后端拿不到 status 直接 400
+//     · 404（评论已被别人删掉）→ 只报一句"评论不存在"，用户对着报错再点一次，
+//       而表格里那条其实早就不该在
+//
+// 【怎么断言"发出去的请求"】$fetch 换成按 URL 分发的假实现，
+//   从调用记录里读 method 与 params —— 状态是通过【查询参数】传给后端的
+//   （`PUT /admin/comment/{id}/status?status=1`），所以 params 必须断言。
+// =====================================================================
+
+const { fetchMock, tokenRef } = vi.hoisted(() => ({
+  fetchMock: vi.fn(),
+  tokenRef: { value: 'fake-token' },
+}))
+mockNuxtImport('$fetch', () => fetchMock)
+mockNuxtImport('useCookie', () => () => tokenRef)
+
+// 页面上有若干个 el-select，下拉面板会 teleport 到 body 并留在那里；
+// 每个用例结束都卸载，免得上一个用例残留的节点影响下一个
+enableAutoUnmount(afterEach)
+
+const body = (data) => ({ code: 200, message: '成功', data })
+const pathOf = (url) => String(url).split('?')[0]
+
+/** 后端 AdminCommentVO 的真实形状（比前台多 articleTitle / email / ip） */
+const PENDING = {
+  id: 2, articleId: 117, articleTitle: '测试', nickname: '联调读者',
+  email: 'reader@example.com', ip: '0:0:0:0:0:0:0:1',
+  content: '联调用的一条评论', status: 0, createTime: '2026-09-10T17:22:21',
+}
+const APPROVED = {
+  id: 1, articleId: 117, articleTitle: '测试', nickname: '老读者',
+  email: 'old@example.com', ip: '127.0.0.1',
+  content: '早就通过的一条', status: 1, createTime: '2026-09-10T09:00:00',
+}
+
+const mockBackend = (overrides = {}) => {
+  fetchMock.mockImplementation((url, options) => {
+    const path = pathOf(url)
+    if (path in overrides) {
+      const value = overrides[path]
+      return Promise.resolve(typeof value === 'function' ? value(options) : value)
+    }
+    if (path === '/article/stats') return Promise.resolve(body({ articleCount: 1, viewCount: 3, categoryCount: 1 }))
+    if (path === '/auth/me') return Promise.resolve(body({ id: 1, username: 'admin', role: 'ADMIN' }))
+    if (path === '/user/page') return Promise.resolve(body({ records: [], total: 7 }))
+    if (path === '/category/list') return Promise.resolve(body([]))
+    if (path === '/admin/tag/list') return Promise.resolve(body([]))
+    if (path === '/admin/article/page') return Promise.resolve(body({ records: [], total: 0 }))
+    if (path === '/admin/comment/page') {
+      // 待审核（含菜单角标那次 size=1 的查询）与已通过各给一条，够区分两边的行为
+      const status = options?.params?.status
+      if (status === 1) return Promise.resolve(body({ records: [APPROVED], total: 1 }))
+      return Promise.resolve(body({ records: options?.params?.size === 1 ? [] : [PENDING], total: 1 }))
+    }
+    return Promise.resolve(body(null))
+  })
+}
+
+/** 切到「评论管理」菜单（默认停在用户管理，菜单顺序见 admin.vue 的 menus） */
+const gotoComments = async (wrapper) => {
+  await wrapper.findAll('.side-nav a').find(a => a.text().includes('评论管理')).trigger('click')
+  await flushPromises()
+}
+
+/** 表格里当前渲染出来的评论行 */
+const rows = (wrapper) => wrapper.findAll('.panel .el-table__row')
+
+/** 某行里某个按钮（通过 / 拒绝 / 删除） */
+const buttonIn = (row, label) => row.findAll('.el-button').find(b => b.text() === label)
+
+/**
+ * 最近一次【列表查询】的参数。
+ *
+ * 【为什么要排掉 size=1 的那次调用 —— 这个坑值得记】
+ *   菜单上的"待审核"角标走的是同一个接口（page=1&size=1&status=0），
+ *   而它总是在列表查询【之后】发出。所以直接取"最后一次 /admin/comment/page 调用"
+ *   拿到的其实是角标那次的参数（status 永远是 0），断言会到处对不上 ——
+ *   而且看起来像"筛选没生效"，很容易往错的方向查。
+ *   列表查询的 size 是页面大小（10），角标那次固定是 1，用它区分。
+ */
+const lastPageParams = () => {
+  const calls = fetchMock.mock.calls.filter(
+    c => pathOf(c[0]) === '/admin/comment/page' && c[1]?.params?.size !== 1,
+  )
+  return calls.at(-1)?.[1]?.params
+}
+
+/**
+ * 改「状态」筛选（真实交互：点开下拉 → 点选项）。
+ *
+ * 【为什么不直接改组件内部状态】那样测的只是"改完值会不会发请求"，
+ * 而真正常错的是**接线**：下拉框绑的是不是这个变量、change 有没有触发查询。
+ * 【为什么要按标签文字认出那一个下拉面板】Element Plus 把每个 el-select 的
+ * 下拉面板都 teleport 到 body 并留在那里，页面上不止一个 el-select ——
+ * 直接取第一个面板里的选项，点到的可能是别人的选项，测试还会"绿"。
+ */
+const pickStatus = async (wrapper, label) => {
+  await wrapper.find('.toolbar .el-select__wrapper').trigger('click')
+  await flushPromises()
+
+  const dropdown = [...document.querySelectorAll('.el-select-dropdown')]
+    .find(d => d.textContent.includes(label))
+  const item = [...dropdown.querySelectorAll('.el-select-dropdown__item')]
+    .find(i => i.textContent.trim() === label)
+  item.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  await flushPromises()
+}
+
+/** 对 /admin/comment/page 请求过几次（用来判断"有没有刷新列表"） */
+const pageCallCount = () => fetchMock.mock.calls.filter(c => pathOf(c[0]) === '/admin/comment/page').length
+
+/** 某次请求的调用记录 */
+const callTo = (method, path) =>
+  fetchMock.mock.calls.find(c => pathOf(c[0]) === path && c[1]?.method === method)
+
+describe('后台 · 评论管理', () => {
+  beforeEach(() => {
+    fetchMock.mockReset()
+    mockBackend()
+  })
+
+  // ---------------------------------------------------------------
+  // 一、默认筛选与列表
+  // ---------------------------------------------------------------
+
+  it('默认_should按「待审核」筛选（这个页面的主要用途就是处理待办）', async () => {
+    const wrapper = await mountSuspended(AdminPage)
+    await flushPromises()
+    await gotoComments(wrapper)
+
+    // 状态是通过查询参数传给后端的：status=0（不带这个参数就是不按状态过滤）
+    expect(lastPageParams().status).toBe(0)
+    expect(lastPageParams().page).toBe(1)
+  })
+
+  it('列表_should显示昵称、内容、文章标题、时间、邮箱与 IP（后两个只有后台接口才返回）', async () => {
+    const wrapper = await mountSuspended(AdminPage)
+    await flushPromises()
+    await gotoComments(wrapper)
+
+    expect(rows(wrapper).length).toBe(1)
+    const text = rows(wrapper)[0].text()
+    expect(text).toContain('联调读者')
+    expect(text).toContain('联调用的一条评论')
+    expect(text).toContain('测试')                 // 文章标题
+    expect(text).toContain('2026-09-10 17:22:21')  // 时间精确到秒
+    expect(text).toContain('reader@example.com')
+    expect(text).toContain('0:0:0:0:0:0:0:1')
+    // 待审核的状态标出来，不然「全部」视图下分不清每行的状态
+    expect(text).toContain('待审核')
+  })
+
+  it('评论内容_should按纯文本渲染（内容里的标签不会变成元素）', async () => {
+    mockBackend({
+      '/admin/comment/page': body({
+        records: [{ ...PENDING, content: '<b>加粗</b>（后端本该转义，这里故意给个原生标签）' }],
+        total: 1,
+      }),
+    })
+
+    const wrapper = await mountSuspended(AdminPage)
+    await flushPromises()
+    await gotoComments(wrapper)
+
+    // 后台也没有理由把评论当 HTML 解析：v-html 在这里同样是 XSS 入口
+    expect(rows(wrapper)[0].find('.cm-cell b').exists()).toBe(false)
+    expect(rows(wrapper)[0].find('.cm-cell').text()).toContain('<b>加粗</b>')
+  })
+
+  it('接口失败_should列表为空但页面照常（不把后台带崩）', async () => {
+    mockBackend({ '/admin/comment/page': { code: 500, message: '服务器开小差了' } })
+
+    const wrapper = await mountSuspended(AdminPage)
+    await flushPromises()
+    await gotoComments(wrapper)
+
+    expect(rows(wrapper).length).toBe(0)
+    expect(wrapper.text()).toContain('这个状态下还没有评论')
+    expect(wrapper.findAll('.side-nav .nv-label').length).toBe(7)
+  })
+
+  it('接口返回了非数组_should当成空列表，而不是把渲染打挂', async () => {
+    mockBackend({ '/admin/comment/page': body({ records: null, total: 5 }) })
+
+    const wrapper = await mountSuspended(AdminPage)
+    await flushPromises()
+    await gotoComments(wrapper)
+
+    expect(rows(wrapper).length).toBe(0)
+  })
+
+  it('切到「已通过」_should带着 status=1 重新查询，并显示已通过的评论', async () => {
+    const wrapper = await mountSuspended(AdminPage)
+    await flushPromises()
+    await gotoComments(wrapper)
+
+    await pickStatus(wrapper, '已通过')
+
+    expect(lastPageParams().status).toBe(1)
+    expect(rows(wrapper)[0].text()).toContain('老读者')
+  })
+
+  it('选「全部」_should【不发 status 参数】（发一个哨兵值会让后端去比不存在的状态）', async () => {
+    const wrapper = await mountSuspended(AdminPage)
+    await flushPromises()
+    await gotoComments(wrapper)
+
+    await pickStatus(wrapper, '全部')
+
+    expect(lastPageParams().status).toBeUndefined()
+    expect(Object.keys(lastPageParams())).toContain('page')
+    // 「全部」只用界面上的哨兵值表示，绝不能发 -1 给后端
+    expect(lastPageParams().status).not.toBe(-1)
+  })
+
+  // ---------------------------------------------------------------
+  // 二、审核：参数必须走对
+  // ---------------------------------------------------------------
+
+  it('点「通过」_should PUT /admin/comment/{id}/status?status=1，并刷新列表', async () => {
+    const wrapper = await mountSuspended(AdminPage)
+    await flushPromises()
+    await gotoComments(wrapper)
+
+    const before = fetchMock.mock.calls.filter(c => pathOf(c[0]) === '/admin/comment/page').length
+
+    await buttonIn(rows(wrapper)[0], '通过').trigger('click')
+    await flushPromises()
+
+    const put = callTo('PUT', '/admin/comment/2/status')
+    expect(put).toBeTruthy()
+    // 【状态是【查询参数】，不是请求体】后端签名是 @RequestParam Integer status；
+    // 放到 body 里传的话后端收不到，直接 400 —— 这条断言就是钉这个的
+    expect(put[1].params).toEqual({ status: 1 })
+    expect(put[1].body).toBeUndefined()
+    // 刷新过列表（表格里那条已经不在待审核里了）
+    expect(fetchMock.mock.calls.filter(c => pathOf(c[0]) === '/admin/comment/page').length)
+      .toBeGreaterThan(before)
+  })
+
+  it('点「拒绝」_should status=2（审核只有通过与拒绝两个结果，没有"退回待审核"）', async () => {
+    const wrapper = await mountSuspended(AdminPage)
+    await flushPromises()
+    await gotoComments(wrapper)
+
+    await buttonIn(rows(wrapper)[0], '拒绝').trigger('click')
+    await flushPromises()
+
+    expect(callTo('PUT', '/admin/comment/2/status')[1].params).toEqual({ status: 2 })
+  })
+
+  it('已经是当前状态的那个按钮_should禁用（点它不会发生任何事，留着可点像"点了没生效"）', async () => {
+    const wrapper = await mountSuspended(AdminPage)
+    await flushPromises()
+    await gotoComments(wrapper)
+
+    // 待审核这一行：「通过」「拒绝」都还能点
+    const pending = rows(wrapper)[0]
+    expect(buttonIn(pending, '通过').attributes('disabled')).toBeUndefined()
+    expect(buttonIn(pending, '拒绝').attributes('disabled')).toBeUndefined()
+
+    // 切到「已通过」：那一条的「通过」按钮应该已经禁用
+    await pickStatus(wrapper, '已通过')
+
+    expect(rows(wrapper)[0].text()).toContain('老读者')
+    expect(buttonIn(rows(wrapper)[0], '通过').attributes('disabled')).toBeDefined()
+    expect(buttonIn(rows(wrapper)[0], '拒绝').attributes('disabled')).toBeUndefined()
+  })
+
+  it('审核接口失败（400）_should列表照常，不把页面带崩', async () => {
+    mockBackend({ '/admin/comment/2/status': { code: 400, message: '状态只能是 1(通过) 或 2(拒绝)' } })
+
+    const wrapper = await mountSuspended(AdminPage)
+    await flushPromises()
+    await gotoComments(wrapper)
+
+    await buttonIn(rows(wrapper)[0], '通过').trigger('click')
+    await flushPromises()
+
+    // 后端说得很具体（这句话本身就是它给的），页面必须还能继续用
+    expect(rows(wrapper).length).toBe(1)
+  })
+
+  // ---------------------------------------------------------------
+  // 三、待审核数量（菜单角标）
+  // ---------------------------------------------------------------
+
+  it('菜单角标_should显示待审核数量（进后台就看得见，不用点进菜单）', async () => {
+    const wrapper = await mountSuspended(AdminPage)
+    await flushPromises()
+
+    const badge = wrapper.findAll('.side-nav a').find(a => a.text().includes('评论管理')).find('.nv-badge')
+    expect(badge.exists()).toBe(true)
+    expect(badge.text()).toBe('1')
+  })
+
+  it('待审核为 0_should整个角标不渲染（摆一个 0 只是噪音）', async () => {
+    mockBackend({
+      '/admin/comment/page': body({ records: [], total: 0 }),
+    })
+
+    const wrapper = await mountSuspended(AdminPage)
+    await flushPromises()
+
+    expect(wrapper.find('.nv-badge').exists()).toBe(false)
+  })
+
+  it('在处理「已通过」时拒绝一条_should【重新查一次】待审核数（列表的 total 不代表待办数）', async () => {
+    const wrapper = await mountSuspended(AdminPage)
+    await flushPromises()
+    await gotoComments(wrapper)
+
+    // 切到「已通过」
+    await pickStatus(wrapper, '已通过')
+
+    const before = pageCallCount()
+
+    // 在「已通过」里拒绝它 → 列表总数不变，但待审核 +1，角标必须跟着变
+    await buttonIn(rows(wrapper)[0], '拒绝').trigger('click')
+    await flushPromises()
+
+    // 一次刷列表 + 一次单独查待审核数
+    expect(pageCallCount()).toBeGreaterThanOrEqual(before + 2)
+    expect(wrapper.findAll('.side-nav a').find(a => a.text().includes('评论管理')).find('.nv-badge').text())
+      .toBe('1')
+  })
+
+  // ---------------------------------------------------------------
+  // 四、删除
+  // ---------------------------------------------------------------
+
+  it('删除_should先二次确认（并说清前台也看不到了），确认后发 DELETE', async () => {
+    const confirmSpy = vi.spyOn(ElMessageBox, 'confirm').mockResolvedValue('confirm')
+
+    const wrapper = await mountSuspended(AdminPage)
+    await flushPromises()
+    await gotoComments(wrapper)
+
+    await buttonIn(rows(wrapper)[0], '删除').trigger('click')
+    await flushPromises()
+
+    expect(confirmSpy).toHaveBeenCalledTimes(1)
+    const tip = confirmSpy.mock.calls[0][0]
+    // 只说"删除评论"的话，管理员不一定知道前台也看不到了
+    expect(tip).toContain('前台')
+    expect(tip).toContain('无法恢复')
+
+    expect(callTo('DELETE', '/admin/comment/2')).toBeTruthy()
+    confirmSpy.mockRestore()
+  })
+
+  it('删除时点取消_should一个请求都不发', async () => {
+    const confirmSpy = vi.spyOn(ElMessageBox, 'confirm').mockRejectedValue(new Error('cancel'))
+
+    const wrapper = await mountSuspended(AdminPage)
+    await flushPromises()
+    await gotoComments(wrapper)
+
+    await buttonIn(rows(wrapper)[0], '删除').trigger('click')
+    await flushPromises()
+
+    expect(callTo('DELETE', '/admin/comment/2')).toBeUndefined()
+    confirmSpy.mockRestore()
+  })
+
+  it('删除成功后_should刷新列表（那条评论从表格里消失）', async () => {
+    vi.spyOn(ElMessageBox, 'confirm').mockResolvedValue('confirm')
+
+    const wrapper = await mountSuspended(AdminPage)
+    await flushPromises()
+    await gotoComments(wrapper)
+    expect(rows(wrapper).length).toBe(1)
+
+    // 删掉之后后端就没有待审核的了
+    mockBackend({ '/admin/comment/page': body({ records: [], total: 0 }) })
+
+    await buttonIn(rows(wrapper)[0], '删除').trigger('click')
+    await flushPromises()
+
+    expect(rows(wrapper).length).toBe(0)
+    vi.restoreAllMocks()
+  })
+
+  // ---------------------------------------------------------------
+  // 五、404：能自愈
+  // ---------------------------------------------------------------
+
+  it('审核时撞上 404（已被别人删掉）_should提示"已经不在"并刷新列表', async () => {
+    mockBackend({ '/admin/comment/2/status': { code: 404, message: '评论不存在' } })
+    const warning = vi.spyOn(ElMessage, 'warning').mockImplementation(() => {})
+
+    const wrapper = await mountSuspended(AdminPage)
+    await flushPromises()
+    await gotoComments(wrapper)
+
+    const before = pageCallCount()
+    await buttonIn(rows(wrapper)[0], '通过').trigger('click')
+    await flushPromises()
+
+    // 只报一句"评论不存在"的话，用户看到的是"报错 + 表格里还有它"，
+    // 会以为操作失败再点一次 —— 把列表刷新才是能自愈的做法
+    expect(warning.mock.calls.some(c => String(c[0]).includes('已经不在了'))).toBe(true)
+    expect(warning.mock.calls.some(c => String(c[0]).includes('列表已刷新'))).toBe(true)
+    expect(pageCallCount()).toBeGreaterThan(before)
+    vi.restoreAllMocks()
+  })
+
+  it('删除时撞上 404_should同样自愈（提示 + 刷新列表）', async () => {
+    vi.spyOn(ElMessageBox, 'confirm').mockResolvedValue('confirm')
+    mockBackend({ '/admin/comment/2': { code: 404, message: '评论不存在' } })
+    const warning = vi.spyOn(ElMessage, 'warning').mockImplementation(() => {})
+
+    const wrapper = await mountSuspended(AdminPage)
+    await flushPromises()
+    await gotoComments(wrapper)
+
+    const before = pageCallCount()
+    await buttonIn(rows(wrapper)[0], '删除').trigger('click')
+    await flushPromises()
+
+    expect(warning.mock.calls.some(c => String(c[0]).includes('列表已刷新'))).toBe(true)
+    expect(pageCallCount()).toBeGreaterThan(before)
+    vi.restoreAllMocks()
+  })
+
+  // ---------------------------------------------------------------
+  // 六、文章被删除时的显示
+  // ---------------------------------------------------------------
+
+  it('文章标题缺失（文章已被删除）_should显示占位说明，而不是一个空白单元格', async () => {
+    mockBackend({
+      '/admin/comment/page': body({ records: [{ ...PENDING, articleTitle: null }], total: 1 }),
+    })
+
+    const wrapper = await mountSuspended(AdminPage)
+    await flushPromises()
+    await gotoComments(wrapper)
+
+    // 空白的"文章"列会让人以为是页面没加载出来
+    expect(rows(wrapper)[0].text()).toContain('文章已删除')
+  })
+})
