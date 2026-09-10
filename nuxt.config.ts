@@ -42,6 +42,24 @@ export default defineNuxtConfig({
        * 覆盖方式：环境变量 NUXT_PUBLIC_MEDIA_BASE
        */
       mediaBase: '/media',
+
+      /**
+       * 【站点的对外地址】SEO 用：canonical / og:url / sitemap.xml 里的绝对地址。
+       *
+       * 为什么必须有它：canonical 与 og:url **必须是绝对地址**（规范要求），
+       * 只写 /article/12 的话搜索引擎会忽略这条 canonical，
+       * 而页面上看不出任何异常 —— 属于"静默失效"那一类问题。
+       *
+       * 为什么默认值是正式域名、而不是 localhost：本地开发时没人看 SEO，
+       * 但本地构建出来的产物如果要验证 canonical，指向一个不存在的本地地址
+       * 反而更难判断对错；真正需要区分环境时用环境变量覆盖即可。
+       *
+       * 覆盖方式：环境变量 NUXT_PUBLIC_SITE_URL
+       *   NUXT_PUBLIC_SITE_URL=https://www.yigalaxy.xin
+       * 合法性校验在 app/utils/seo.ts 的 normalizeSiteUrl()：
+       * 空值、不以 http(s):// 开头、结尾多斜杠都会被收拾成可用形态。
+       */
+      siteUrl: 'https://www.yigalaxy.xin',
     },
   },
 })

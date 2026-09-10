@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { nextTick } from 'vue'
 import { mockNuxtImport, mountSuspended } from '@nuxt/test-utils/runtime'
-import { flushPromises } from '@vue/test-utils'
+import { flushPromises, enableAutoUnmount } from '@vue/test-utils'
 import IndexPage from '~/pages/index.vue'
 
 // =====================================================================
@@ -93,13 +94,36 @@ const currentQuery = (wrapper) => wrapper.vm.$router.currentRoute.value.query
 /** 某个接口被请求了几次 */
 const callCount = (path) => fetchMock.mock.calls.filter(c => pathOf(c[0]) === path).length
 
+// =====================================================================
+// 【为什么每个用例结束后必须卸载组件 —— 把首页改成 SSR（useAsyncData）时踩到的坑】
+//
+//   首页现在用 useAsyncData 取数，而它的结果会按 key 缓存进 Nuxt 的 payload；
+//   这份缓存的**释放时机是组件卸载**（unmount → _off() → _init=false 并清掉 payload）。
+//   测试环境里整个文件的所有用例共用同一个 Nuxt 应用实例，不卸载的话：
+//     · 下一个用例挂载时 useAsyncData 发现"这个 key 已经有数据了"，
+//       于是**一个请求都不发**、直接沿用上一个用例的数据 ——
+//       「分类接口失败」那条用例看到的还是上一轮成功的分类（筛选条照常渲染），
+//       「默认进页面」里 /article/page 一次都没被调用（断言连参数都拿不到）
+//     · 更隐蔽的是旧组件残留的 handler 会被复用（闭包里是上一轮的筛选状态）
+//   真实应用里页面切走就会卸载，所以这里让测试也这么做 ——
+//   修的是"测试没有模拟真实的生命周期"，而不是去动生产代码。
+//
+//   nextTick 是必需的：缓存的清除被 unhead/Nuxt 安排在一个 nextTick 里，
+//   不等它跑完，下一个用例仍可能读到旧数据。
+// =====================================================================
+enableAutoUnmount(afterEach)
+
 describe('首页 · 搜索与分类筛选', () => {
   beforeEach(() => {
     fetchMock.mockReset()
     mockBackend()
   })
 
-  afterEach(() => { vi.useRealTimers() })
+  afterEach(async () => {
+    vi.useRealTimers()
+    // 见上面「为什么每个用例结束后必须卸载组件」：等缓存清理真正落地
+    await nextTick()
+  })
 
   // ---------------------------------------------------------------
   // 一、分类筛选 UI

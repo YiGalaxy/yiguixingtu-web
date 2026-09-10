@@ -374,6 +374,27 @@ import 'md-editor-v3/lib/style.css'
 // 路由守卫：没登录就弹登录框并回首页
 definePageMeta({ middleware: 'admin' })
 
+// ================================================================
+//  后台页的 SEO 元信息
+//
+//  【为什么后台也要设 head】不设的话它会继承站点默认标题，看起来像"公开页面"；
+//  更要紧的是【必须让它明确不可索引】：
+//   · robots 里给 noindex, nofollow —— 后台是登录后才看得见的内部工具，
+//     被搜索引擎收录没有任何好处，只有"把管理入口暴露给别人"的风险
+//   · 光靠 robots.txt 的 Disallow 是不够的：Disallow 只挡住"抓取"，
+//     如果别处有链接指向它，搜索结果里仍然可能出现这个地址（只是没有摘要）。
+//     两者都做才算完整（robots.txt 见 server/routes/robots.txt.get.ts）
+//
+//  【为什么不上全站登录墙】后台的访问控制本来就在 useApi + 路由守卫（middleware/admin），
+//  noindex 处理的是"搜索引擎",不是"攻击者"：真正拦住人的是后端接口的 401/403。
+// ================================================================
+useSeoMetaFor(() => ({
+  path: '/admin',
+  title: '后台管理',
+  description: '亿轨星途的站点后台（仅管理员可见），不对搜索引擎开放。',
+  noindex: true,
+}))
+
 const { request } = useApi()
 const { user } = useAuth()
 

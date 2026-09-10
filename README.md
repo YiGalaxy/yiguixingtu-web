@@ -11,19 +11,23 @@
 > 基于 Nuxt 4 + Vue 3 + Element Plus 的个人博客前端
 > 后端为独立仓库 `yiguixingtu`（Spring Boot 4，默认跑在 `localhost:8082`）
 >
-> **223 个测试用例 + ESLint + 生产构建，全部在 CI 里自动跑**（见下文「持续集成」）
+> **243 个测试用例 + ESLint + 生产构建，全部在 CI 里自动跑**（见下文「持续集成」）
 
 ## 项目简介
 
 这是个人博客 **忆轨星途** 的前端站点，包含**前台展示**和**后台管理**两部分：
 
-- **前台**：首页文章信息流（分页 + 关键词防抖搜索 + 分类筛选，筛选条件同步到地址栏）、
-  文章详情（Markdown 渲染），个人卡片的文章数 / 浏览量 / 分类数来自站点统计接口
+- **前台**：首页文章信息流（**服务端渲染** + 分页 + 关键词防抖搜索 + 分类筛选，筛选条件同步到地址栏）、
+  文章详情（Markdown 渲染，同样是服务端渲染），个人卡片的文章数 / 浏览量 / 分类数来自站点统计接口
 - **后台**：登录后进入 `/admin`，可管理用户（分页 / 启用禁用 / 改角色 / 重置密码 / 删除）
   与文章（Markdown 编辑器 / 草稿与发布 / 下架 / 删除），概览页显示全站汇总数字
 
 站点采用深色星空视觉，带背景视频与音乐播放器（这两个大文件**不进构建产物**，
 由服务器上的 Nginx 从 `/var/www/media/` 提供，见下文「背景视频与音乐为什么不放在 `public/` 里」）。
+
+**全站有完整的 SEO 元信息**：每页的 `title` / `description` / `og:*` / `canonical`、
+`<html lang="zh-CN">`，后台页带 `noindex`；另有 `/sitemap.xml` 与 `/robots.txt`
+（见下文「首页为什么要服务端渲染」与「全站 SEO 元信息」）。
 
 ## 技术栈
 
@@ -48,19 +52,21 @@ yiguixingtu-web
 │   ├── app.vue                      # 应用外壳：全局布局、登录/注册弹窗、背景视频与音乐
 │   ├── error.vue                    # 全局错误页（404 / 403 / 401 / 500 分类文案）
 │   ├── pages
-│   │   ├── index.vue                # 首页：文章信息流 + 搜索（防抖）+ 分类筛选 + 加载更多
-│   │   ├── admin.vue                # 后台：用户管理 + 文章管理 + Markdown 编辑器
+│   │   ├── index.vue                # 首页：服务端渲染的文章信息流 + 搜索（防抖）+ 分类筛选 + 加载更多
+│   │   ├── admin.vue                # 后台：用户管理 + 文章管理 + Markdown 编辑器（head 带 noindex）
 │   │   └── article/[id].vue         # 文章详情（SSR + Markdown 渲染 + 软 404）
 │   ├── composables
 │   │   ├── useApi.ts                # 统一请求封装：带 token、判 body.code、401/403/429 处理、429 不自动重试
 │   │   ├── useArticleFilter.ts      # 首页筛选条件：关键词防抖 + 分类 + 与地址栏双向同步
 │   │   ├── useSiteStats.ts          # 站点统计（文章数 / 浏览量 / 分类数）与失败降级
+│   │   ├── useSeoMetaFor.ts         # 页面级 SEO 元信息的唯一入口（title / og / canonical / robots）
 │   │   ├── useAuth.ts               # 登录 / 注册 / 当前用户（含被限流后的冷却）
 │   │   ├── useRememberedLogin.ts    # 「记住用户名」cookie：只存用户名 + 清理老 cookie
 │   │   ├── useAuthUi.ts             # 登录弹窗开关状态
 │   │   └── useReveal.ts             # 滚动入场动画
 │   ├── utils
 │   │   ├── media.ts                 # 大文件（视频 / 音乐）的地址约定 mediaUrl()
+│   │   ├── seo.ts                   # SEO 纯函数：标题 / 描述 / canonical / og 的拼装规则
 │   │   └── apiError.ts              # 两种 429（限流 / 重复提交）的判断与文案、追踪号 X-Trace-Id、重试状态码白名单
 │   ├── middleware
 │   │   └── admin.ts                 # 后台路由守卫（未登录 → 弹登录框 + 回首页）
@@ -69,9 +75,9 @@ yiguixingtu-web
 ├── server
 │   ├── routes/media/[...file].get.ts # 仅开发环境生效：把 /media/** 指向 static-media/
 │   └── utils/mediaFile.ts            # 文件名 → 磁盘路径（穿越防护）+ Range 解析（纯函数）
-├── public                           # 参与构建的小静态资源（封面图、favicon、robots.txt）
+├── public                           # 参与构建的小静态资源（封面图、favicon）
 ├── static-media                     # 【不参与构建】背景视频 / 音乐，部署时上传到 /var/www/media/
-├── nuxt.config.ts                   # Nuxt 配置（后端 API 地址、媒体前缀）
+├── nuxt.config.ts                   # Nuxt 配置（后端 API 地址、媒体前缀、站点地址）
 └── .env.example                     # 环境变量示例
 ```
 
@@ -183,7 +189,7 @@ npm run lint:fix     # 自动修掉能修的部分
 | 步骤 | 命令 | 为什么单独一步 |
 |------|------|---------------|
 | 代码检查 | `npm run lint` | 串成一条命令的话，Actions 页面只会显示一句 exit 1，看不出是哪一步挂的 |
-| 运行测试 | `npm run test` | 223 个用例；**不需要后端与数据库**，CI 里不用起任何服务 |
+| 运行测试 | `npm run test` | 243 个用例；**不需要后端与数据库**，CI 里不用起任何服务 |
 | 生产构建 | `npm run build` | 保证"测试过了但build 不过"这种情况不会漏到线上 |
 
 用 `npm ci` 而不是 `npm install`：它严格按 `package-lock.json` 安装，
@@ -252,9 +258,10 @@ docker run -d --name yiguixingtu-web \
 |---|---|
 | 1 | `NUXT_PUBLIC_API_BASE` 是真实域名，且与后端的 `CORS_ALLOWED_ORIGINS` 对得上 |
 | 2 | 浏览器打开站点，F12 里没有跨域报错 |
-| 3 | 文章详情页"查看源代码"能看到正文（说明 SSR 生效，对 SEO 很重要） |
+| 3 | 文章详情页与**首页**"查看源代码"都能看到正文 / 文章列表（说明 SSR 生效，对 SEO 很重要） |
 | 4 | 后端地址用的是服务名/内网地址，不是 `localhost`（容器里的 `localhost` 指容器自己） |
 | 5 | **`static-media/` 里的文件已经传到服务器 `/var/www/media/`**，浏览器直接打开 `https://你的域名/media/bg-music.mp3` 能播放（能播就说明 Nginx 的 `location /media/` 生效、且没被 `location /` 抢走） |
+| 6 | `NUXT_PUBLIC_SITE_URL` 填的是**真实域名**：`curl -s https://你的域名/ \| grep canonical` 出来的应该是那个域名，而不是默认的 `www.yigalaxy.xin`（填错的表现是"canonical 指向别人的域名"，等于把收录送出去） |
 
 
 **测试环境**：Vitest 5 + `@nuxt/test-utils` 4，跑在 **nuxt 环境**而不是裸的 jsdom。
@@ -264,7 +271,7 @@ docker run -d --name yiguixingtu-web \
 > 这些在裸 node / jsdom 里根本不存在。用 nuxt 环境测的是"代码在 Nuxt 里的真实行为"，
 > 而不是把所有依赖都 mock 掉自己骗自己。
 
-**当前 14 个测试文件、223 个用例：**
+**当前 15 个测试文件、243 个用例：**
 
 | 测试文件 | 用例数 | 覆盖 |
 |---------|:---:|------|
@@ -273,7 +280,7 @@ docker run -d --name yiguixingtu-web \
 | `test/useAuthUi.nuxt.spec.ts` | 6 | 登录/注册弹窗开关的**互斥**、`closeAll`、跨组件共享同一份状态 |
 | `test/useUpload.nuxt.spec.ts` | 16 | 图片上传：扩展名白名单（含大写、无扩展名、脚本文件）、大小边界（正好等于上限 / 超一字节）、空文件；以及请求拼装——**字段名必须是 `file`**、**不能手动设 Content-Type**（设了会丢 boundary）、401 不抛异常 |
 | `test/useArticleFilter.nuxt.spec.ts` | 28 | 首页筛选条件：地址栏 → 状态的解析（非法 `categoryId`、重复键、trim）、状态 → 地址栏的序列化（空值不写）、状态 → 后端参数的拼装；以及**防抖**（299ms 不生效 / 300ms 生效、连续输入只生效最后一次）与**双向同步**（后退同步回状态且不反向写一次、连点同一分类不重复写） |
-| `test/index.nuxt.spec.ts` | 15 | 挂载整个首页：分类按钮渲染与高亮、点分类后**请求参数 + 地址栏 + 标题**三处同步、筛选变化回到第 1 页、**带 `?keyword=&categoryId=` 的地址打开等于刷新**（输入框回填、首屏请求就带条件）、输入防抖（299ms 不发请求）、分类接口失败/返回非数组时**不崩只是不显示筛选条**；以及个人卡片的三个数字来自 `GET /article/stats`（列表里两篇浏览量合计只有 8，卡片显示 28 才说明不是当前页求和）、统计接口失败显示「—」而不是 0 |
+| `test/index.nuxt.spec.ts` | 15 | 挂载整个首页：分类按钮渲染与高亮、点分类后**请求参数 + 地址栏 + 标题**三处同步、筛选变化回到第 1 页、**带 `?keyword=&categoryId=` 的地址打开等于刷新**（输入框回填、首屏请求就带条件）、输入防抖（299ms 不发请求）、分类接口失败/返回非数组时**不崩只是不显示筛选条**；以及个人卡片的三个数字来自 `GET /article/stats`（列表里两篇浏览量合计只有 8，卡片显示 28 才说明不是当前页求和）、统计接口失败显示「—」而不是 0。（首页改成 SSR 之后，这个文件里每条用例结束都要**卸载组件**，理由见下文「首页为什么要服务端渲染」） |
 | `test/useSiteStats.nuxt.spec.ts` | 17 | 站点统计：请求路径与参数、三个字段的**归一化**（`data` 为 null / 缺字段 / 字符串 / 负数一律收成能显示的数量，不能出现 NaN）、**失败降级**（业务 code≠200 / HTTP 500 / 请求层直接抛异常都不抛给页面，数字保持 0 并立起 failed）、成功后再次失败**保留旧数字**、失败后重试能恢复 |
 | `test/admin.nuxt.spec.ts` | 8 | 挂载整个后台：进入 `/admin` 就**主动**请求统计接口（不用先点「概览」菜单）、概览四张卡片显示真实数字、文章数标明"已发布"口径且不再有写死的「标签 0」、切到概览会再拉一次、在用户管理里筛选**不影响**概览的用户数、统计接口失败/抛异常时显示「—」且页面其余部分照常 |
 | `test/homeContent.nuxt.spec.ts` | 11 | 首页**内容真实性**：正常有数据与"后端什么都没有"两种情况下面页都不出现任何假字符串（访客A / 1 人正在看 / 三个编出来的曲名 / CLOUD MUSIC / RSS / GitHub），假的留言浮窗与在线人数连节点与样式一起删掉、音乐卡片只指向真实存在的 `/media/bg-music.mp3` 且没有上一首/下一首、`#music` 锚点与播放/暂停/播完切回功能照常、真内容（文章列表、分类、卡片数字、时钟面板）没被误删 |
@@ -281,6 +288,7 @@ docker run -d --name yiguixingtu-web \
 | `test/loginRateLimit.nuxt.spec.ts` | 7 | **挂载整个应用外壳**测登录被限流时界面到底什么样：提示是"太频繁"而不是"网络异常"、登录按钮真的 `disabled` 且按钮上写着还有多少秒、冷却期间连点**不再发请求**、**按回车提交也被拦**（回车绕得过 disabled）、倒计时结束后按钮自己活过来、成功与密码错误都不进入冷却 |
 | `test/useRememberedLogin.nuxt.spec.ts` | 16 | 「记住用户名」：构造出来的 cookie **只含 `username`**（白名单断言，写不出 password）、用户名为空时不写 cookie；读回填兼容对象 / JSON 字符串 / 纯字符串三种形态；**老 cookie（带明文密码）在挂载时被主动改写成只含用户名**（对象与字符串两种形态都测）、新格式不做无意义写入；**挂载整个外壳**验证：浏览器里那条带密码的 cookie 被清掉、输入框只回填用户名而**密码框是空的**、勾选后登录写入的 cookie 里不含密码、没勾则删掉 cookie |
 | `test/linkUnderline.nuxt.spec.ts` | 4 | `el-link` 的 `underline` **不再传废弃的布尔值**：外壳里两个链接（登录弹窗的「去注册」、注册弹窗的「已有账号？去登录」）拿到的 prop 都是字符串 `'never'`、**渲染它们时一条 `ElementPlusError` 都不打印**（改之前会打 2~3 条）、类名与改之前一致（`never` 既不带 `is-underline` 也不带 `is-hover-underline`）；并配了一条**对照组**：直接给 `ElLink` 传 `underline: false` 时确实会打印那段警告 —— 否则一个从未被触发过的 `console.warn` 间谍会让"没有警告"永远为真 |
+| `test/seo.nuxt.spec.ts` | 20 | 全站 SEO 元信息。**纯函数层**（15 条）：首页/文章页/后台页三种页面的 title、description、canonical、四条 og 的拼装；**没有封面时整条 `og:image` 都不出现**（不是空值）、有封面时把 `/uploads/x.png` 拼成绝对地址、封面本来就是绝对地址时原样保留；标题/描述为空时回落站点默认值（不能出现空 `title`）；站点地址的归一化（去掉尾斜杠、空值/`www.x.com` 这种缺协议的值一律回落到默认域名，否则会产出被搜索引擎忽略的相对 canonical）；后台页带 `noindex, nofollow`、普通页面不带；每页都带 `lang="zh-CN"`。**组件层**（5 条）：首页挂载后 head 里**真的有** title / description / canonical / og（读 `document.head`）、带筛选参数的地址 canonical 仍指向干净的 `/`、**首屏渲染就已经带着文章列表**（改成 SSR 的核心诉求）；详情页的 `og:type=article`、标题跟着文章走、封面拼成绝对地址、canonical 指向文章自己；后台页带 noindex |
 
 **为什么先测这几个**：
 - `useApi` 是全部请求的唯一出口，页面自己不做错误处理，全靠它返回的 `ok` / `code`。
@@ -330,6 +338,10 @@ docker run -d --name yiguixingtu-web \
   没有任何工具会拦着它被重新写回去 —— 所以这里用白名单把
   "写出去的 cookie 只能有 username 这一个键"钉死，并额外测了
   "老 cookie 必须被主动清理"（改代码不改数据 = 没修）。
+- `seo.nuxt.spec.ts` 守的是**"页面上看不出来的东西"**：title 拼错、canonical 写成
+  相对地址、`og:image` 拼出一个空值，本地打开页面全都正常，只有被搜到、
+  被分享的时候才发现不对 —— 所以规则那一层用纯函数钉死（含"没有封面时
+  整条 `og:image` 都不出现"这种边界），接线那一层断言 head 里真的有那些标签。
 - 追踪号那几条守的是**"提示里到底有没有那串号"**：头名字写错（比如写成
   `X-B3-TraceId`）、或者只盯着 catch 分支而漏掉 HTTP 200 的业务失败，
   两种写法都不会报错，只会让用户永远看不到追踪号 ——
@@ -350,9 +362,9 @@ docker run -d --name yiguixingtu-web \
 
 | 页面 | 路由 | 说明 | 需要登录 |
 |------|------|------|:---:|
-| 首页 | `/` | 文章信息流、关键词搜索（300ms 防抖）、分类筛选、筛选条件同步到地址栏、加载更多分页；个人卡片的文章数 / 浏览量 / 分类数来自 `GET /article/stats` | 否 |
-| 文章详情 | `/article/:id` | Markdown 正文渲染，已发布文章可访问 | 否 |
-| 后台 | `/admin` | 用户管理 + 文章管理；概览显示全站汇总数字（进入页面即主动加载） | **是（ADMIN）** |
+| 首页 | `/` | 文章信息流（**服务端渲染**，列表在服务端 HTML 里）、关键词搜索（300ms 防抖）、分类筛选、筛选条件同步到地址栏、加载更多分页；个人卡片的文章数 / 浏览量 / 分类数来自 `GET /article/stats` | 否 |
+| 文章详情 | `/article/:id` | Markdown 正文渲染（SSR），已发布文章可访问 | 否 |
+| 后台 | `/admin` | 用户管理 + 文章管理；概览显示全站汇总数字（进入页面即主动加载）；head 带 `noindex` | **是（ADMIN）** |
 
 首页的**搜索与分类筛选**是一套状态、一次请求：
 关键词与分类一起写进地址栏（`/?keyword=nuxt&categoryId=2`），也一起发给后端
@@ -379,8 +391,109 @@ docker run -d --name yiguixingtu-web \
   老版本留下的、带着明文密码的那条 cookie 会在挂载时被自动改写（见下文「已知待办」）
 - **接口出错时的提示带后端追踪号**（`X-Trace-Id`），用户报给站长即可快速定位；
   响应头里没有这个头时提示保持原样（细节见下文「错误提示为什么要带追踪号」）
+- **每页都有 SEO 元信息**（title / description / og / canonical / `lang="zh-CN"`），
+  后台页额外带 `noindex`，避免内部工具被搜到
+- **受 429 限流时前端不会自动重试**：Nuxt 的 `$fetch`（ofetch）默认会对 GET 重试一次，
+  而它的默认重试集合里包含 429 —— 也就是"后端正在限流，前端再打一次"，
+  正好和限流的目的相反（细节见下文「为什么关掉 `$fetch` 对 429 的自动重试」）
 
 ### 几个刻意的实现细节
+
+**首页为什么要服务端渲染（`index.vue`）**
+
+改之前首页的数据是 `onMounted` 里发的请求 —— 那是**纯客户端渲染**，
+服务端返回的 HTML 里**没有文章列表**：
+
+- 搜索引擎抓到的首页是一张空壳，文章等于没被收录（对一个"要被搜到"的博客，
+  这是硬伤；而文章详情页一直是 SSR 的，所以**详情页能被搜到、首页不能**）
+- 首屏会先闪一下「加载中」再出内容
+
+现在是 `useAsyncData`：服务端**等数据回来再渲染**，HTML 里直接带着文章列表，
+并把结果写进 payload 让浏览器端复用（不会重复请求）。三条数据（文章列表 / 分类 /
+站点统计）**并行**发起后一起 `await`，没有把首屏变成三次串行往返。
+
+- **key 怎么定**：第一页是 `` `home-articles:${keyword}:${categoryId}` ``。
+  key 是"这批数据是谁"的唯一标识，也是 payload 里的键，所以
+  · **必须唯一**：不能和 `home-categories`、`home-site-stats` 撞（撞了会共用同一份缓存）
+  · **必须带上筛选条件**：写死成 `home-articles` 的话，"全部"与"分类 2"会被当成
+    同一份数据 —— 换了筛选条件却显示上一批文章
+  · 条件一变 key 就变，`useAsyncData` 自己会重新取，所以**不用再写一个 watch 去发请求**
+    （多写一次等于同一批数据打两次后端，而 `/article/page` 有 300 次/分钟的限流）
+- **筛选变化时只清"加载更多"的尾巴**：首屏那一页由新的 key 重新取，但
+  `loadMore` 追加进来的还是旧条件下的文章，不清掉就会出现
+  "新关键词的结果 + 老关键词的尾巴"这种混在一起的列表
+- **「加载更多」仍然用普通请求**：它是在已有列表后面追加，不属于"这一页的首屏数据"，
+  服务端也只渲染第一页，没必要进 payload
+- **分类与站点统计也一起改成 SSR**：分类决定筛选条、也决定列表标题里那个分类名
+  （URL 里只有 `categoryId`，没有名字），留在 `onMounted` 里的话服务端渲染出来的
+  标题永远是「最新文章」；统计留在 `onMounted` 里的话，SSR 的 HTML 上三个数字是
+  **0**，而旁边已经渲染出了文章列表 —— "0 篇"和"旁边有文章"自相矛盾，
+  正是本项目一直反对的"确定的错误答案"（失败时显示「—」，见上文）
+- **服务端请求走内网地址**：复用已有的 `runtimeConfig.apiBaseServer`
+  （`useApi` 的 `resolveApiBase()`），没有新造一套地址
+
+**⚠️ 改成 SSR 之后测试必须卸载组件（这条坑记在这里，因为它只在测试里出现）**
+
+`useAsyncData` 的结果会按 key 缓存进 Nuxt 的 payload，而**缓存的释放时机是组件卸载**。
+测试环境里同一个文件的所有用例共用同一个 Nuxt 应用实例，不卸载的话下一个用例挂载时
+`useAsyncData` 会发现"这个 key 已经有数据了"，于是**一个请求都不发**、直接沿用上一个
+用例的数据 —— 表现是「分类接口失败」那条用例看到上一轮成功的分类、
+或者「默认进页面」里 `/article/page` 一次都没被调用（断言连参数都拿不到）。
+所以 `test/index.nuxt.spec.ts` 与 `test/homeContent.nuxt.spec.ts` 都加了
+`enableAutoUnmount(afterEach)`（再 `await nextTick()` 等缓存清理真正落地）。
+**现实应用里页面切走就会卸载**，所以这是让测试模拟真实生命周期，不是改生产代码绕开问题。
+
+**全站 SEO 元信息（`app/utils/seo.ts` + `app/composables/useSeoMetaFor.ts`）**
+
+改之前全站**只有一个 `<title>`，而且只有详情页设了**：没有 description、没有 og、
+没有 canonical。后果都很具体：搜索引擎抓到的页面没有摘要（只能自己从正文里截，
+常常截到导航文字或代码），链接分享到微信/群里没有卡片。
+
+现在拆成两层，页面只描述"我是谁"：
+
+| 层 | 文件 | 职责 |
+|---|---|---|
+| 纯函数 | `app/utils/seo.ts` | 标题/描述/canonical/og 的**拼装规则**、站点地址的归一化、兜底值 |
+| 组合式函数 | `app/composables/useSeoMetaFor.ts` | 读运行时配置、把响应式数据接给 `useHead` |
+
+- **页面怎么用**：`useSeoMetaFor(() => ({ path, title, description, type, image, noindex }))`。
+  传**函数**是因为详情页在数据回来之前拿不到标题和封面，值必须能变
+  （getter 里读到的数据一变，head 就跟着更新；首页的筛选条件同理）
+- **每页都有**：`title` / `description` / `og:title` / `og:description` / `og:type` /
+  `og:url` / `canonical` / `<html lang="zh-CN">`
+- **`og:image` 只在有封面时出现**：拼成 `content: ''` 或 `undefined` 等于对外声明
+  "这个页面有一张空图"，分享出去就是一张空白卡片 —— 而且只有真去分享时才看得出来。
+  封面在库里存的是 `/uploads/x.png` 这种**相对路径**，而 og 规范要求绝对地址，
+  所以统一由 `absoluteUrl()` 拼一次（已经是 `http(s)://` 的原样保留，以后挪到 CDN 也能用）
+- **首页的 canonical 固定是不带参数的 `/`**：带 `?keyword=nuxt` 的搜索结果页与首页
+  是同一份内容，直接说"我的正式地址只有 `/`"才不会让爬虫把每个关键词组合
+  当成独立页面收录（重复内容）
+- **后台页带 `noindex, nofollow`**：它是登录后才看得见的内部工具，被收录只有坏处。
+  光靠 `robots.txt` 的 `Disallow` 不够：那只能挡住抓取，
+  别处有链接时搜索结果里仍然可能出现这个地址（见下文 sitemap / robots 那一节）
+- **站点地址 `siteUrl` 放在 `runtimeConfig.public`**（默认 `https://www.yigalaxy.xin`，
+  可用 `NUXT_PUBLIC_SITE_URL` 覆盖）：canonical / og:url 必须是绝对地址，
+  而同一份镜像要能在本地、测试域名、正式域名下跑。空值或
+  `www.example.com` 这种缺协议的值会**回落到默认域名** —— 否则会拼出一个
+  相对 canonical，搜索引擎直接忽略它，而页面看起来"填了"
+- **SEO 这套东西全都在页面上看不出来**：title 拼错、canonical 写成相对地址、
+  `og:image` 是空值，本地打开都正常 —— 所以规则由纯函数单测钉死（见测试章节）
+
+**怎么验收（实测过，复现步骤）**
+
+```bash
+npm run build
+# 后端不启动也要能渲染出带 meta 的 HTML（接口失败时列表是空的，但 head 必须完整）
+NUXT_API_BASE_SERVER=http://127.0.0.1:59999 PORT=3111 node .output/server/index.mjs
+curl -s http://127.0.0.1:3111/ | grep -o '<title>[^<]*</title>'
+```
+
+实测结果（后端**在跑**时）：`<title>亿轨星途 · 在代码与星轨之间，慢慢画自己的图。</title>`、
+`<meta name="description" content="…">`、`<link rel="canonical" href="https://www.yigalaxy.xin/">`、
+四条 `og:`、`<html lang="zh-CN">`，**文章卡片也在 HTML 里**（真实的两篇文章标题、
+摘要、分类、日期、浏览量都能在 `curl` 的输出里看到），分类按钮同理。
+后端**不在跑**时（`NUXT_API_BASE_SERVER` 指向一个死端口），
+上面前四项一个不少，文章区渲染成「还没有发布任何文章」—— 接口失败不影响 meta 与整页渲染。
 
 **应用外壳（`app.vue`）**
 
@@ -703,7 +816,6 @@ location /media/ {
 > 同时删掉了原来指向不存在页面 `/login` 的死代码。
 
 **数据不真实**
-
 - 导航栏的「技术 / 读书 / 随笔 / 收藏 / 项目 / 友链」六个入口点了只弹"该页面开发中"
 - 首页公告跑马灯是写死的宣传语（站点文案，不是接口数据），接后端公告模块之前不会变
 - 首页文章的默认封面（`/cover-1~3.png`）是文章没填封面时的占位图，
@@ -733,6 +845,24 @@ location /media/ {
 > 同时删掉了写死的「标签 0」那张卡片（后端还没有标签模块，摆一个永远不变的数字
 > 只会让人误以为有这个功能），并把「后台骨架已就绪，等你对接后端接口」这句
 > 开发期占位文案换成了对数据口径的说明。
+
+> ✅ 曾经的「首页是纯客户端渲染、全站几乎没有 SEO 元信息」也已经修好了：
+> 首页的数据从 `onMounted` 改成了 `useAsyncData`（服务端等数据回来再渲染，
+> 文章列表直接出现在 HTML 里），全站补齐了 title / description / og / canonical /
+> `lang="zh-CN"`，后台页带 `noindex`。
+> 改之前的具体后果是：**详情页能被搜到、首页不能**（详情页一直是 SSR 的），
+> 分享出去的链接没有卡片；而且只有详情页有 title，别的页面在浏览器标签上
+> 都是同一个名字。这条由 `test/seo.nuxt.spec.ts` 的 20 个用例守着，
+> 并由 `npm run build` 之后 `curl` 首页 HTML 实测过（片段见上文「怎么验收」）。
+
+**SEO 与收录**
+
+- **首页文章列表只渲染第一页**：服务端 HTML 里是第 1 页的 12 篇，
+  后面的页要用户点「加载更多」。搜索引擎能收录的是"最新的一批"，
+  更早的文章靠 `/article/{id}` 详情页被收录，没有做"列表分页 URL 可爬"这件事
+- **没有 RSS / Atom 输出**（后端也没有这个接口），订阅只能靠收藏页面
+- **文章详情页的 `description` 用文章摘要**：作者没写摘要时回落到站点描述，
+  所以"没写摘要的文章"在搜索结果里长得都一样 —— 这属于内容侧的习惯问题
 
 **工程**
 

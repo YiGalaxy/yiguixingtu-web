@@ -74,7 +74,10 @@ const { request } = useApi()
  *   ② 首屏会先闪一下"加载中"再出内容，观感差
  * useAsyncData 会在服务端【等数据回来再渲染】，HTML 里直接带着正文。
  *
- * 对比一下首页：首页用 onMounted 就够了（列表页对 SEO 没那么敏感）。
+ * key 里带上文章 id：它是"这份数据属于哪篇文章"的标识，
+ * 写死成 'article' 的话，从第 12 篇点到第 13 篇会拿到上一篇的缓存。
+ *
+ * 对比一下首页：首页这次也改成了 useAsyncData（理由见那里的注释）。
  */
 const { data: res, pending } = await useAsyncData(
   'article-' + route.params.id,
@@ -84,10 +87,29 @@ const { data: res, pending } = await useAsyncData(
 const article = computed(() => (res.value?.ok ? res.value.data : null))
 const errMsg = computed(() => res.value?.message || '它可能已被删除，或者还只是一篇没发布的草稿。')
 
-// 标题跟着文章走，标签页和分享卡片都会好看些
-useHead({
-  title: computed(() => (article.value ? article.value.title + ' · 亿轨星途' : '亿轨星途')),
-})
+/*
+ * 【SEO】标题、摘要、og、canonical 都交给 useSeoMetaFor 拼（规则在 app/utils/seo.ts）。
+ *
+ * 改之前这里只有一句 useHead({ title })，没有 description / og / canonical：
+ * 链接分享到微信就是一行光秃秃的地址，搜索引擎也只能自己从正文里截一段当摘要。
+ *
+ * 两个细节：
+ *   · description 用文章自己的 summary；没写摘要时回落到站点描述
+ *     （空 description 等于把"这段话"交给抓取方随便猜）
+ *   · 封面是相对路径（/uploads/xxx.png），og:image 要求绝对地址，
+ *     所以交给 absoluteUrl 拼一次 —— 抓取方拿到相对路径会直接当成没有图
+ */
+useSeoMetaFor(() => ({
+  path: '/article/' + route.params.id,
+  title: article.value?.title,
+  description: article.value?.summary,
+  type: 'article',
+  image: article.value?.cover,
+  // 【软 404 的页面不该被索引】文章不存在 / 是草稿 / 已下架时，这个地址
+  // 没有任何内容可给搜索引擎 —— 但下面那个 createError 抛出去之后，
+  // 错误页的 head 由 error.vue 接管，这里先声明 noindex 更稳妥
+  noindex: !article.value,
+}))
 
 /*
  * 【SEO 关键】文章不存在时，必须让服务端返回真正的 HTTP 404。

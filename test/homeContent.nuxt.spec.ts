@@ -1,6 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { nextTick } from 'vue'
 import { mockNuxtImport, mountSuspended } from '@nuxt/test-utils/runtime'
-import { flushPromises } from '@vue/test-utils'
+import { flushPromises, enableAutoUnmount } from '@vue/test-utils'
 import IndexPage from '~/pages/index.vue'
 
 // =====================================================================
@@ -82,10 +83,26 @@ const mountHome = async () => {
   return wrapper
 }
 
+// =====================================================================
+// 【为什么每个用例结束后要卸载组件 —— 和 index.nuxt.spec.ts 里是同一个坑】
+//   首页现在用 useAsyncData 取数，结果按 key 缓存进 Nuxt 的 payload，
+//   而缓存的释放时机是【组件卸载】；本文件的所有用例共用同一个 Nuxt 应用实例，
+//   不卸载的话下一个用例会直接沿用上一个用例的数据（连请求都不发）——
+//   表现就是"空站点"那条用例看到的还是上一轮有文章的数据。
+//   真实应用里页面切走就会卸载，所以让测试也这么做。
+//   nextTick 是必需的：缓存的清除被安排在一个 nextTick 里。
+// =====================================================================
+enableAutoUnmount(afterEach)
+
 describe('首页 · 内容真实性', () => {
   beforeEach(() => {
     fetchMock.mockReset()
     mockBackend()
+  })
+
+  afterEach(async () => {
+    // 见上面「为什么每个用例结束后要卸载组件」：等缓存清理真正落地
+    await nextTick()
   })
 
   // ---------------------------------------------------------------
