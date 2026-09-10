@@ -5,6 +5,12 @@
 //   2. 自动判断后端返回的 code（非 200 当失败，弹出后端的 message）
 //   3. 自动处理 401（token 过期 → 清 token 并弹登录框）和 403（无权限）
 //
+// 另外还管着两件"不写出来就会踩坑"的事：
+//   · 【重试策略】显式关掉 ofetch 对 429 的自动重试（见 API_RETRY_STATUS_CODES）：
+//     $fetch 默认会对 GET 自动重试一次，而它的默认重试集合里包含 429 ——
+//     后端正在限流时前端再打一次，正好与限流的目的相反，用户还要多等一个往返。
+//   · 【追踪号】见下面「关于追踪号」。
+//
 // 为什么不用直接 $fetch？
 //   若每个页面都自己写，那"带 token""判 401"要重复几十遍，改一处要改几十处。
 //   封装成一处后，页面只管写 request('/user/page')。
@@ -99,8 +105,17 @@ export const useApi = () => {
       // ---- 2. 发请求 ----
       const res = await $fetch(url, {
         baseURL: apiBase,                 // 服务端/浏览器各自解析出来的地址
-        // 【放在 ...options 之前】调用方显式传自己的钩子时以调用方为准，
-        // 我们这只是"顺手记一下追踪号"，不该覆盖别人真正想做的事
+        // ---- 2.1 重试策略：429 不重试（其余保持 ofetch 默认） ----
+        // ofetch 默认会对 GET 自动重试 1 次，而它的默认集合里**包含 429** ——
+        // 也就是"后端正在限流"时前端会立刻再打一次，正好和限流的目相反
+        // （详见 app/utils/apiError.ts 里 API_RETRY_STATUS_CODES 的推导）。
+        // 这里显式传一份"去掉 429"的数组：5xx/408/425 那种临时性故障仍然重试一次。
+        // ⚠️ 必须是【数组】：ofetch 内部用 Array.isArray 判断，传 Set 之类的类型
+        // 会静默回落到它自己的默认集合（429 又被重试），配置等于没写。
+        retryStatusCodes: API_RETRY_STATUS_CODES,
+        // 【放在 ...options 之前】调用方显式传自己的钩子/选项时以调用方为准，
+        // 我们这只是"顺手记一下追踪号、顺手定一个重试底线"，
+        // 不该覆盖别人真正想做的事
         onResponse: captureTraceId,
         onResponseError: captureTraceId,
         ...options,

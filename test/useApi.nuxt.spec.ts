@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mockNuxtImport } from '@nuxt/test-utils/runtime'
+import { ofetch } from 'ofetch'
 
 // =====================================================================
 // useApi 的单元测试：重点是把【四条失败分支】钉死
@@ -420,6 +421,130 @@ describe('useApi', () => {
     expect(limited.message).not.toBe(duplicate.message)
     expect(limited.rateLimited).toBe(true)
     expect(duplicate.duplicateSubmit).toBe(true)
+  })
+
+  // ---------------------------------------------------------------
+  // 重试策略：429 不许自动重试（"限流时请求翻倍"的根因就在这里）
+  //
+  // 【为什么不能只断言"选项里没有 429"】
+  //   `expect(options.retryStatusCodes).not.toContain(429)` 只能证明我们
+  //   *打算*不重试，证明不了 ofetch 真的没重试 —— 而真正会伤到后端的是后者。
+  //   所以这里用**假的 fetch 实现**驱动**真 ofetch**，数它到底被打了几次。
+  //
+  // 【怎么拿到 useApi 真正交给 $fetch 的选项】
+  //   $fetch 在本文件里被 mockNuxtImport 换成了 fetchMock（见文件头），
+  //   测试里没有真 ofetch 可用；但 mock 会把 useApi 传进来的 options 原样记下来。
+  //   把这一份**真实的选项**交给一个新建的真 ofetch（只把它的 fetch 换成计数桩），
+  //   跑的就是"useApi 的重试策略 + ofetch 的真实重试实现"这个组合。
+  //
+  // 【为什么要一条"对照组"】
+  //   万一假 fetch 本身写错了（比如根本不允许被调用第二次），上面那条用例
+  //   不论配置对不对都会"通过"。所以对照组把我们的配置摘掉，
+  //   断言它**确实会**被 ofetch 重试一次 —— 证明这个测试台真的能观察到重试。
+  // ---------------------------------------------------------------
+
+  /** 会数数的假 fetch：返回指定状态码的 JSON 响应，并记下被调用了几次 */
+  const countingFetch = (status, payload = { code: status, message: 'boom' }) => {
+    const calls = []
+    return {
+      calls,
+      impl: async (url) => {
+        calls.push(String(url))
+        // 用真的 Response：ofetch 会读它的 status / headers / text()，
+        // 自己手写一个鸭子对象反而容易"看起来像响应、其实少一个方法"
+        return new Response(JSON.stringify(payload), {
+          status,
+          headers: { 'content-type': 'application/json' },
+        })
+      },
+    }
+  }
+
+  /** 取一份 useApi 真实传给 $fetch 的选项（跑一次成功的请求把它记下来） */
+  const captureFetchOptions = async () => {
+    fetchMock.mockReset()
+    fetchMock.mockResolvedValue({ code: 200, data: null })
+    const { request } = useApi()
+    await request('/article/page')
+    return fetchMock.mock.calls[0][1]
+  }
+
+  /**
+   * 用真 ofetch（配假 fetch）打一次，返回底层 fetch 被调用的次数。
+   *
+   * 【⚠️ 踩过的坑：假 fetch 必须放进 create 的【第二个参数】】
+   *   第一版写的是 `ofetch.create({ fetch: impl })`，结果是"假 fetch 一次都没被调用"，
+   *   请求真的发到了网络上（报 getaddrinfo ENOTFOUND）。
+   *   原因：ofetch 的签名是 `create(defaultOptions, customGlobalOptions)` ——
+   *   第一个参数是**每次请求的默认选项**（会被合并进 options），
+   *   而真正代替 fetch 的那个"全局实现"是第二个参数。
+   *   写进第一个参数不会报错，只是安静地不起作用（和在浏览器里写错一个选项名一样）。
+   */
+  const realOfetchCallCount = async (options, status) => {
+    const { calls, impl } = countingFetch(status)
+    const realFetch = ofetch.create({}, { fetch: impl })
+    await realFetch('/article/page', { ...options, baseURL: 'http://backend.test' }).catch(() => {})
+    return calls.length
+  }
+
+  it('HTTP 429 时_should 只打一次（ofetch 默认会替我们再打一次，必须关掉）', async () => {
+    const options = await captureFetchOptions()
+
+    // ofetch 的默认重试集合里有 429，而且 GET 默认重试 1 次 ——
+    // 也就是"后端正在限流"时前端会自动再打一次：限流的目的就是降压力，
+    // 自动翻倍正好把压力加倍，用户还要多等一个往返
+    expect(await realOfetchCallCount(options, 429)).toBe(1)
+  })
+
+  it('（对照组）把我们的重试配置去掉_429 确实会被 ofetch 自动重试一次', async () => {
+    const options = await captureFetchOptions()
+    const withoutOurPolicy = { ...options }
+    delete withoutOurPolicy.retryStatusCodes
+
+    // 这条用来证明上面那条用例真的在观察重试行为，
+    // 而不是"假 fetch 只可能被调用一次"这种永远为真的断言
+    expect(await realOfetchCallCount(withoutOurPolicy, 429)).toBe(2)
+  })
+
+  it('HTTP 503 时_should 仍然重试一次（临时性故障重试一次是划算的，和 429 不是一回事）', async () => {
+    const options = await captureFetchOptions()
+
+    // 429 = 服务端明确要求"别再发了"，重试是放大概率的；
+    // 5xx = 服务端自己也出了问题（一次网络抖动、一次短暂重启），重试大概率能好。
+    // SSR 的文章详情页尤其明显：等不到数据就是一个 500 错误页，
+    // 而重试一次可能就把正文正常渲染出来了
+    expect(await realOfetchCallCount(options, 503)).toBe(2)
+  })
+
+  it('POST 遇到 500 时_should 不重试（有副作用的请求不能自动重来）', async () => {
+    const options = await captureFetchOptions()
+
+    const { calls, impl } = countingFetch(500)
+    const realFetch = ofetch.create({}, { fetch: impl })
+    await realFetch('/admin/article', {
+      ...options,
+      method: 'POST',
+      baseURL: 'http://backend.test',
+    }).catch(() => {})
+
+    // ofetch 对 POST / PUT / PATCH / DELETE 默认不重试（它们可能已经落库了）。
+    // 这也说明为什么"429 请求翻倍"只发生在 GET 上 —— 也就是首页与详情页
+    // 这类访问量最大的路径上，恰恰是最该省着打的地方
+    expect(calls.length).toBe(1)
+  })
+
+  it('传给 $fetch 的重试配置_should 是数组且不含 429（传 Set 会被 ofetch 静默忽略）', async () => {
+    const options = await captureFetchOptions()
+
+    // 【为什么要断言"是数组"】ofetch 内部靠 Array.isArray 分流：
+    //   Array.isArray(我们的) ? 我们的.includes(code) : 内置默认集合.has(code)
+    // 传 Set 进去会静默回落到内置默认集合（429 又被重试），而且不报任何错 ——
+    // 配置看起来写了，实际上什么都没生效
+    expect(Array.isArray(options.retryStatusCodes)).toBe(true)
+    expect(options.retryStatusCodes).not.toContain(HTTP_STATUS_TOO_MANY_REQUESTS)
+    expect(options.retryStatusCodes).toContain(500)
+    // 常量本身也守一道：以后有人"顺手把 429 加回去"会立刻红
+    expect(API_RETRY_STATUS_CODES).not.toContain(HTTP_STATUS_TOO_MANY_REQUESTS)
   })
 
   // ---------------------------------------------------------------
