@@ -4,8 +4,28 @@
     <div class="search-wrap">
       <div class="searchbox glass">
         <span class="s-ico">⌕</span>
-        <input v-model="kw" placeholder="输入关键词后按回车搜索..." @keyup.enter="doSearch" >
-        <button v-if="kw" class="s-clear" title="清除" @click="clearSearch">✕</button>
+        <!-- 输入即搜索：输入框绑的是 keywordInput（即时），
+             它会在停手 300ms 后变成 keyword（生效中）—— 请求与地址栏只用 keyword，
+             所以一次输入只会产生一次请求（细节见 useArticleFilter）。
+             想跳过防抖立刻搜，按回车。 -->
+        <input
+v-model="keywordInput" placeholder="输入关键词搜索标题 / 摘要"
+               @keyup.enter="applyKeywordNow" >
+        <button v-if="keywordInput" class="s-clear" title="清除" @click="clearAll">✕</button>
+      </div>
+
+      <!-- 分类筛选：数据来自公开接口 GET /category/list（分类表很小，一次全量返回）。
+           关键词与分类是【同一个筛选状态】的两个维度，所以共用一套 URL query 与一次请求：
+           点「全部」= categoryId 置空，表示不按分类过滤。
+           分类为空（接口失败或还没建分类）时整条不渲染 —— 一排空按钮比没有更糟。 -->
+      <div v-if="categories.length" class="cats">
+        <button
+class="cat" :class="{ on: categoryId === null }"
+                @click="selectCategory(null)">全部</button>
+        <button
+v-for="c in categories" :key="c.id" class="cat"
+                :class="{ on: categoryId === c.id }"
+                @click="selectCategory(c.id)">{{ c.name }}</button>
       </div>
     </div>
 
@@ -61,8 +81,9 @@
     <!-- 文章瀑布流（带封面） -->
     <section id="articles" class="waterfall-wrap">
       <div class="w-head">
-        <h2>{{ kw ? '「' + kw + '」的搜索结果' : '最新文章' }}</h2>
-        <span v-if="kw" class="w-clear" @click="clearSearch">清除搜索</span>
+        <!-- 标题跟着筛选条件走：让用户一眼看出"现在看到的是哪一批文章" -->
+        <h2>{{ listTitle }}</h2>
+        <span v-if="isFiltered" class="w-clear" @click="clearAll">清除筛选</span>
       </div>
 
       <!-- 三种状态：加载中 / 空 / 有数据。
@@ -70,7 +91,7 @@
            不会出现"转圈的同时还显示着上次的数据"这种错乱。 -->
       <div v-if="loading && articles.length === 0" class="w-empty">加载中…</div>
       <div v-else-if="articles.length === 0" class="w-empty">
-        {{ kw ? '没有找到相关文章，换个词试试' : '还没有发布任何文章' }}
+        {{ isFiltered ? '没有找到相关文章，换个关键词或分类试试' : '还没有发布任何文章' }}
       </div>
       <div v-else class="waterfall">
         <a
@@ -141,7 +162,6 @@ import { ElMessage } from 'element-plus'
 const { user } = useAuth()
 const isAdmin = computed(() => user.value?.role === 'ADMIN')
 
-const kw = ref('')
 const tracks = [
   { title: '雨落星轨', cover: '/cover-1.png' },
   { title: '夜航', cover: '/cover-2.png' },
@@ -170,12 +190,34 @@ const resetAudio = () => { if (audioRef.value) { audioRef.value.currentTime = 0;
 // ================================================================
 const { request } = useApi()
 
+// 筛选条件（关键词 + 分类）：状态、防抖、URL 同步全在 useArticleFilter 里，
+// 页面只负责把它绑到输入框 / 分类按钮上。
+// 【keyword 与 keywordInput 的区别】前者是"生效中"的关键词（请求、标题、地址栏都用它），
+// 后者是输入框里的内容（即时）；防抖就发生在这两者之间。
+// 【为什么不直接写 ref 放在这里】不防抖会按字发请求，而"刷新后从地址栏恢复筛选"
+// 又必须和 URL 双向同步 —— 这些逻辑混在 400 行的页面里既难读也难测，
+// 抽出去之后有 28 个用例守着（test/useArticleFilter.nuxt.spec.ts）。
+const { keyword, keywordInput, categoryId, isFiltered, selectCategory, clearAll, applyKeywordNow } = useArticleFilter()
+
 const articles = ref([])
 const total = ref(0)            // 后端返回的【总条数】，不是当前页条数
 const loading = ref(false)
 const categories = ref([])
 const page = ref(1)
 const SIZE = 12                 // 每页 12 篇，3 列瀑布流正好 4 行
+
+/**
+ * 列表标题：让标题、空状态、清除按钮都跟着筛选条件走，
+ * 用户一眼能看出"现在看到的是哪一批文章"。
+ * 分类名要从 categories 里查 —— URL 里只有 categoryId，没有名字。
+ */
+const listTitle = computed(() => {
+  const category = categories.value.find(c => c.id === categoryId.value)
+  if (keyword.value && category) return `「${keyword.value}」在「${category.name}」中的结果`
+  if (keyword.value) return `「${keyword.value}」的搜索结果`
+  if (category) return `「${category.name}」分类下的文章`
+  return '最新文章'
+})
 
 // 个人卡片上的三个数字
 const stat = computed(() => ({
@@ -197,19 +239,23 @@ const hasMore = computed(() => articles.value.length < total.value)
 
 /**
  * 拉文章列表。
- * @param append true=追加到列表末尾（加载更多），false=整页替换（搜索/刷新）
+ * @param append true=追加到列表末尾（加载更多），false=整页替换（换筛选条件/刷新）
  *
  * 这里请求的是【前台公开接口】/article/page —— 它只返回已发布的文章，
  * 所以你后台的草稿绝不会出现在首页上（这条在 ArticlePublicTest 里有测试守着）。
+ *
+ * 参数由 toArticleParams() 统一拼装：它保证「空关键词不发、没选分类不发」，
+ * 也就是后端 GET /article/page?page=&size=&keyword=&categoryId= 中后两个是可选参数。
  */
 const fetchArticles = async (append = false) => {
   loading.value = true
   const res = await request('/article/page', {
-    params: {
+    params: toArticleParams({
+      keyword: keyword.value,
+      categoryId: categoryId.value,
       page: page.value,
       size: SIZE,
-      keyword: kw.value || undefined,     // 空字符串不要发过去
-    },
+    }),
   })
   loading.value = false
   if (!res.ok) return
@@ -221,12 +267,23 @@ const fetchArticles = async (append = false) => {
 
 const fetchCategories = async () => {
   const res = await request('/category/list')
-  if (res.ok) categories.value = res.data || []
+  // 【为什么用 Array.isArray 兜一道】分类会被 v-for 和 listTitle 的 .find 用到，
+  // 只要后端返回的不是数组（比如接口挂了、或者以后改成 { records: [...] } 这种分页结构），
+  // .find 就会抛 "categories.value.find is not a function" 把整个列表渲染带崩。
+  // 兜成空数组最差也只是筛选条不显示。
+  if (res.ok) categories.value = Array.isArray(res.data) ? res.data : []
 }
 
-// ---------- 搜索 / 分页 / 跳转 ----------
-const doSearch = () => { page.value = 1; fetchArticles(false) }
-const clearSearch = () => { kw.value = ''; doSearch() }
+// ---------- 筛选 / 分页 / 跳转 ----------
+// 筛选条件一变就【回到第 1 页】重新拉：
+// 否则会出现"第 3 页 + 新关键词"这种组合，而它在后端根本不存在，用户只会看到空列表。
+// 这个 watch 同时也接住了浏览器的前进/后退 —— 那种情况下 useArticleFilter
+// 会把地址栏的参数写回状态，于是这里照样会重新拉一次。
+watch([keyword, categoryId], () => {
+  page.value = 1
+  fetchArticles(false)
+})
+
 const loadMore = () => { page.value += 1; fetchArticles(true) }
 const goArticle = (id) => navigateTo('/article/' + id)
 
@@ -270,6 +327,19 @@ onMounted(() => {
 .s-ico { color: var(--accent); font-size: 18px; }
 .searchbox input { flex: 1; background: transparent; border: none; outline: none; color: var(--ink); font-size: 15px; }
 .searchbox input::placeholder { color: var(--muted); }
+
+/* 分类筛选条：做成胶囊按钮而不是下拉框。
+   理由：分类本来就只有几个，平铺出来"当前选中哪个"是【一眼可见】的，
+   而下拉框要展开才知道；而且这是首页最主要的二次筛选动作，值得占用一行。 */
+.cats { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+.cat {
+  padding: 6px 16px; border-radius: 999px; cursor: pointer; font-size: 13px;
+  background: rgba(30,47,82,.66); border: 1px solid rgba(180,210,245,.18);
+  color: var(--muted); transition: color .2s, border-color .2s, background .2s;
+}
+/* 同样不用 .glass：这一排按钮长期可见，没必要为它们付"每帧重新模糊"的开销 */
+.cat:hover { color: var(--ink); border-color: rgba(242,193,78,.45); }
+.cat.on { color: #0a1224; background: linear-gradient(135deg, var(--accent), var(--cyan)); border-color: transparent; font-weight: 700; }
 
 .toprow { max-width: 1080px; margin: 0 auto; padding: 20px 32px; display: grid; grid-template-columns: 1.4fr 1fr; gap: 20px; }
 /* 毛玻璃降档：blur 14->10 并去掉 saturate()。
