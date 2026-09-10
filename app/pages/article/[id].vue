@@ -26,10 +26,10 @@
             <span>{{ article.viewCount }} 次浏览</span>
             <span v-if="article.isTop === 1" class="doc-top">置顶</span>
           </div>
-          <img v-if="article.cover" class="doc-cover" :src="article.cover" :alt="article.title" />
+          <img v-if="article.cover" class="doc-cover" :src="article.cover" :alt="article.title" >
         </header>
 
-        <MdPreview :modelValue="article.content || ''" theme="dark" :language="zh_CN" />
+        <MdPreview :model-value="article.content || ''" theme="dark" :language="zh_CN" />
       </article>
 
       <footer v-if="article" class="doc-foot">

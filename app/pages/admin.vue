@@ -4,7 +4,8 @@
     <aside class="side glass">
       <div class="side-brand"><span class="mk">✦</span> 亿轨星途 · 后台</div>
       <nav class="side-nav">
-        <a v-for="m in menus" :key="m.key"
+        <a
+v-for="m in menus" :key="m.key"
            :class="{ active: cur === m.key }"
            @click="cur = m.key">{{ m.label }}</a>
       </nav>
@@ -50,7 +51,8 @@
 
         <!-- 搜索 / 筛选栏 -->
         <div class="toolbar glass">
-          <el-input v-model="artQuery.keyword" placeholder="搜索标题 / 摘要"
+          <el-input
+v-model="artQuery.keyword" placeholder="搜索标题 / 摘要"
                     clearable class="tb-item" @keyup.enter="searchArticles" />
           <el-select v-model="artQuery.categoryId" placeholder="全部分类" clearable class="tb-item">
             <el-option v-for="c in categories" :key="c.id" :label="c.name" :value="c.id" />
@@ -69,7 +71,8 @@
           <!-- 列宽合计 70+210+84+76+164+186 = 790px。
                这个数字必须 ≤ 表格可用宽度（窄窗口下约 810px），
                否则右侧 fixed 的「操作」列会压住「更新时间」—— 用户表那次的坑。 -->
-          <el-table ref="artTableRef" :data="articles" v-loading="artLoading"
+          <el-table
+ref="artTableRef" v-loading="artLoading" :data="articles"
                     empty-text="还没有文章，点右上角「新建文章」开始写吧"
                     :default-sort="{ prop: 'createTime', order: 'descending' }"
                     @sort-change="onArtSortChange">
@@ -103,7 +106,8 @@
             <el-table-column label="操作" width="186" fixed="right">
               <template #default="{ row }">
                 <el-button size="small" @click="openArticleEdit(row)">编辑</el-button>
-                <el-button size="small"
+                <el-button
+size="small"
                            :type="row.status === 1 ? 'warning' : 'success'"
                            @click="toggleArticleStatus(row)">
                   {{ row.status === 1 ? '下架' : '发布' }}
@@ -114,7 +118,8 @@
           </el-table>
 
           <div class="pager">
-            <el-pagination background
+            <el-pagination
+background
               layout="total, sizes, prev, pager, next"
               :total="artTotal"
               :current-page="artQuery.page"
@@ -135,7 +140,8 @@
 
         <!-- 搜索 / 筛选栏 -->
         <div class="toolbar glass">
-          <el-input v-model="query.keyword" placeholder="搜索用户名 / 昵称"
+          <el-input
+v-model="query.keyword" placeholder="搜索用户名 / 昵称"
                     clearable class="tb-item" @keyup.enter="search" />
           <el-select v-model="query.role" placeholder="全部角色" clearable class="tb-item">
             <el-option label="管理员" value="ADMIN" />
@@ -154,7 +160,8 @@
           <!-- 排序说明：sortable="custom" 表示【由后端排序】而不是前端本地排。
                因为我们是分页查询，只排当前页是错的 —— 必须让后端排完再分页。
                点表头会触发 @sort-change，我们把字段和方向发给后端。 -->
-          <el-table ref="tableRef" :data="users" v-loading="loading" empty-text="暂无用户数据"
+          <el-table
+ref="tableRef" v-loading="loading" :data="users" empty-text="暂无用户数据"
                     :default-sort="{ prop: 'createTime', order: 'descending' }"
                     @sort-change="onSortChange">
             <!-- 列宽合计必须 ≤ 表格可用宽度，否则 el-table 会横向溢出，
@@ -188,14 +195,16 @@
 
             <el-table-column label="操作" width="200" fixed="right">
               <template #default="{ row }">
-                <el-button size="small" @click="openEdit(row)" :disabled="row.id === myId">编辑</el-button>
-                <el-button size="small"
+                <el-button size="small" :disabled="row.id === myId" @click="openEdit(row)">编辑</el-button>
+                <el-button
+size="small"
                            :type="row.status === 1 ? 'warning' : 'success'"
                            :disabled="row.id === myId"
                            @click="toggleStatus(row)">
                   {{ row.status === 1 ? '禁用' : '启用' }}
                 </el-button>
-                <el-button size="small" type="danger"
+                <el-button
+size="small" type="danger"
                            :disabled="row.id === myId"
                            @click="removeUser(row)">删除</el-button>
               </template>
@@ -204,7 +213,8 @@
 
           <!-- 分页 -->
           <div class="pager">
-            <el-pagination background
+            <el-pagination
+background
               layout="total, sizes, prev, pager, next"
               :total="total"
               :current-page="query.page"
@@ -225,7 +235,8 @@
     </div>
 
     <!-- ==================== 编辑用户弹窗 ==================== -->
-    <el-dialog v-model="editVisible" class="user-edit-modal" title="编辑用户"
+    <el-dialog
+v-model="editVisible" class="user-edit-modal" title="编辑用户"
                width="420px" :close-on-click-modal="false">
       <div class="ed-row">
         <span class="ed-label">用户名</span>
@@ -242,7 +253,8 @@
 
       <div class="ed-row">
         <span class="ed-label">新密码</span>
-        <el-input v-model="editForm.password" type="password" show-password
+        <el-input
+v-model="editForm.password" type="password" show-password
                   placeholder="留空则不修改密码（6-20 位）" />
       </div>
 
@@ -257,20 +269,23 @@
     <!-- ==================== 新建 / 编辑文章弹窗 ==================== -->
     <!-- destroy-on-close：关掉时销毁内容。编辑器是个重组件，
          不销毁的话每次打开都会累积一个 CodeMirror 实例，写久了会卡。 -->
-    <el-dialog v-model="artEditVisible" class="art-edit-modal"
+    <el-dialog
+v-model="artEditVisible" class="art-edit-modal"
                :title="artForm.id ? '编辑文章' : '新建文章'"
                width="min(1080px, 92vw)" top="4vh"
                :close-on-click-modal="false" destroy-on-close>
 
       <div class="af-row">
         <span class="ed-label">标题</span>
-        <el-input v-model="artForm.title" placeholder="给你的文章起个标题"
+        <el-input
+v-model="artForm.title" placeholder="给你的文章起个标题"
                   maxlength="200" show-word-limit />
       </div>
 
       <div class="af-row">
         <span class="ed-label">分类</span>
-        <el-select v-model="artForm.categoryId" placeholder="选择分类（也可以不选）"
+        <el-select
+v-model="artForm.categoryId" placeholder="选择分类（也可以不选）"
                    clearable style="width:100%">
           <el-option v-for="c in categories" :key="c.id" :label="c.name" :value="c.id" />
         </el-select>
@@ -283,7 +298,8 @@
 
       <div class="af-row">
         <span class="ed-label">摘要</span>
-        <el-input v-model="artForm.summary" type="textarea" :rows="2"
+        <el-input
+v-model="artForm.summary" type="textarea" :rows="2"
                   placeholder="留空则自动从正文截取前 120 字"
                   maxlength="500" show-word-limit />
       </div>
@@ -291,9 +307,11 @@
       <div class="af-row">
         <span class="ed-label">选项</span>
         <div class="af-opts">
-          <el-switch v-model="artForm.isTop" :active-value="1" :inactive-value="0"
+          <el-switch
+v-model="artForm.isTop" :active-value="1" :inactive-value="0"
                      active-text="置顶" />
-          <el-switch v-model="artForm.status" :active-value="1" :inactive-value="0"
+          <el-switch
+v-model="artForm.status" :active-value="1" :inactive-value="0"
                      active-text="已发布" inactive-text="草稿" />
           <!-- 这条提示很重要：草稿是安全的默认值，不点这个开关就不会发出去 -->
           <span class="af-hint">{{ artForm.status === 1 ? '保存后前台立即可见' : '存为草稿，前台看不到' }}</span>
@@ -301,10 +319,11 @@
       </div>
 
       <div class="af-editor">
-        <MdEditor v-model="artForm.content"
+        <MdEditor
+v-model="artForm.content"
                   theme="dark"
                   :language="zh_CN"
-                  :toolbarsExclude="['github', 'fullscreen', 'preview-html']" />
+                  :toolbars-exclude="['github', 'fullscreen', 'preview-html']" />
       </div>
 
       <template #footer>

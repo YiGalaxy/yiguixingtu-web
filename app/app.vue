@@ -1,9 +1,9 @@
 <template>
   <div class="shell">
     <video ref="bgVideo" class="bg-video" autoplay muted loop playsinline preload="auto">
-      <source src="/bg-star.mp4" type="video/mp4" />
+      <source src="/bg-star.mp4" type="video/mp4" >
     </video>
-    <div class="bg-overlay"></div>
+    <div class="bg-overlay"/>
 
     <header class="site-nav">
       <NuxtLink to="/" class="brand">
@@ -52,7 +52,7 @@
       <div class="foot-brand">
         <span class="foot-mark">✦</span> 亿轨星途
       </div>
-      <button class="music-toggle" :class="{ on: musicOn }" @click="toggleMusic" :aria-label="musicOn ? '关闭背景音乐' : '播放背景音乐'">
+      <button class="music-toggle" :class="{ on: musicOn }" :aria-label="musicOn ? '关闭背景音乐' : '播放背景音乐'" @click="toggleMusic">
         <span class="glyph">♫</span>
         <span class="music-label">{{ musicOn ? '关闭背景音乐' : '播放背景音乐' }}</span>
       </button>

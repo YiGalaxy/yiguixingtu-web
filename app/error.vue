@@ -3,7 +3,7 @@
     <!-- 背景：用 CSS 渐变画星空，不引背景视频 ——
          404 是边缘路径，没必要为它加载一个 12MB 的视频。
          站点主色 #0e1a36 + 主题金 #f2c14e 保持不变，观感是连贯的。 -->
-    <div class="err-bg"></div>
+    <div class="err-bg"/>
 
     <div class="err-box">
       <div class="err-brand"><span class="mk">✦</span> 亿轨星途</div>

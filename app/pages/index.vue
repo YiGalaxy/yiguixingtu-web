@@ -4,16 +4,16 @@
     <div class="search-wrap">
       <div class="searchbox glass">
         <span class="s-ico">⌕</span>
-        <input v-model="kw" placeholder="输入关键词后按回车搜索..." @keyup.enter="doSearch" />
+        <input v-model="kw" placeholder="输入关键词后按回车搜索..." @keyup.enter="doSearch" >
         <button v-if="kw" class="s-clear" title="清除" @click="clearSearch">✕</button>
       </div>
     </div>
 
     <!-- 个人卡片 + 音乐卡片（两卡并排） -->
     <section class="toprow">
-      <div class="profile glass" id="profile">
+      <div id="profile" class="profile glass">
         <div class="pf-head">
-          <div class="pf-avatar"><img src="/cover-1.png" alt="avatar" /></div>
+          <div class="pf-avatar"><img src="/cover-1.png" alt="avatar" ></div>
           <div class="pf-info">
             <div class="pf-name">亿轨星途</div>
             <div class="pf-sub">在代码与星轨之间，慢慢画自己的图。</div>
@@ -31,22 +31,22 @@
         </div>
       </div>
 
-      <div class="music glass" id="music">
+      <div id="music" class="music glass">
         <div class="mu-badge">CLOUD MUSIC</div>
         <div class="mu-main">
-          <div class="mu-cover"><img :src="tracks[cur].cover" alt="cover" /></div>
+          <div class="mu-cover"><img :src="tracks[cur].cover" alt="cover" ></div>
           <div class="mu-info">
             <div class="mu-title">{{ tracks[cur].title }}</div>
             <div class="mu-art">亿轨星途</div>
           </div>
         </div>
-        <div class="mu-progress"><div class="mu-bar" :style="{ width: prog + '%' }"></div></div>
+        <div class="mu-progress"><div class="mu-bar" :style="{ width: prog + '%' }"/></div>
         <div class="mu-ctl">
           <button @click="prev">⏮</button>
           <button class="play" @click="playPause">{{ playing ? '❚❚' : '▶' }}</button>
           <button @click="next">⏭</button>
         </div>
-        <audio ref="audioRef" src="/bg-music.mp3" @timeupdate="onTime" @ended="next"></audio>
+        <audio ref="audioRef" src="/bg-music.mp3" @timeupdate="onTime" @ended="next"/>
       </div>
     </section>
 
@@ -59,7 +59,7 @@
     </div>
 
     <!-- 文章瀑布流（带封面） -->
-    <section class="waterfall-wrap" id="articles">
+    <section id="articles" class="waterfall-wrap">
       <div class="w-head">
         <h2>{{ kw ? '「' + kw + '」的搜索结果' : '最新文章' }}</h2>
         <span v-if="kw" class="w-clear" @click="clearSearch">清除搜索</span>
@@ -73,10 +73,11 @@
         {{ kw ? '没有找到相关文章，换个词试试' : '还没有发布任何文章' }}
       </div>
       <div v-else class="waterfall">
-        <a v-for="(a, i) in articles" :key="a.id" href="#" class="af glass"
+        <a
+v-for="(a, i) in articles" :key="a.id" href="#" class="af glass"
            :class="{ big: i === 0 }"
            @click.prevent="goArticle(a.id)">
-          <div class="af-cover"><img :src="coverOf(a, i)" :alt="a.title" loading="lazy" /></div>
+          <div class="af-cover"><img :src="coverOf(a, i)" :alt="a.title" loading="lazy" ></div>
           <div class="af-body">
             <span class="af-tag">{{ a.categoryName || '未分类' }}</span>
             <h3 class="af-title">{{ a.title }}</h3>
@@ -96,10 +97,10 @@
     </section>
 
     <!-- 右下浮动小角色 -->
-    <div class="mascot" title="亿轨星途" @click="onMascot"><img src="/cover-2.png" /></div>
+    <div class="mascot" title="亿轨星途" @click="onMascot"><img src="/cover-2.png" ></div>
 
     <!-- 左下观看人数 -->
-    <div class="viewers"><span class="dot"></span> 1 人正在看</div>
+    <div class="viewers"><span class="dot"/> 1 人正在看</div>
 
     <!-- 左侧吸附菜单 -->
     <div class="dock">
@@ -127,7 +128,7 @@
       </div>
       <div class="wp-body msgs">
         <div v-for="(m, i) in msgs" :key="i" class="msg">
-          <img class="msg-av" :src="m.av" />
+          <img class="msg-av" :src="m.av" >
           <div><div class="msg-n">{{ m.name }}</div><div class="msg-c">{{ m.text }}</div></div>
         </div>
       </div>
@@ -137,8 +138,7 @@
 
 <script setup>
 import { ElMessage } from 'element-plus'
-const { openLogin, openRegister } = useAuthUi()
-const { token, user } = useAuth()
+const { user } = useAuth()
 const isAdmin = computed(() => user.value?.role === 'ADMIN')
 
 const kw = ref('')
@@ -151,7 +151,15 @@ const cur = ref(0)
 const playing = ref(false)
 const prog = ref(0)
 const audioRef = ref()
-const playPause = () => { if (!audioRef.value) return; playing.value ? audioRef.value.pause() : audioRef.value.play(); playing.value = !playing.value }
+const playPause = () => {
+  if (!audioRef.value) return
+  // 这里用 if / else 而不是三元表达式：两个分支都是为了产生副作用（暂停/播放），
+  // 不是为了算出一个值。写成 `a ? b() : c()` 会让人以为在读某个结果，
+  // lint 也会报 no-unused-expressions
+  if (playing.value) audioRef.value.pause()
+  else audioRef.value.play()
+  playing.value = !playing.value
+}
 const onTime = () => { if (audioRef.value?.duration) prog.value = (audioRef.value.currentTime / audioRef.value.duration) * 100 }
 const prev = () => { cur.value = (cur.value - 1 + tracks.length) % tracks.length; resetAudio() }
 const next = () => { cur.value = (cur.value + 1) % tracks.length; resetAudio() }

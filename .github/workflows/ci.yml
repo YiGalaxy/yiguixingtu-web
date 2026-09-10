@@ -1,0 +1,47 @@
+name: CI
+
+# 什么时候跑：往 master 推代码 / 有人提 PR / 手动触发
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: lint · test · build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      # 版本与本地验证时用的保持一致（本地是 Node 24）。
+      # 不写 20 / 22 是因为"我没在那些版本上跑过"——CI 里最难查的问题
+      # 就是"本地好好的、CI 上换个运行时就不一样"。
+      - name: 安装 Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          # 缓存 ~/.npm，第二次之后不用重新下依赖
+          cache: npm
+
+      # 用 npm ci 而不是 npm install：
+      # 它严格按 package-lock.json 安装，装不出锁文件之外的东西，
+      # 所以"CI 绿了但别人 clone 下来跑不起来"这种情况不会发生
+      - name: 安装依赖
+        run: npm ci
+
+      # 三步分开写而不是串成一条命令，是为了在 Actions 页面上
+      # 一眼看出"是 lint 挂了还是测试挂了"——串起来只会看到一句 exit 1
+      - name: 代码检查
+        run: npm run lint
+
+      # 测试不需要后端：请求层（$fetch）在测试里被 mock 掉了，
+      # 所以 CI 里不用起 Spring Boot，也不用配数据库
+      - name: 运行测试
+        run: npm run test
+
+      - name: 生产构建
+        run: npm run build

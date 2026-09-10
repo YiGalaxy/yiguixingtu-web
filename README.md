@@ -1,7 +1,17 @@
 # yiguixingtu-web — 个人博客前端
 
+<!--
+  CI 徽章：等这个仓库有了 GitHub 远程地址之后，把下面这行取消注释、
+  并把 <用户名>/<仓库名> 换成实际的，即可显示 CI 状态。
+  现在先不写死，是因为仓库还没有 remote，写上去只会显示一个坏掉的图片。
+
+  [![CI](https://github.com/<用户名>/<仓库名>/actions/workflows/ci.yml/badge.svg)](https://github.com/<用户名>/<仓库名>/actions/workflows/ci.yml)
+-->
+
 > 基于 Nuxt 4 + Vue 3 + Element Plus 的个人博客前端
 > 后端为独立仓库 `yiguixingtu`（Spring Boot 4，默认跑在 `localhost:8082`）
+>
+> **18 个单元测试 + ESLint + 生产构建，全部在 CI 里自动跑**（见下文「持续集成」）
 
 ## 项目简介
 
@@ -24,6 +34,9 @@
 | Markdown 编辑器 | md-editor-v3 |
 | 语言 | TypeScript |
 | 包管理 | npm |
+| 测试 | Vitest 5 + `@nuxt/test-utils` 4（nuxt 环境）+ `@vue/test-utils` |
+| 代码检查 | ESLint 10 + `@nuxt/eslint` 1.17（扁平配置） |
+| 持续集成 | GitHub Actions（`.github/workflows/ci.yml`） |
 
 ## 目录结构
 
@@ -109,6 +122,35 @@ npm run test:watch   # 监听模式，改代码自动重跑
 ```
 
 **不需要启动后端** —— 测试会把请求层 mock 掉，所以断网、后端没起也能跑。
+
+### 7. 代码检查
+
+```bash
+npm run lint         # 检查（eslint .）
+npm run lint:fix     # 自动修掉能修的部分
+```
+
+用 **`@nuxt/eslint`** 的扁平配置（Nuxt 官方推荐的那套），
+在 `eslint.config.mjs` 里做了少量覆盖，每一条覆盖都写了为什么。
+
+> **当前 lint 是干净的（0 error / 0 warning）**，所以 CI 上这一步是有意义的门槛；
+> 如果放着几十条 warning 不管，大家很快就会习惯性忽略它。
+
+### 8. 持续集成
+
+`.github/workflows/ci.yml`，在 **push 到 master** 和 **PR** 时触发，三步依次执行：
+
+| 步骤 | 命令 | 为什么单独一步 |
+|------|------|---------------|
+| 代码检查 | `npm run lint` | 串成一条命令的话，Actions 页面只会显示一句 exit 1，看不出是哪一步挂的 |
+| 运行测试 | `npm run test` | 18 个用例；**不需要后端与数据库**，CI 里不用起任何服务 |
+| 生产构建 | `npm run build` | 保证"测试过了但build 不过"这种情况不会漏到线上 |
+
+用 `npm ci` 而不是 `npm install`：它严格按 `package-lock.json` 安装，
+装不出锁文件之外的东西，所以"CI 绿了、别人 clone 下来却跑不起来"不会发生。
+
+> ⚠️ **本仓库目前还没有 GitHub 远程地址**，所以工作流文件已就位但还没真正跑过。
+> 建好远程仓库、推上去之后，README 顶部的 CI 徽章按注释里的说明替换 URL 即可。
 
 **测试环境**：Vitest 5 + `@nuxt/test-utils` 4，跑在 **nuxt 环境**而不是裸的 jsdom。
 
@@ -224,8 +266,8 @@ npm run test:watch   # 监听模式，改代码自动重跑
 
 - 分类数据已经拉取但**还没有筛选 UI**
 - 后端地址目前写在 `nuxt.config.ts` 里，尚未按环境区分
-- **测试只覆盖了组合式函数**，还没有组件测试与端到端（Playwright）测试；
-  **CI 也还没接上**（这两个是紧接着的 w1.2 / w1.3 的内容）
+- **测试只覆盖了组合式函数**，还没有组件测试与端到端（Playwright）测试
+- **仓库还没有 GitHub 远程地址**，CI 工作流已就位但尚未真正跑过一次
 - `app/pages/admin.vue` 单文件 **1001 行**，用户表格 / 文章表格 / 编辑器弹窗都挤在一个文件里
 - Element Plus 是全量引入（`app/plugins/element-plus.ts`），没有按需加载
 
