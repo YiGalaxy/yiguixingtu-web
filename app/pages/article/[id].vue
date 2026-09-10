@@ -54,6 +54,116 @@ v-for="t in articleTags" :key="t.id" class="doc-tag"
         <button class="btn" @click="goHome">回到首页</button>
       </footer>
 
+      <!-- ==================== 评论区 ====================
+           放在"完"的下面：读完正文顺手就能说话，不用再往下翻很久。
+           `v-if="article"` 是必需的：文章不存在时（软 404）根本没有 articleId 可评论，
+           而评论列表接口不带 articleId 会被后端拒（400）。 -->
+      <section v-if="article" id="comments" class="cm">
+        <h2 class="cm-title">
+          评论
+          <span v-if="commentTotal" class="cm-count">{{ commentTotal }}</span>
+        </h2>
+
+        <!-- ① 已通过的评论（这个接口只返回已通过的，待审核的谁都看不到） -->
+        <div v-if="commentsPending && allComments.length === 0" class="cm-empty">评论加载中…</div>
+        <div v-else-if="allComments.length === 0" class="cm-empty">
+          还没有评论，来说点什么
+        </div>
+        <ul v-else class="cm-list">
+          <li v-for="c in allComments" :key="c.id" class="cm-item">
+            <div class="cm-head">
+              <span class="cm-nick">{{ c.nickname }}</span>
+              <span class="cm-time">{{ fmtTime(c.createTime) }}</span>
+            </div>
+            <!-- 【安全关键】这里是 {{ }} 插值，不是 v-html（详细理由见下面 script 段里的说明）。
+                 插值会把内容当成**纯文本**放进 DOM，所以哪怕内容里写着 script 标签，
+                 它也只会原样显示成一串字符，永远不会变成能执行的标签。
+                 （注释里刻意不写尖括号：模板注释会被原样序列化进发给访客的 HTML，
+                   写进去就等于往每个页面的源码里多塞一段看起来像标签的文本。） -->
+            <p class="cm-body">{{ c.content }}</p>
+          </li>
+        </ul>
+
+        <!-- 分页用「加载更多」而不是页码器：和首页一致，而且评论是对话，
+             追加到末尾符合阅读顺序；翻页器会把用户"跳"到另一页、丢掉读到的位置。 -->
+        <div v-if="hasMoreComments" class="cm-more">
+          <button class="btn" :disabled="commentsLoadingMore" @click="loadMoreComments">
+            {{ commentsLoadingMore ? '加载中…' : '加载更多评论' }}
+          </button>
+        </div>
+
+        <!-- ② 发表表单 -->
+        <form class="cm-form" @submit.prevent="submitComment">
+          <div class="cm-form-title">发表评论</div>
+
+          <div class="cm-fields">
+            <label class="cm-field">
+              <span class="cm-label">昵称 <i>*</i></span>
+              <input
+v-model="commentForm.nickname" type="text"
+                     :maxlength="COMMENT_LIMITS.nickname" placeholder="怎么称呼你" >
+            </label>
+            <label class="cm-field">
+              <!-- 邮箱选填：强制填邮箱会显著降低评论意愿，而它对读者没有任何用处 -->
+              <span class="cm-label">邮箱 <em>选填</em></span>
+              <input
+v-model="commentForm.email" type="text"
+                     :maxlength="COMMENT_LIMITS.email" placeholder="不会公开，只用于回复你" >
+            </label>
+          </div>
+
+          <textarea
+v-model="commentForm.content" class="cm-textarea"
+                    :maxlength="COMMENT_LIMITS.content" rows="4"
+                    placeholder="说点什么…（最多 1000 字）" />
+
+          <div class="cm-actions">
+            <span class="cm-hint">{{ commentForm.content.length }} / {{ COMMENT_LIMITS.content }}</span>
+            <button type="submit" class="cm-submit" :disabled="commentSubmitting">
+              {{ commentSubmitting ? '提交中…' : '发表评论' }}
+            </button>
+          </div>
+
+          <!-- 失败提示（校验没过、后端 400/404/429 都走这里）。
+               429 复用 app/utils/apiError.ts 里那句「请求过于频繁」——
+               绝不能说成「网络异常」：限流是"服务端好好的、让你等一会儿"，
+               说成网络故障会把人往"查网线、重启路由器"的方向带。 -->
+          <p v-if="commentError" class="cm-alert err">{{ commentError }}</p>
+
+          <!-- 【提交成功后必须说清楚，不能让用户以为没发出去】
+               后端默认把评论存成【待审核】（status=0），所以它不会立刻出现在上面的列表里。
+               如果只清空输入框、什么都不说，用户看到的就是"我发的评论没了"，
+               然后很可能再发一遍 —— 于是同一条评论进了两次审核队列。
+               所以这里三件事一起做：① 一句话说明 ② 把刚提交的那条显示出来
+               ③ 挂上「待审核」标记，并说明它为什么不在上面的列表里。 -->
+          <p v-if="commentDone" class="cm-alert ok">
+            {{ COMMENT_PENDING_NOTICE }} —— 站长审核通过后才会出现在上面的评论列表里。
+          </p>
+        </form>
+
+        <!-- ③ 我这次提交的评论（待审核）：单独一块，不混进公开列表，
+             免得用户以为"别人已经看到了" -->
+        <div v-if="myPending.length" class="cm-mine">
+          <div class="cm-mine-title">你的评论（仅你可见）</div>
+          <ul class="cm-list">
+            <li v-for="c in myPending" :key="c.id" class="cm-item pending">
+              <div class="cm-head">
+                <span class="cm-nick">{{ c.nickname }}</span>
+                <span class="cm-badge">待审核</span>
+                <!-- 【为什么这里要兜一个「刚刚」】联调实测发现：POST /comment 的响应里
+                     createTime 是 null（插入后没有把数据库里刚生成的时间回填到返回对象上），
+                     而前台列表接口返回的评论是有时间的。
+                     照原样显示的话，这一行会出现一个空白的时间位（看着像页面坏了）。
+                     刚提交的评论本来就是"刚刚"，比显示一个"—"更准确。
+                     （这属于对后端返回形状的兼容，不是掩盖问题 —— 已记进汇报。） -->
+                <span class="cm-time">{{ fmtTime(c.createTime) || '刚刚' }}</span>
+              </div>
+              <p class="cm-body">{{ c.content }}</p>
+            </li>
+          </ul>
+        </div>
+      </section>
+
     </div>
   </div>
 </template>
@@ -85,21 +195,55 @@ const route = useRoute()
 const { request } = useApi()
 
 /**
- * 【为什么用 useAsyncData，而不是 onMounted + ref？】
- * 因为这是博客的正文页 —— 内容必须出现在服务端返回的 HTML 里，否则：
+ * 【为什么正文与评论都用 useAsyncData（服务端渲染），而不是 onMounted + ref】
+ * 因为这是内容，不是控件 —— 内容必须出现在服务端返回的 HTML 里，否则：
  *   ① 搜索引擎抓到的是一张空壳，文章等于没被收录（SSR 博客的核心价值就在这）
  *   ② 首屏会先闪一下"加载中"再出内容，观感差
- * useAsyncData 会在服务端【等数据回来再渲染】，HTML 里直接带着正文。
+ * useAsyncData 会在服务端【等数据回来再渲染】，HTML 里直接带着正文与评论。
  *
- * key 里带上文章 id：它是"这份数据属于哪篇文章"的标识，
+ * 【key 里带上文章 id】它是"这份数据属于哪篇文章"的标识，
  * 写死成 'article' 的话，从第 12 篇点到第 13 篇会拿到上一篇的缓存。
  *
- * 对比一下首页：首页这次也改成了 useAsyncData（理由见那里的注释）。
+ * 【评论也用同一套，但有代价（这个选择不是白来的）】
+ *   · 评论请求会并进详情页 SSR 的关键路径 —— 所以下面把它和正文【并行】发起，
+ *     串行 await 会让首屏多一个往返
+ *   · payload 里多了一份评论数据（第一页 10 条，可接受）
+ *   · 接口失败时不能连累正文：normalizeCommentPage() 把失败整成"空列表"，
+ *     页面最多显示"还没有评论"，正文照常渲染
+ *   · key 必须和正文的 key（`article-12`）区分开，撞了会共用同一份缓存
+ *
+ * 【评论内容为什么用 {{ }} 插值显示，绝不能 v-html（安全关键）】
+ *   评论是【任何人都能提交】的内容（评论接口对游客开放）。
+ *   后端在入库前已经把 < > & 转义成实体（存进去的就是 &lt; 这种），
+ *   所以前端【照原样显示】就是安全的：
+ *     · 用 {{ }} 插值 = 把字符串当纯文本放进 DOM，内容里写 <script> 也只会显示成字
+ *     · 用 v-html = 把字符串当 HTML 解析，等于让每个访客的浏览器执行别人的输入
+ *   两条附带的纪律：
+ *     · 【不要反转义】把 &lt; 还原成 < 再插值，正好把上面那层保护拆掉了
+ *     · 【不要再做一次 HTML 转义】那会把 &lt; 显示成 &amp;lt;，用户看到一堆实体码
  */
-const { data: res, pending } = await useAsyncData(
+const COMMENT_PAGE_SIZE = 10
+
+/** 拉某页评论（公开接口，必须带 articleId，否则后端直接 400） */
+const requestComments = (pageNo) => request('/comment/list', {
+  params: { articleId: route.params.id, page: pageNo, size: COMMENT_PAGE_SIZE },
+})
+
+const articleAsync = useAsyncData(
   'article-' + route.params.id,
   () => request('/article/' + route.params.id),
 )
+
+const commentsAsync = useAsyncData(
+  'article-comments-' + route.params.id,
+  () => requestComments(1),
+)
+
+// 两个请求互不依赖 → 并行发起、一起 await（串行会让首屏多一个往返）
+await Promise.all([articleAsync, commentsAsync])
+
+const { data: res, pending } = articleAsync
+const { data: commentRes, pending: commentsPending } = commentsAsync
 
 const article = computed(() => (res.value?.ok ? res.value.data : null))
 const errMsg = computed(() => res.value?.message || '它可能已被删除，或者还只是一篇没发布的草稿。')
@@ -112,6 +256,101 @@ const errMsg = computed(() => res.value?.message || '它可能已被删除，或
  * 为了几颗标签把正文也弄没了是绝对不能接受的。兜成空数组最差只是不显示标签。
  */
 const articleTags = computed(() => (Array.isArray(article.value?.tags) ? article.value.tags : []))
+
+// ================================================================
+//  评论区
+// ================================================================
+
+/** 第一页（服务端渲染取好的那份），失败时是"空列表 + 总数 0" */
+const firstCommentPage = computed(() => normalizeCommentPage(commentRes.value))
+const commentTotal = computed(() => firstCommentPage.value.total)
+
+/** 「加载更多」追加进来的评论（公开列表是【时间正序】，所以下一页追加在后面是对的） */
+const moreComments = ref([])
+const commentsLoadingMore = ref(false)
+
+/** 页面上要显示的评论 = 第一页 + 追加的 */
+const allComments = computed(() => [...firstCommentPage.value.records, ...moreComments.value])
+
+/** 还有没有下一页：已显示的条数 < 总条数 就说明还有 */
+const hasMoreComments = computed(() => allComments.value.length < commentTotal.value)
+
+/**
+ * 加载下一页评论并追加到列表末尾。
+ * 【为什么用普通请求而不是 useAsyncData】它不属于"这一页的首屏数据"，
+ * 服务端只渲染第一页，也不需要进 payload —— 追加语义用一次普通请求最直白。
+ */
+const loadMoreComments = async () => {
+  commentsLoadingMore.value = true
+  // 【下一页是第几页】已经加载的条数 ÷ 每页条数，向上取整 = "已经取了几页"，
+  // 再 +1 就是下一页。
+  // 【为什么不能写成 floor(len / size) + 1】第一页只有 2 条（页大小是 10）时，
+  // floor(2/10)+1 = 1 —— 又把第 1 页拉了一遍，于是同两条评论在页面上出现两遍。
+  // 这个 bug 只在"某一页不满一整页"时才出现，而最后一页永远不满一整页。
+  // 【为什么要 max(1, ...)】万一第一页返回 0 条（后端异常）而 total 又是正的，
+  // ceil(0/10) 是 0，不兜一下就会重复请求第 1 页。
+  const nextPage = Math.max(1, Math.ceil(allComments.value.length / COMMENT_PAGE_SIZE)) + 1
+  const res = await requestComments(nextPage)
+  commentsLoadingMore.value = false
+  if (!res.ok) return
+  moreComments.value = [...moreComments.value, ...normalizeCommentPage(res).records]
+}
+
+// ---------- 发表评论 ----------
+const commentForm = reactive({ nickname: '', email: '', content: '' })
+/** 校验失败 / 提交失败的提示（一次只显示一条） */
+const commentError = ref('')
+/** 提交成功的提示：必须明确告诉用户"在等审核"，否则他会以为没发出去 */
+const commentDone = ref(false)
+const commentSubmitting = ref(false)
+/** 本次会话里提交成功的评论（都是待审核状态，单独显示，不混进公开列表） */
+const myPending = ref([])
+
+const submitComment = async () => {
+  commentError.value = ''
+  commentDone.value = false
+
+  // 先跑本地校验（纯函数，有单测）：能当场说清的错就不必走一次网络
+  const problem = validateCommentForm(commentForm)
+  if (problem) {
+    commentError.value = problem.message
+    return
+  }
+
+  // 防连点：按钮上虽然有 :disabled，但两次点击落在同一帧时它还没重绘。
+  // 评论接口有 20 次/分钟的限流，多打一次就少一次配额。
+  if (commentSubmitting.value) return
+  commentSubmitting.value = true
+
+  const res = await request('/comment', {
+    method: 'POST',
+    body: normalizeCommentForm(commentForm, route.params.id),
+  })
+
+  commentSubmitting.value = false
+
+  if (res.ok) {
+    // 【为什么把返回的这条放进 myPending 而不是刷新列表】
+    //   刚提交的评论 status=0（待审核），而公开列表接口只返回已通过的 ——
+    //   刷新列表也看不到它。所以直接把接口返回的这条显示出来（它带着 status:0），
+    //   用户才看得见"我的话确实提交成功了"。
+    myPending.value = [res.data, ...myPending.value]
+    commentDone.value = true
+    // 只清内容，昵称与邮箱留着：同一个人常常连着说几句
+    commentForm.content = ''
+    return
+  }
+
+  // 【429 必须说成"请求过于频繁"，绝不能落到"网络异常"】
+  //   这个接口是 20 次/分钟的【整站】配额，很容易撞到；而限流是
+  //   "服务端好好的、只是让你等一会儿"，说成网络故障会引导用户去查网络、反复重试，
+  //   每一次重试还会再吃掉一个名额。useApi 已经按 HTTP 429 分好支并给了文案，
+  //   这里再用 RATE_LIMITED_MESSAGE 兜一道：万一后端/proxy 返回的 429 没带 body，
+  //   提示里也必须有"频繁"这两个字。
+  commentError.value = res.rateLimited
+    ? (res.message || RATE_LIMITED_MESSAGE)
+    : (res.message || '提交失败，请稍后再试')
+}
 
 /*
  * 【SEO】标题、摘要、og、canonical 都交给 useSeoMetaFor 拼（规则在 app/utils/seo.ts）。
@@ -173,6 +412,13 @@ const goTag = (id) => navigateTo({ path: '/', query: { tagId: String(id) } })
 const tagLink = (id) => `/?tagId=${id}`
 
 const fmtDate = (t) => (t ? String(t).replace('T', ' ').slice(0, 10) : '')
+
+/**
+ * 评论的时间要精确到分钟（不像卡片上只显示到天）：
+ * 评论区里两条评论常常只差几分钟，只显示日期的话先后顺序看不出来，
+ * 时间正序也就白排了。后端给的是 "2026-09-10T05:03:19"，截到分钟即可。
+ */
+const fmtTime = (t) => (t ? String(t).replace('T', ' ').slice(0, 16) : '')
 </script>
 
 <style scoped>
@@ -233,6 +479,85 @@ const fmtDate = (t) => (t ? String(t).replace('T', ' ').slice(0, 10) : '')
 
 .doc-foot { text-align: center; margin-top: 34px; color: var(--muted); font-size: 13px; display: flex; flex-direction: column; align-items: center; gap: 18px; letter-spacing: 2px; }
 
+/* ==================== 评论区 ====================
+   和正文同一个底色（不做毛玻璃）：理由同 .doc —— 大面积 backdrop-filter 会对
+   背后的播放中视频逐帧重采样，而这里同样是一整块长内容。 */
+.cm {
+  margin-top: 28px;
+  background: rgba(13,22,43,.96);
+  border: 1px solid rgba(180,210,245,.14);
+  border-radius: 22px;
+  padding: 32px 44px 36px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.06), 0 24px 60px rgba(0,0,0,.35);
+}
+.cm-title { font-size: 20px; font-weight: 800; color: var(--ink); margin: 0 0 20px; }
+.cm-count {
+  margin-left: 8px; font-size: 12px; font-weight: 600; color: var(--muted);
+  border: 1px solid rgba(180,210,245,.25); border-radius: 999px; padding: 2px 10px;
+}
+.cm-empty { color: var(--muted); font-size: 14px; text-align: center; padding: 34px 0; }
+
+.cm-list { list-style: none; margin: 0; padding: 0; }
+.cm-item { padding: 14px 0; border-bottom: 1px solid rgba(150,190,240,.10); }
+.cm-item:last-child { border-bottom: none; }
+.cm-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.cm-nick { color: var(--accent); font-size: 13px; font-weight: 700; }
+.cm-time { color: var(--muted); font-size: 12px; }
+/* 「待审核」标记：它要显眼，因为这条评论别人看不到，只有作者自己看得到 */
+.cm-badge {
+  font-size: 11px; color: #0a1224; background: var(--accent);
+  border-radius: 999px; padding: 1px 8px; font-weight: 700;
+}
+/* 【pre-wrap 是必需的】评论内容里可以有换行，默认的 white-space: normal
+   会把换行"吃掉"，用户写的一段一段话会被拼成一整行。
+   pre-wrap 既保留换行与连续空格，又会在行尾自动折行（不像 pre 那样横向溢出）。 */
+.cm-body { margin: 0; color: var(--ink); font-size: 14px; line-height: 1.8; white-space: pre-wrap; word-break: break-word; }
+/* 待审核的那条整体压暗一点：一眼能看出它和上面那些"已公开"的不是一回事 */
+.cm-item.pending .cm-body { color: var(--muted); }
+
+.cm-more { text-align: center; margin: 18px 0 4px; }
+.cm-more .btn:disabled { opacity: .6; cursor: default; }
+
+/* 发表表单 */
+.cm-form { margin-top: 26px; padding-top: 22px; border-top: 1px solid rgba(150,190,240,.14); }
+.cm-form-title { font-weight: 700; color: var(--ink); margin-bottom: 14px; }
+.cm-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.cm-field { display: flex; flex-direction: column; gap: 6px; }
+.cm-label { color: var(--muted); font-size: 12px; }
+.cm-label i { color: #f56c6c; font-style: normal; }
+.cm-label em { font-style: normal; opacity: .7; }
+.cm-field input, .cm-textarea {
+  background: rgba(255,255,255,.06);
+  border: 1px solid rgba(150,190,240,.18);
+  border-radius: 12px; padding: 10px 12px; color: var(--ink);
+  font-size: 14px; font-family: inherit; outline: none;
+  transition: border-color .2s;
+}
+.cm-field input:focus, .cm-textarea:focus { border-color: rgba(242,193,78,.6); }
+.cm-field input::placeholder, .cm-textarea::placeholder { color: var(--muted); }
+/* resize: vertical —— 只让用户往高里拖，横向拖会把 860px 的排版拖坏 */
+.cm-textarea { margin-top: 12px; width: 100%; resize: vertical; line-height: 1.7; box-sizing: border-box; }
+
+.cm-actions { display: flex; align-items: center; justify-content: space-between; margin-top: 12px; }
+.cm-hint { color: var(--muted); font-size: 12px; }
+.cm-submit {
+  background: linear-gradient(135deg, var(--accent), var(--cyan));
+  border: none; color: #0a1224; font-weight: 700; font-size: 14px;
+  padding: 9px 28px; border-radius: 999px; cursor: pointer;
+  transition: opacity .2s;
+}
+.cm-submit:disabled { opacity: .6; cursor: default; }
+
+/* 表单下方的提示：错误用红、成功用金。
+   【为什么要放在按钮下面】提交完用户的目光就在那里，提示出现在他正在看的位置，
+   不用去找"提示弹到哪儿去了"。 */
+.cm-alert { font-size: 13px; line-height: 1.7; margin: 12px 0 0; }
+.cm-alert.err { color: #f56c6c; }
+.cm-alert.ok { color: var(--accent); }
+
+.cm-mine { margin-top: 22px; }
+.cm-mine-title { color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+
 /* ===== md-editor-v3 预览区暗色适配 =====
    和后台编辑器用同一套主题变量，保证文章在"后台预览"和"前台阅读"里长得一样。 */
 :deep(.md-editor-dark) {
@@ -260,5 +585,8 @@ const fmtDate = (t) => (t ? String(t).replace('T', ' ').slice(0, 10) : '')
   .art-wrap { padding: 20px 16px 48px; }
   .doc { padding: 26px 20px 32px; border-radius: 18px; }
   .doc-title { font-size: 24px; }
+  /* 昵称与邮箱在窄屏改成上下排：两栏挤在 320px 里每个只有 140px，字都显示不全 */
+  .cm { padding: 22px 18px 26px; border-radius: 18px; }
+  .cm-fields { grid-template-columns: 1fr; }
 }
 </style>
