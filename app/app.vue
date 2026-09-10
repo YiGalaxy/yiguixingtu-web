@@ -1,0 +1,278 @@
+<template>
+  <div class="shell">
+    <video ref="bgVideo" class="bg-video" autoplay muted loop playsinline preload="auto">
+      <source src="/bg-star.mp4" type="video/mp4" />
+    </video>
+    <div class="bg-overlay"></div>
+
+    <header class="site-nav">
+      <NuxtLink to="/" class="brand">
+        <span class="brand-mark">✦</span>
+        <span class="brand-name">亿轨星途</span>
+      </NuxtLink>
+      <nav class="nav-center">
+        <NuxtLink to="/" class="nv">首页</NuxtLink>
+        <div class="nv dd">
+          <button class="nv-btn">文章 <span class="caret">▾</span></button>
+          <div class="dd-menu">
+            <a @click="onDev">技术</a><a @click="onDev">读书</a><a @click="onDev">随笔</a>
+          </div>
+        </div>
+        <NuxtLink to="/#music" class="nv">音乐</NuxtLink>
+        <span class="nv" @click="onDev">收藏</span>
+        <span class="nv" @click="onDev">项目</span>
+        <span class="nv" @click="onDev">友链</span>
+        <NuxtLink to="/#profile" class="nv">关于</NuxtLink>
+      </nav>
+      <nav class="nav-right">
+        <button class="icon-btn" @click="onDev">⚙</button>
+        <template v-if="token">
+          <!-- 登录状态提示：头像首字 + 昵称 + 角色标签 -->
+          <div class="user-chip" :title="'当前登录：' + displayName">
+            <span class="uc-avatar">{{ avatarText }}</span>
+            <span class="uc-name">{{ displayName }}</span>
+            <span class="uc-role" :class="{ 'is-admin': isAdmin }">{{ isAdmin ? '管理员' : '游客' }}</span>
+          </div>
+          <NuxtLink v-if="isAdmin" to="/admin" class="nav-admin">后台</NuxtLink>
+          <el-button type="primary" round class="nav-btn" @click="onLogout">退出</el-button>
+        </template>
+        <template v-else>
+          <el-button type="primary" round class="nav-btn" @click="openLogin">登录</el-button>
+          <el-button round class="nav-btn nav-ghost" @click="openRegister">注册</el-button>
+        </template>
+      </nav>
+    </header>
+
+    <main class="page">
+      <NuxtRouteAnnouncer />
+      <NuxtPage />
+    </main>
+
+    <footer class="site-footer">
+      <div class="foot-brand">
+        <span class="foot-mark">✦</span> 亿轨星途
+      </div>
+      <button class="music-toggle" :class="{ on: musicOn }" @click="toggleMusic" :aria-label="musicOn ? '关闭背景音乐' : '播放背景音乐'">
+        <span class="glyph">♫</span>
+        <span class="music-label">{{ musicOn ? '关闭背景音乐' : '播放背景音乐' }}</span>
+      </button>
+    </footer>
+
+    <el-dialog v-model="loginVisible" class="auth-modal" :show-close="false" width="400px" :close-on-click-modal="true">
+      <div class="auth-card">
+        <div class="brand-line">✦ 亿轨星途</div>
+        <h2 class="auth-title">欢迎回来</h2>
+        <p class="auth-sub">登录后，继续绘制你的星图</p>
+        <el-form label-position="top" class="auth-form" @submit.prevent="onLogin">
+          <el-form-item label="用户名"><el-input v-model="form.username" placeholder="请输入用户名" size="large" /></el-form-item>
+          <el-form-item label="密码"><el-input v-model="form.password" type="password" show-password placeholder="请输入密码" size="large" @keyup.enter="onLogin" /></el-form-item>
+        </el-form>
+        <div class="auth-row">
+          <el-checkbox v-model="rememberPassword">记住密码</el-checkbox>
+          <el-link type="primary" :underline="false" @click="switchToRegister">去注册</el-link>
+        </div>
+        <el-button type="primary" class="auth-submit" :loading="loading" @click="onLogin">登 录</el-button>
+      </div>
+    </el-dialog>
+
+    <el-dialog v-model="registerVisible" class="auth-modal" :show-close="false" width="400px" :close-on-click-modal="true">
+      <div class="auth-card">
+        <div class="brand-line">✦ 亿轨星途</div>
+        <h2 class="auth-title">创建账号</h2>
+        <p class="auth-sub">开始记录你的第一篇</p>
+        <el-form label-position="top" class="auth-form" @submit.prevent="onRegister">
+          <el-form-item label="用户名"><el-input v-model="regForm.username" placeholder="设置用户名" size="large" /></el-form-item>
+          <el-form-item label="昵称"><el-input v-model="regForm.nickname" placeholder="怎么称呼你" size="large" /></el-form-item>
+          <el-form-item label="密码"><el-input v-model="regForm.password" type="password" show-password placeholder="设置密码" size="large" /></el-form-item>
+        </el-form>
+        <el-button type="primary" class="auth-submit" :loading="regLoading" @click="onRegister">注 册</el-button>
+        <div class="auth-row center"><el-link type="primary" :underline="false" @click="switchToLogin">已有账号？去登录</el-link></div>
+      </div>
+    </el-dialog>
+  </div>
+</template>
+
+<script setup>
+import { ElMessage } from 'element-plus'
+const { login, register, token, user } = useAuth()
+const { loginVisible, registerVisible, openLogin, openRegister } = useAuthUi()
+const { request } = useApi()
+
+// ---------- 登录状态提示 ----------
+const isAdmin = computed(() => user.value?.role === 'ADMIN')
+const displayName = computed(() => user.value?.nickname || user.value?.username || '已登录')
+const avatarText = computed(() =>
+  String(user.value?.nickname || user.value?.username || '?').slice(0, 1).toUpperCase()
+)
+
+const bgVideo = ref()
+const musicOn = ref(false)
+
+// ---------- 背景视频性能优化 ----------
+// 页面切到后台（切标签页 / 最小化窗口）时暂停视频，避免白白占用 CPU 和显卡
+const onVisibilityChange = () => {
+  if (!bgVideo.value) return
+  if (document.hidden) bgVideo.value.pause()
+  else bgVideo.value.play().catch(() => {})
+}
+onBeforeUnmount(() => document.removeEventListener('visibilitychange', onVisibilityChange))
+const toggleMusic = () => { musicOn.value = !musicOn.value; if (bgVideo.value) bgVideo.value.muted = !musicOn.value }
+const onLogout = () => { token.value = null; ElMessage.success('已退出'); navigateTo('/') }
+const onDev = () => ElMessage.info('该页面开发中')
+
+const form = reactive({ username: '', password: '' })
+const regForm = reactive({ username: '', nickname: '', password: '' })
+const rememberPassword = ref(false)
+const loading = ref(false)
+const regLoading = ref(false)
+const remember = useCookie('rememberMe')
+onMounted(async () => {
+  // 记住密码回填
+  if (remember.value?.username) { form.username = remember.value.username; form.password = remember.value.password; rememberPassword.value = true }
+
+  // 刷新页面后 useState('user') 会变回 null，但 cookie 里的 token 还在。
+  // 用 /auth/me 把用户信息补回来，顶部才能正确显示昵称和角色。
+  if (token.value && !user.value) {
+    const res = await request('/auth/me')
+    if (res.ok) user.value = res.data
+  }
+
+  // 绑定"切到后台就暂停背景视频"
+  document.addEventListener('visibilitychange', onVisibilityChange)
+})
+const switchToRegister = () => { loginVisible.value = false; registerVisible.value = true }
+const switchToLogin = () => { registerVisible.value = false; loginVisible.value = true }
+const onLogin = async () => {
+  if (!form.username || !form.password) return ElMessage.warning('请输入用户名和密码')
+  loading.value = true
+  const res = await login(form.username, form.password)
+  loading.value = false
+  if (res.ok) {
+    if (rememberPassword.value) remember.value = { username: form.username, password: form.password }
+    else remember.value = null
+    ElMessage.success('登录成功'); loginVisible.value = false; navigateTo('/')
+  } else { ElMessage.error(res.message) }
+}
+const onRegister = async () => {
+  regLoading.value = true
+  const res = await register(regForm)
+  regLoading.value = false
+  if (res.ok) { ElMessage.success('注册成功，去登录'); registerVisible.value = false; switchToLogin() }
+  else { ElMessage.error(res.message) }
+}
+</script>
+
+<style>
+:root {
+  --bg: #0e1a36; --surface: #16264a; --surface-2: #1f345c;
+  --ink: #f6faff; --muted: #b6c8e0; --line: rgba(150,190,240,.14);
+  --accent: #f2c14e; --accent-strong: #ffd96b; --cyan: #59d6e6;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: "PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans SC","Segoe UI",system-ui,sans-serif; -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+
+/* ===== 布局骨架：让页脚贴住视口底部 =====
+   【修的是什么】
+   原来 .shell 是个普通 div（display: block），
+   导航 / 内容 / 页脚就是普通文档流，一个接一个往下排。
+   内容不够高时（后台页、文章页），页脚停在自己内容的下方，
+   页面底部就空出一片 —— 实测：后台空 81px、文章页空 63px。
+
+   【怎么修】经典的 "sticky footer" 三件套：
+     ① 容器改成纵向 flex
+     ② 容器至少占满一屏（min-height: 100vh）
+     ③ 内容区 flex:1 吃掉剩余空间，自然把页脚挤到底部
+   内容超出视口时行为完全不变（照常往下滚），首页那种长页面不受影响。
+
+   顺带说：背景视频和遮罩是 position: fixed，
+   它们【不参与】文档流，所以不会变成 flex 子项来捣乱。 */
+.shell { display: flex; flex-direction: column; min-height: 100vh; min-height: 100dvh; }
+/* 导航是 sticky、页脚是固定高度，都不允许被 flex 压缩 */
+.site-nav, .site-footer { flex-shrink: 0; }
+/* 内容区：flex-basis 用 auto（按内容撑），有剩余空间时再长高把它吃满 */
+.page { flex: 1 0 auto; }
+
+/* 视频每帧都要跑一遍 filter，所以只保留必要的 brightness。
+   原来的 contrast + saturate 去掉，能明显减少每帧的 GPU 开销。 */
+.bg-video { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: -10; pointer-events: none; filter: brightness(1.35); transform: translateZ(0); will-change: transform; }
+.bg-overlay { position: fixed; inset: 0; z-index: -9; pointer-events: none; background: rgba(6,12,26,.12); backdrop-filter: blur(0); }
+
+.site-nav { position: sticky; top: 0; z-index: 200; display: flex; align-items: center; justify-content: space-between; height: 64px; padding: 0 32px; background: rgba(14,24,48,.62); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-bottom: 1px solid rgba(150,190,240,.10); box-shadow: inset 0 1px 0 rgba(255,255,255,.06); }
+.brand { display: flex; align-items: center; gap: 10px; text-decoration: none; }
+.brand-mark { width: 32px; height: 32px; border-radius: 10px; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, var(--accent-strong), var(--accent)); color: #0a1224; font-size: 15px; font-weight: 800; box-shadow: 0 4px 16px rgba(242,193,78,.45); animation: markPulse 4s ease-in-out infinite; }
+.brand-name { font-size: 18px; font-weight: 800; letter-spacing: 1px; background: linear-gradient(100deg, var(--accent-strong), #ffffff, var(--accent)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.site-nav::after { content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 1px; background: linear-gradient(90deg, transparent, var(--accent), var(--cyan), transparent); background-size: 200% 100%; animation: navline 6s linear infinite; }
+@keyframes markPulse { 0%,100% { box-shadow: 0 4px 16px rgba(242,193,78,.45); } 50% { box-shadow: 0 4px 26px rgba(242,193,78,.75); } }
+@keyframes navline { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+.nav-center { flex: 1; display: flex; align-items: center; justify-content: center; gap: 4px; }
+.nv { padding: 8px 12px; border-radius: 10px; color: var(--muted); font-size: 14px; font-weight: 500; text-decoration: none; cursor: pointer; transition: .2s; }
+.nv:hover { color: var(--ink); background: rgba(255,255,255,.05); }
+.nv-btn { background: none; border: none; color: inherit; font: inherit; cursor: pointer; display: flex; align-items: center; gap: 4px; }
+.caret { font-size: 10px; }
+.dd { position: relative; }
+.dd-menu { position: absolute; top: 100%; left: 0; margin-top: 6px; background: rgba(14,24,48,.95); border: 1px solid var(--line); border-radius: 12px; padding: 6px; min-width: 120px; opacity: 0; visibility: hidden; transform: translateY(6px); transition: .2s; box-shadow: 0 12px 30px rgba(0,0,0,.4); }
+.dd:hover .dd-menu { opacity: 1; visibility: visible; transform: none; }
+.dd-menu a { display: block; padding: 8px 12px; border-radius: 8px; color: var(--muted); font-size: 13px; cursor: pointer; white-space: nowrap; }
+.dd-menu a:hover { color: var(--accent); background: rgba(242,193,78,.12); }
+.nav-right { display: flex; align-items: center; gap: 8px; }
+.icon-btn { width: 36px; height: 36px; border-radius: 10px; background: none; border: 1px solid transparent; color: var(--muted); font-size: 16px; cursor: pointer; transition: .2s; }
+.icon-btn:hover { color: var(--accent); border-color: var(--line); }
+@media (max-width: 1000px) { .nav-center { display: none; } }
+/* 登录状态胶囊：头像首字 + 昵称 + 角色标签 */
+.user-chip { display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 12px 0 4px; border-radius: 999px; background: rgba(255,255,255,.06); border: 1px solid var(--line); }
+.uc-avatar { width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, var(--accent-strong), var(--accent)); color: #0a1224; font-size: 13px; font-weight: 800; }
+.uc-name { font-size: 13px; font-weight: 600; color: var(--ink); max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.uc-role { font-size: 11px; padding: 1px 8px; border-radius: 999px; background: rgba(150,190,240,.14); color: var(--muted); }
+.uc-role.is-admin { background: rgba(242,193,78,.18); color: var(--accent); font-weight: 700; }
+@media (max-width: 1000px) { .uc-name { display: none; } }
+
+.nav-admin { display: inline-flex; align-items: center; height: 32px; padding: 0 16px; border-radius: 999px; background: linear-gradient(135deg, var(--accent-strong), var(--accent)); color: #0a1224; font-weight: 700; font-size: 14px; text-decoration: none; transition: transform .2s ease, box-shadow .2s ease; }
+.nav-admin:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(242,193,78,.4); }
+.nav-btn { font-weight: 600; }
+.nav-ghost { background: rgba(255,255,255,.05); border: 1px solid var(--line); color: var(--ink) !important; backdrop-filter: blur(10px); }
+.nav-ghost:hover { border-color: var(--accent); color: var(--accent) !important; }
+
+.el-button--primary { --el-button-bg-color: var(--accent); --el-button-border-color: var(--accent); --el-button-hover-bg-color: var(--accent-strong); --el-button-hover-border-color: var(--accent-strong); --el-button-text-color: #0a1224; --el-button-hover-text-color: #0a1224; }
+
+.site-footer { position: relative; z-index: 1; margin-top: 40px; padding: 34px 32px 40px; border-top: 1px solid rgba(150,190,240,.10); display: flex; align-items: center; justify-content: space-between; gap: 16px; backdrop-filter: blur(16px); background: rgba(12,22,44,.32); }
+.foot-brand { display: flex; align-items: center; gap: 8px; font-weight: 700; color: var(--ink); letter-spacing: .5px; }
+.foot-mark { color: var(--accent); }
+.music-toggle { display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 16px; border-radius: 999px; background: rgba(255,255,255,.06); border: 1px solid rgba(150,190,240,.16); color: var(--muted); cursor: pointer; backdrop-filter: blur(12px); transition: border-color .2s ease, color .2s ease, transform .2s ease; }
+.music-toggle:hover { border-color: var(--accent); color: var(--ink); transform: translateY(-1px); }
+.music-toggle.on { border-color: var(--accent); color: var(--accent); }
+.music-toggle.on .glyph { animation: spin 4s linear infinite; }
+.music-toggle .glyph { font-style: normal; font-size: 16px; }
+.music-toggle .music-label { font-size: 13px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.auth-modal { border-radius: 20px; overflow: hidden; background: rgba(10,18,36,.55); backdrop-filter: blur(26px) saturate(150%); -webkit-backdrop-filter: blur(26px) saturate(150%); border: 1px solid rgba(150,190,240,.14); box-shadow: 0 26px 90px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.08); }
+.auth-modal .el-dialog__header { display: none; }
+.auth-modal .el-dialog__body { padding: 0; background: transparent; }
+.auth-card { padding: 36px 36px 30px; color: var(--ink); }
+.brand-line { font-size: 13px; font-weight: 700; color: var(--accent); letter-spacing: 2px; margin-bottom: 18px; }
+.auth-title { margin: 0 0 6px; font-size: 26px; font-weight: 800; letter-spacing: 0; }
+.auth-sub { margin: 0 0 26px; color: var(--muted); font-size: 14px; }
+.auth-form .el-form-item { margin-bottom: 18px; }
+.auth-form .el-form-item__label { color: var(--muted); font-weight: 600; padding-bottom: 6px; }
+.auth-form .el-input__wrapper { background: #0d1b38 !important; box-shadow: 0 0 0 1px var(--line) inset !important; border-radius: 12px; }
+.auth-form .el-input__wrapper.is-focus { box-shadow: 0 0 0 1.5px var(--cyan) inset !important; }
+.auth-form .el-input__inner { color: var(--ink) !important; }
+.auth-form .el-input__inner::placeholder { color: var(--muted) !important; }
+.auth-form .el-input__inner:-webkit-autofill, .auth-form .el-input__inner:-webkit-autofill:hover, .auth-form .el-input__inner:-webkit-autofill:focus { -webkit-box-shadow: 0 0 0 1000px #0d1b38 inset !important; -webkit-text-fill-color: var(--ink) !important; caret-color: var(--ink); transition: background-color 9999s ease-out 0s; }
+.auth-row { display: flex; align-items: center; justify-content: space-between; margin: 4px 0 22px; color: var(--muted); }
+.auth-row.center { justify-content: center; }
+.auth-row .el-checkbox__label { color: var(--muted); }
+.auth-submit { width: 100%; height: 48px; border-radius: 12px; font-weight: 700; font-size: 16px; }
+
+.el-button { transition: transform .18s ease, box-shadow .18s ease, opacity .18s ease; }
+.el-button:not(.is-text):not(.is-link):hover { transform: translateY(-1px) scale(1.02); }
+.el-button:not(.is-text):not(.is-link):active { transform: translateY(0) scale(.97); }
+@keyframes navIn { from { opacity: 0; transform: translateY(-14px); } to { opacity: 1; transform: none; } }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes dialogIn { from { opacity: 0; transform: translateY(18px) scale(.96); } to { opacity: 1; transform: none; } }
+.site-nav { animation: navIn .5s cubic-bezier(.16,.84,.28,1) both; }
+.page { animation: fadeIn .5s ease both; position: relative; z-index: 1; }
+.auth-modal { animation: dialogIn .38s cubic-bezier(.16,.84,.28,1); }
+@media (prefers-reduced-transparency: reduce) { .auth-modal, .auth-form .el-input__wrapper { background: var(--surface); } }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
