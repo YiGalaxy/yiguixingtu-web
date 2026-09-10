@@ -21,7 +21,7 @@ export const useAuth = () => {
 
     // ----------【2】后端地址：从配置里取 ----------
     // 关键词：useRuntimeConfig() = 取回 nuxt.config.ts 里配的 runtimeConfig。
-    //         config.public.apiBase = 就是那里写的 http://localhost:8081。
+    //         config.public.apiBase = 就是那里写的 http://localhost:8082。
     // 为什么：前端要知道后端在哪。我们不把地址写死在各处请求里，
     //         而是配在一处、代码统一取 —— 将来改地址只改一处。
     const config = useRuntimeConfig()
@@ -45,7 +45,7 @@ export const useAuth = () => {
             // 为什么：这就是"真正的登录动作"——把账号密码通过 POST 发给后端 /auth/login，
             //         并 await 等后端核对完、把结果发回来。
             const res = await $fetch('/auth/login', {
-                baseURL: config.public.apiBase,    // 后端地址(8081)
+                baseURL: config.public.apiBase,    // 后端地址(8082)
                 method: 'POST',                    // 提交数据
                 body: { username, password },      // 要发送的账号密码
             })

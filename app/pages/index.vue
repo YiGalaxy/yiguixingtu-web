@@ -4,7 +4,8 @@
     <div class="search-wrap">
       <div class="searchbox glass">
         <span class="s-ico">⌕</span>
-        <input v-model="kw" placeholder="输入关键词探索更多..." />
+        <input v-model="kw" placeholder="输入关键词后按回车搜索..." @keyup.enter="doSearch" />
+        <button v-if="kw" class="s-clear" title="清除" @click="clearSearch">✕</button>
       </div>
     </div>
 
@@ -19,9 +20,9 @@
           </div>
         </div>
         <div class="pf-stats">
-          <div class="st"><b>0</b><span>文章</span></div>
-          <div class="st"><b>0</b><span>阅读</span></div>
-          <div class="st"><b>0</b><span>分类</span></div>
+          <div class="st"><b>{{ stat.articles }}</b><span>文章</span></div>
+          <div class="st"><b>{{ stat.views }}</b><span>浏览</span></div>
+          <div class="st"><b>{{ stat.categories }}</b><span>分类</span></div>
         </div>
         <div class="pf-links">
           <span class="pl" title="GitHub">GU</span>
@@ -59,16 +60,38 @@
 
     <!-- 文章瀑布流（带封面） -->
     <section class="waterfall-wrap" id="articles">
-      <div class="w-head"><h2>最新文章</h2></div>
-      <div class="waterfall">
-        <a v-for="(a, i) in articles" :key="i" href="#" class="af glass" :class="a.cls" @click.prevent="ElMessage.info('「'+a.title+'」页面开发中')">
-          <div class="af-cover"><img :src="a.cover" /></div>
+      <div class="w-head">
+        <h2>{{ kw ? '「' + kw + '」的搜索结果' : '最新文章' }}</h2>
+        <span v-if="kw" class="w-clear" @click="clearSearch">清除搜索</span>
+      </div>
+
+      <!-- 三种状态：加载中 / 空 / 有数据。
+           用 v-if / v-else-if / v-else 是【互斥】的 —— 同一时刻只会渲染一个，
+           不会出现"转圈的同时还显示着上次的数据"这种错乱。 -->
+      <div v-if="loading && articles.length === 0" class="w-empty">加载中…</div>
+      <div v-else-if="articles.length === 0" class="w-empty">
+        {{ kw ? '没有找到相关文章，换个词试试' : '还没有发布任何文章' }}
+      </div>
+      <div v-else class="waterfall">
+        <a v-for="(a, i) in articles" :key="a.id" href="#" class="af glass"
+           :class="{ big: i === 0 }"
+           @click.prevent="goArticle(a.id)">
+          <div class="af-cover"><img :src="coverOf(a, i)" :alt="a.title" loading="lazy" /></div>
           <div class="af-body">
-            <span class="af-tag">{{ a.tag }}</span>
+            <span class="af-tag">{{ a.categoryName || '未分类' }}</span>
             <h3 class="af-title">{{ a.title }}</h3>
-            <span class="af-go">阅读 ↗</span>
+            <p v-if="a.summary" class="af-sum">{{ a.summary }}</p>
+            <div class="af-meta">
+              <span>{{ fmtDate(a.createTime) }}</span>
+              <span>{{ a.viewCount || 0 }} 次浏览</span>
+              <span class="af-go">阅读全文 ↗</span>
+            </div>
           </div>
         </a>
+      </div>
+
+      <div v-if="hasMore && !loading" class="w-more">
+        <button class="more-btn" @click="loadMore">加载更多</button>
       </div>
     </section>
 
@@ -134,14 +157,73 @@ const prev = () => { cur.value = (cur.value - 1 + tracks.length) % tracks.length
 const next = () => { cur.value = (cur.value + 1) % tracks.length; resetAudio() }
 const resetAudio = () => { if (audioRef.value) { audioRef.value.currentTime = 0; prog.value = 0; if (playing.value) audioRef.value.play() } }
 
-const articles = [
-  { tag: '技术', title: 'Spring Boot + JWT 登录鉴权复盘', cover: '/cover-1.png', cls: 'big' },
-  { tag: '读书', title: '《月亮与六便士》', cover: '/cover-2.png' },
-  { tag: '随笔', title: '写在深夜', cover: '/cover-3.png' },
-  { tag: '设计', title: '为什么博客需要 SSR', cover: '/cover-2.png' },
-  { tag: '开发', title: 'Markdown 写作与渲染', cover: '/cover-3.png' },
-  { tag: '生活', title: '把日子过成一首诗', cover: '/cover-1.png' },
-]
+// ================================================================
+//  文章列表：从后端真实拉取
+// ================================================================
+const { request } = useApi()
+
+const articles = ref([])
+const total = ref(0)            // 后端返回的【总条数】，不是当前页条数
+const loading = ref(false)
+const categories = ref([])
+const page = ref(1)
+const SIZE = 12                 // 每页 12 篇，3 列瀑布流正好 4 行
+
+// 个人卡片上的三个数字
+const stat = computed(() => ({
+  articles: total.value,
+  categories: categories.value.length,
+  // 【注意】浏览数是"已加载文章"的合计，不是全站总数。
+  // 想要精确总数，需要后端加一个统计接口（比如 GET /article/stats
+  // 直接 SELECT SUM(view_count) FROM article WHERE status=1）。
+  // 现在够用，等文章多了再补。
+  views: articles.value.reduce((sum, a) => sum + (a.viewCount || 0), 0),
+}))
+
+// 封面兜底：文章没填封面时，用自带的 3 张图轮着顶，避免出现破图
+const DEFAULT_COVERS = ['/cover-1.png', '/cover-2.png', '/cover-3.png']
+const coverOf = (a, i) => a.cover || DEFAULT_COVERS[i % DEFAULT_COVERS.length]
+
+// 还有没有下一页：已加载条数 < 总数 就说明还有
+const hasMore = computed(() => articles.value.length < total.value)
+
+/**
+ * 拉文章列表。
+ * @param append true=追加到列表末尾（加载更多），false=整页替换（搜索/刷新）
+ *
+ * 这里请求的是【前台公开接口】/article/page —— 它只返回已发布的文章，
+ * 所以你后台的草稿绝不会出现在首页上（这条在 ArticlePublicTest 里有测试守着）。
+ */
+const fetchArticles = async (append = false) => {
+  loading.value = true
+  const res = await request('/article/page', {
+    params: {
+      page: page.value,
+      size: SIZE,
+      keyword: kw.value || undefined,     // 空字符串不要发过去
+    },
+  })
+  loading.value = false
+  if (!res.ok) return
+
+  const records = res.data.records || []
+  articles.value = append ? [...articles.value, ...records] : records
+  total.value = Number(res.data.total) || 0
+}
+
+const fetchCategories = async () => {
+  const res = await request('/category/list')
+  if (res.ok) categories.value = res.data || []
+}
+
+// ---------- 搜索 / 分页 / 跳转 ----------
+const doSearch = () => { page.value = 1; fetchArticles(false) }
+const clearSearch = () => { kw.value = ''; doSearch() }
+const loadMore = () => { page.value += 1; fetchArticles(true) }
+const goArticle = (id) => navigateTo('/article/' + id)
+
+// 时间只显示到"天"，卡片上不需要精确到秒
+const fmtDate = (t) => (t ? String(t).replace('T', ' ').slice(0, 10) : '')
 
 const now = reactive({ time: '', date: '' })
 const tick = () => { const d = new Date(); now.time = d.toLocaleTimeString('zh-CN', { hour12: false }); now.date = d.toLocaleDateString('zh-CN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) }
@@ -165,6 +247,12 @@ const onMove = (e) => { if (!drag) return; pos[drag.k].x = drag.ox + (e.clientX 
 const onUp = () => { drag = null; document.removeEventListener('pointermove', onMove); document.removeEventListener('pointerup', onUp) }
 
 const onMascot = () => { ElMessage.info('欢迎来到亿轨星途 ✦') }
+
+// 首屏加载：文章列表 + 分类（两个请求互不依赖，并行发）
+onMounted(() => {
+  fetchArticles(false)
+  fetchCategories()
+})
 </script>
 
 <style scoped>
@@ -229,6 +317,38 @@ const onMascot = () => { ElMessage.info('欢迎来到亿轨星途 ✦') }
 .af-tag { font-size: 12px; color: #cfe0f0; border: 1px solid rgba(180,210,245,.25); border-radius: 999px; padding: 2px 10px; }
 .af-title { font-size: 17px; font-weight: 700; line-height: 1.4; margin: 10px 0 8px; color: var(--ink); }
 .af-go { color: var(--accent); font-size: 12px; font-weight: 600; }
+
+/* 卡片摘要：最多 2 行，超出打省略号。
+   -webkit-line-clamp 是"多行省略"的标准写法（带前缀，但 Chrome/Edge/Safari/Firefox 都支持）。 */
+.af-sum {
+  color: var(--muted); font-size: 13px; line-height: 1.6; margin: 0 0 10px;
+  display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2;
+  -webkit-box-orient: vertical; overflow: hidden;
+}
+.af-meta { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 12px; }
+.af-meta .af-go { margin-left: auto; }   /* 把"阅读全文"推到最右边 */
+
+/* 标题行改成两端对齐：左边标题，右边「清除搜索」 */
+.w-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 20px; }
+.w-head h2 { margin: 0; }
+.w-clear { color: var(--accent); font-size: 13px; cursor: pointer; }
+.w-empty { text-align: center; color: var(--muted); padding: 60px 0; font-size: 14px; }
+.w-more { text-align: center; margin-top: 6px; }
+
+/* 「加载更多」按钮。
+   特意没用 .glass —— 玻璃类带 backdrop-filter，
+   而这个按钮长期停留在页面底部，没必要为它付"每帧重新模糊"的代价。 */
+.more-btn {
+  background: rgba(30,47,82,.66);
+  border: 1px solid rgba(180,210,245,.18);
+  color: var(--ink); padding: 10px 30px; border-radius: 999px;
+  cursor: pointer; font-size: 14px; transition: border-color .2s, color .2s;
+}
+.more-btn:hover { border-color: rgba(242,193,78,.5); color: var(--accent); }
+
+/* 搜索栏右侧的清除按钮 */
+.s-clear { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 14px; padding: 4px 6px; }
+.s-clear:hover { color: var(--accent); }
 
 .mascot { position: fixed; right: 22px; top: 45%; width: 84px; height: 84px; border-radius: 50%; overflow: hidden; cursor: pointer; border: 2px solid rgba(242,193,78,.5); box-shadow: 0 12px 30px rgba(0,0,0,.4); animation: bob 5s ease-in-out infinite; z-index: 5; }
 .mascot img { width: 100%; height: 100%; object-fit: cover; }
