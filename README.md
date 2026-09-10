@@ -178,6 +178,65 @@ npm run lint:fix     # 自动修掉能修的部分
 > ⚠️ **本仓库目前还没有 GitHub 远程地址**，所以工作流文件已就位但还没真正跑过。
 > 建好远程仓库、推上去之后，README 顶部的 CI 徽章按注释里的说明替换 URL 即可。
 
+## 部署
+
+### 方式一：交给后端仓库的 compose 统一编排（推荐）
+
+本仓库提供了 `Dockerfile`（多阶段构建的 Nuxt 4 SSR 镜像）。
+上线时**不需要单独起它** —— 后端仓库的 `docker-compose.prod.yaml` 里已经包含
+一个 `frontend` 服务，会构建本镜像，并和后端、数据库一起编排：
+
+```bash
+# 默认假设两个仓库是同级目录，例如 /srv/yiguixingtu 与 /srv/yiguixingtu-web
+cd /srv/yiguixingtu
+# 准备好 .env（变量清单见后端仓库 README 的「部署」章节）
+docker compose -f docker-compose.prod.yaml up -d --build
+```
+
+一次就把 4 个容器都起起来（mysql / redis / backend / frontend），
+并且在同一个内网里 —— 前端用服务名 `backend` 直接访问后端。
+
+> 前端仓库不在同级目录时，在 `.env` 里指定 `FRONTEND_DIR=/你的/实际/路径`。
+
+### 方式二：单独构建与运行
+
+```bash
+docker build -t yiguixingtu-web .
+
+docker run -d --name yiguixingtu-web \
+  -p 3000:3000 \
+  -e NUXT_PUBLIC_API_BASE=https://你的域名/api \
+  -e NUXT_API_BASE_SERVER=http://后端地址:8082 \
+  yiguixingtu-web
+```
+
+### 两个环境变量的分工（**部署时最要紧的一点**）
+
+镜像只构建一次，两个地址在**运行时**用环境变量注入：
+
+| 变量 | 谁在用 | 填什么 |
+|---|---|---|
+| `NUXT_PUBLIC_API_BASE` | **浏览器** | 对外可访问的后端地址，例如 `https://你的域名/api`。它会打进前端产物，**不能放密钥** |
+| `NUXT_API_BASE_SERVER` | **服务端渲染** | 后端的内网地址，例如 `http://backend:8082`。SSR 直连内网，不用绕公网域名 |
+
+**为什么必须分开**：文章详情页是 SSR 的，请求发生在服务器上。
+如果那时也去请求公开域名，等于绕一圈 DNS + Nginx 再回到同一台机器，
+白白多几十毫秒；域名没配好时 SSR 还会直接失败。
+（选地址的逻辑在 `app/composables/useApi.ts` 的 `resolveApiBase()`。）
+
+**镜像里没有 nginx**：Nuxt 的构建产物 `.output/server/index.mjs` 本身就是
+一个 Node 服务，同时负责渲染页面和提供静态资源，对外统一由宿主机的 Nginx 反代。
+
+### 上线前的检查
+
+| # | 检查项 |
+|---|---|
+| 1 | `NUXT_PUBLIC_API_BASE` 是真实域名，且与后端的 `CORS_ALLOWED_ORIGINS` 对得上 |
+| 2 | 浏览器打开站点，F12 里没有跨域报错 |
+| 3 | 文章详情页"查看源代码"能看到正文（说明 SSR 生效，对 SEO 很重要） |
+| 4 | 后端地址用的是服务名/内网地址，不是 `localhost`（容器里的 `localhost` 指容器自己） |
+
+
 **测试环境**：Vitest 5 + `@nuxt/test-utils` 4，跑在 **nuxt 环境**而不是裸的 jsdom。
 
 > **为什么必须用 nuxt 环境？** 被测代码用的是 Nuxt 自动导入的 API
