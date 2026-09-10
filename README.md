@@ -11,7 +11,7 @@
 > 基于 Nuxt 4 + Vue 3 + Element Plus 的个人博客前端
 > 后端为独立仓库 `yiguixingtu`（Spring Boot 4，默认跑在 `localhost:8082`）
 >
-> **219 个测试用例 + ESLint + 生产构建，全部在 CI 里自动跑**（见下文「持续集成」）
+> **223 个测试用例 + ESLint + 生产构建，全部在 CI 里自动跑**（见下文「持续集成」）
 
 ## 项目简介
 
@@ -183,7 +183,7 @@ npm run lint:fix     # 自动修掉能修的部分
 | 步骤 | 命令 | 为什么单独一步 |
 |------|------|---------------|
 | 代码检查 | `npm run lint` | 串成一条命令的话，Actions 页面只会显示一句 exit 1，看不出是哪一步挂的 |
-| 运行测试 | `npm run test` | 219 个用例；**不需要后端与数据库**，CI 里不用起任何服务 |
+| 运行测试 | `npm run test` | 223 个用例；**不需要后端与数据库**，CI 里不用起任何服务 |
 | 生产构建 | `npm run build` | 保证"测试过了但build 不过"这种情况不会漏到线上 |
 
 用 `npm ci` 而不是 `npm install`：它严格按 `package-lock.json` 安装，
@@ -264,7 +264,7 @@ docker run -d --name yiguixingtu-web \
 > 这些在裸 node / jsdom 里根本不存在。用 nuxt 环境测的是"代码在 Nuxt 里的真实行为"，
 > 而不是把所有依赖都 mock 掉自己骗自己。
 
-**当前 13 个测试文件、219 个用例：**
+**当前 14 个测试文件、223 个用例：**
 
 | 测试文件 | 用例数 | 覆盖 |
 |---------|:---:|------|
@@ -280,6 +280,7 @@ docker run -d --name yiguixingtu-web \
 | `test/media.nuxt.spec.ts` | 35 | 媒体地址与 dev 媒体路由：`mediaUrl()` 要拼出 `/media/xxx`、**可以**被运行时配置覆盖（换 CDN）、空值回到默认前缀、非法文件名（斜杠 / 反斜杠 / `%2e%2e%2f` / 隐藏文件 / 空名字）一律拒绝；`resolveMediaFile()` 的**路径穿越防护**（上跳、子目录、换扩展名、空字节共 12 种变形都拒绝，且解析结果必须落在媒体目录内）；`parseRangeHeader()` 的边界（`bytes=100-`、`bytes=-500`、终点越界截断、起点越界回 416、多区间与畸形头当作没有 Range） |
 | `test/loginRateLimit.nuxt.spec.ts` | 7 | **挂载整个应用外壳**测登录被限流时界面到底什么样：提示是"太频繁"而不是"网络异常"、登录按钮真的 `disabled` 且按钮上写着还有多少秒、冷却期间连点**不再发请求**、**按回车提交也被拦**（回车绕得过 disabled）、倒计时结束后按钮自己活过来、成功与密码错误都不进入冷却 |
 | `test/useRememberedLogin.nuxt.spec.ts` | 16 | 「记住用户名」：构造出来的 cookie **只含 `username`**（白名单断言，写不出 password）、用户名为空时不写 cookie；读回填兼容对象 / JSON 字符串 / 纯字符串三种形态；**老 cookie（带明文密码）在挂载时被主动改写成只含用户名**（对象与字符串两种形态都测）、新格式不做无意义写入；**挂载整个外壳**验证：浏览器里那条带密码的 cookie 被清掉、输入框只回填用户名而**密码框是空的**、勾选后登录写入的 cookie 里不含密码、没勾则删掉 cookie |
+| `test/linkUnderline.nuxt.spec.ts` | 4 | `el-link` 的 `underline` **不再传废弃的布尔值**：外壳里两个链接（登录弹窗的「去注册」、注册弹窗的「已有账号？去登录」）拿到的 prop 都是字符串 `'never'`、**渲染它们时一条 `ElementPlusError` 都不打印**（改之前会打 2~3 条）、类名与改之前一致（`never` 既不带 `is-underline` 也不带 `is-hover-underline`）；并配了一条**对照组**：直接给 `ElLink` 传 `underline: false` 时确实会打印那段警告 —— 否则一个从未被触发过的 `console.warn` 间谍会让"没有警告"永远为真 |
 
 **为什么先测这几个**：
 - `useApi` 是全部请求的唯一出口，页面自己不做错误处理，全靠它返回的 `ok` / `code`。
@@ -333,6 +334,12 @@ docker run -d --name yiguixingtu-web \
   `X-B3-TraceId`）、或者只盯着 catch 分支而漏掉 HTTP 200 的业务失败，
   两种写法都不会报错，只会让用户永远看不到追踪号 ——
   而这种"少了一个号"的缺失，只有在真出事、需要排查的时候才会被发现。
+- `linkUnderline.nuxt.spec.ts` 守的是**"控制台警告不许再回来"**：
+  废弃 API 的警告本身不影响功能，所以没有任何工具会拦着它被写回去 ——
+  危害恰恰在于"不影响功能"：stderr 每次都刷一遍，真正的报错混在里面就被忽略了
+  （本项目的「已知待办」里正是因为同类警告吃过一次亏）。
+  写法和上一节的对照组同理：先证明"传布尔值确实会打警告"，
+  再说"现在的写法一条都不打"，否则一条永远为真的断言什么也守不住。
 
 > 组件测试用 `mountSuspended(组件, { route: '/?keyword=nuxt' })` 造"刷新页面"的场景；
 > 断言地址栏时不能只 `await flushPromises()`——`router.replace()` 还要过一遍导航守卫
@@ -743,7 +750,23 @@ location /media/ {
 - Element Plus 是全量引入（`app/plugins/element-plus.ts`），没有按需加载
 - 用了 Element Plus 的 `el-dialog` 但**没有注入 z-index / id provider**，
   服务端渲染时控制台会刷一大堆 `ZIndexInjection` / `IdInjection` 警告
-  （不影响功能，但把真正的报错淹掉了，该修）
+  （不影响功能，但把真正的报错淹掉了，该修）——
+  和下面那条已修的 `el-link` 警告是同一类问题，修法也一样：找出新 API 换掉，
+  再用断言把旧写法钉死
+
+> ✅ 曾经的「`el-link :underline` 布尔写法触发 `ElementPlusError`」已经修好了：
+> Element Plus 2.14 起 `underline` 的**布尔值**形态废弃，`<el-link :underline="false">`
+> 每次渲染都会往控制台打一段 `The underline option (boolean) is about to be
+> deprecated...`。它不影响功能，所以测试照样全绿 —— 危害恰恰在这里：
+> stderr 每次都刷一遍，真正的报错混在其中就被忽略了。
+> 现在两处链接（登录弹窗的「去注册」、注册弹窗的「已有账号？去登录」）
+> 都写成新 API `underline="never"`，**行为完全等价** ——
+> 组件内部本来就是 `isBoolean(underline) ? (underline ? 'hover' : 'never') : underline`，
+> 也就是说这次只是把"它替我们做的转换"写成了显式值，
+> 顺带让控制台彻底安静下来（实测：改之前每次跑测试都有 3 条，
+> 改之后 `ElementPlusError` 在整轮测试输出里出现了 **0** 次）。
+> 这条由 `test/linkUnderline.nuxt.spec.ts` 的 4 个用例守着，
+> 其中包括一条"传布尔值确实会打警告"的对照组。
 
 ## 许可证
 

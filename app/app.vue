@@ -77,7 +77,16 @@
                除了给自己留一个泄露点（XSS 读得到、随请求发给代理与日志）之外，
                什么功能都没实现。现在只记住用户名，密码不落任何客户端存储。 -->
           <el-checkbox v-model="remember">记住用户名</el-checkbox>
-          <el-link type="primary" :underline="false" @click="switchToRegister">去注册</el-link>
+          <!-- 【为什么是 underline="never" 而不是 :underline="false"】
+               Element Plus 2.14 起，underline 这个 prop 的**布尔值**形态已经废弃，
+               每次渲染都会往控制台打一段 ElementPlusError（不影响功能，
+               但会把真正的报错淹掉）。新 API 是三个字符串：
+                 'never' 永不显示下划线 / 'hover' 悬停才显示 / 'always' 一直显示
+               两者行为**完全等价**：组件内部就是
+                 isBoolean(underline) ? (underline ? 'hover' : 'never') : underline
+               也就是说这里只是把"它替我们做的转换"写成了显式值。
+               旧对象配置 el-config-provider 的 link.underline 同理，也都换字符串。 -->
+          <el-link type="primary" underline="never" @click="switchToRegister">去注册</el-link>
         </div>
         <!-- 登录按钮：被限流之后 disabled + 显示倒计时。
              为什么要禁用而不是只弹一句提示：被 429 拦下之后用户的第一个反应是
@@ -105,7 +114,7 @@
           <el-form-item label="密码"><el-input v-model="regForm.password" type="password" show-password placeholder="设置密码" size="large" /></el-form-item>
         </el-form>
         <el-button type="primary" class="auth-submit" :loading="regLoading" @click="onRegister">注 册</el-button>
-        <div class="auth-row center"><el-link type="primary" :underline="false" @click="switchToLogin">已有账号？去登录</el-link></div>
+        <div class="auth-row center"><el-link type="primary" underline="never" @click="switchToLogin">已有账号？去登录</el-link></div>
       </div>
     </el-dialog>
   </div>
