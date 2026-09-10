@@ -851,7 +851,7 @@ w7.4 之前后台是**一个 2141 行的单文件**：模板、脚本、样式�
 | `app/pages/admin.vue` | **681**（原来 2141） | 外壳：左侧菜单、七个面板的数据编排、跨菜单共享的状态 |
 | `components/admin/OverviewPanel.vue` | 82 | 概览（纯展示） |
 | `components/admin/ArticlesPanel.vue` | 194 | 文章管理（筛选 / 表格 / 分页） |
-| `components/admin/ArticleEditDialog.vue` | 386 | 文章弹窗（表单 + Markdown 编辑器 + 封面上传 + 幂等键） |
+| `components/admin/ArticleEditDialog.vue` | 394 | 文章弹窗（表单 + Markdown 编辑器 + 封面上传 + 幂等键） |
 | `components/admin/UsersPanel.vue` | 310 | 用户管理（含编辑弹窗） |
 | `components/admin/TagsPanel.vue` | 219 | 标签管理（含新建/编辑弹窗） |
 | `components/admin/CategoriesPanel.vue` | 302 | 分类管理（含描述字段与"删除被拒"那条说明） |
