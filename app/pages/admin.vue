@@ -599,6 +599,24 @@ const onArtSortChange = ({ prop, order }) => {
 const artEditVisible = ref(false)
 const artSaving = ref(false)
 
+/**
+ * 本次「新建」动作的幂等键。
+ *
+ * 【为什么是"打开弹窗时生成一次"，而不是"每次点保存生成一次"】
+ *   这两者的区别决定了它能不能真正防住重复提交：
+ *     · 每次点保存都生成新键 → 用户点两下得到两个不同的键，
+ *       后端会认为是两次不同的创建请求，照样写出两篇文章。**拦不住**。
+ *     · 打开弹窗时生成一次、保存成功后换新 → 用户点两下带的是【同一个键】，
+ *       后端第二次直接返回第一次的结果，只产生一篇文章。**这才拦得住**。
+ *   而且还顺带覆盖另一种情况：请求超时了、用户没关弹窗又点了一次保存 ——
+ *   同样是同一个键，不会写出第二篇。
+ *   用户真想再写一篇时会关掉弹窗重新点「新建文章」，那时才换新键。
+ *
+ * 【键的生成逻辑在 useIdempotencyKey 里】抽出去是为了能单独测
+ *   （"同一个动作里键不变、换动作后键变了"这两条正是它要保证的语义）。
+ */
+const { rotate: rotateIdempotencyKey, ensure: ensureIdempotencyKey } = useIdempotencyKey()
+
 const artForm = reactive({
   id: null, title: '', summary: '', content: '', cover: '',
   categoryId: null,
@@ -655,6 +673,9 @@ const resetArtForm = () => {
 
 const openCreate = () => {
   resetArtForm()
+  // 每次「新建」都换一个新幂等键：这一次动作里的所有重复点击共用它。
+  // 详见上面 newArticleIdempotencyKey 的注释（为什么不是每次点保存才生成）。
+  rotateIdempotencyKey()
   artEditVisible.value = true
 }
 
@@ -684,6 +705,14 @@ const saveArticle = async () => {
     return
   }
 
+  // 【第一道防线：连点直接不理】
+  //   按钮上虽然有 :loading="artSaving"（加载中会禁用），
+  //   但那是"界面上的防线"——它依赖按钮真的被渲染成禁用态。
+  //   在极快连点（两次点击落在同一帧）时，第一次点击设置的 artSaving
+  //   还没来得及让浏览器重绘，第二次点击就已经进来了。
+  //   所以这里再拦一道：状态已经是"保存中"就直接返回。
+  if (artSaving.value) return
+
   artSaving.value = true
 
   // 空字符串一律转成 null 提交：
@@ -700,14 +729,28 @@ const saveArticle = async () => {
   }
 
   const isEdit = !!artForm.id
+
+  // 【第二道防线：后端幂等】
+  //   上面那道只挡得住"同一个页面里的连点"，挡不住：
+  //     · 请求超时了、用户刷新页面又提交一次
+  //     · 代理/网关重试把同一个请求发了两次
+  //   所以新建时带上一个幂等键（后端认这个键去重，见 IdempotencyService）。
+  //   编辑（PUT）不带 —— 编辑本身就是幂等的，执行两次结果一样，加了没意义。
   const res = isEdit
     ? await request('/admin/article/' + artForm.id, { method: 'PUT', body })
-    : await request('/admin/article', { method: 'POST', body })
+    : await request('/admin/article', {
+        method: 'POST',
+        body,
+        headers: { 'Idempotency-Key': ensureIdempotencyKey() },
+      })
 
   artSaving.value = false
 
   if (res.ok) {
     ElMessage.success(isEdit ? '已保存' : '文章已创建')
+    // 保存成功后才换新键：这样"这一篇"的整个提交过程（含各种重试）
+    // 都共用同一个键，下一次新建才是新的动作
+    if (!isEdit) rotateIdempotencyKey()
     artEditVisible.value = false
     fetchArticles()
   }
