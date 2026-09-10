@@ -244,18 +244,23 @@ docker run -d --name yiguixingtu-web \
 > 这些在裸 node / jsdom 里根本不存在。用 nuxt 环境测的是"代码在 Nuxt 里的真实行为"，
 > 而不是把所有依赖都 mock 掉自己骗自己。
 
-**当前 2 个测试文件、18 个用例：**
+**当前 3 个测试文件、39 个用例：**
 
 | 测试文件 | 用例数 | 覆盖 |
 |---------|:---:|------|
-| `test/useApi.nuxt.spec.ts` | 12 | 请求封装的**四条失败分支**（业务 code≠200 / 401 / 403 / 网络异常）、token 是否带上、baseURL 与参数透传、每个分支都返回 `ok` 字段 |
+| `test/useApi.nuxt.spec.ts` | 17 | 请求封装的**四条失败分支**（业务 code≠200 / 401 / 403 / 网络异常）、token 是否带上、baseURL 与参数透传、`resolveApiBase` 服务端与浏览器两种地址 |
 | `test/useAuthUi.nuxt.spec.ts` | 6 | 登录/注册弹窗开关的**互斥**、`closeAll`、跨组件共享同一份状态 |
+| `test/useUpload.nuxt.spec.ts` | 16 | 图片上传：扩展名白名单（含大写、无扩展名、脚本文件）、大小边界（正好等于上限 / 超一字节）、空文件；以及请求拼装——**字段名必须是 `file`**、**不能手动设 Content-Type**（设了会丢 boundary）、401 不抛异常 |
 
-**为什么先测这两个**：`useApi` 是全部请求的唯一出口，页面自己不做错误处理，
-全靠它返回的 `ok` / `code`。它一旦写错，表现是"页面没反应"或"提示文不对题"——
-比如把 401 当成网络异常，用户永远只看到"网络异常"，真正的原因（登录过期）不显示。
-`useAuthUi` 只有 20 行，但两个弹窗的互斥是它唯一且关键的不变量，
-坏了会出现两个弹窗叠在一起，肉眼回归很容易漏。
+**为什么先测这几个**：
+- `useApi` 是全部请求的唯一出口，页面自己不做错误处理，全靠它返回的 `ok` / `code`。
+  它一旦写错，表现是"页面没反应"或"提示文不对题"——比如把 401 当成网络异常，
+  用户永远只看到"网络异常"，真正的原因（登录过期）不显示。
+- `useAuthUi` 只有 20 行，但两个弹窗的互斥是它唯一且关键的不变量，
+  坏了会出现两个弹窗叠在一起，肉眼回归很容易漏。
+- `useUpload` 的两个坑在界面上都表现为一句"上传失败"，看不出原因：
+  字段名写错后端收不到文件；手动设了 `Content-Type` 会丢掉 boundary 导致解析失败。
+  用断言把"发出去的请求长什么样"钉住，改坏了立刻红。
 
 ## 页面与功能
 
@@ -264,6 +269,14 @@ docker run -d --name yiguixingtu-web \
 | 首页 | `/` | 文章信息流、关键词搜索、加载更多分页 | 否 |
 | 文章详情 | `/article/:id` | Markdown 正文渲染，已发布文章可访问 | 否 |
 | 后台 | `/admin` | 用户管理 + 文章管理 | **是（ADMIN）** |
+
+后台文章编辑弹窗里的**封面是上传的**（不是填 URL）：
+点"上传封面"选图 → 前端先做类型与大小预检 → 传到 `POST /upload` →
+把返回的 URL 回填到表单 → 保存文章时一起提交。右侧有预览和"移除"。
+
+> 前端预检只是**体验优化**（本地即时反馈、不浪费用户的上行带宽），
+> 真正生效的是后端那一层——前端代码可以被绕过（直接调接口）。
+> 两边的规则保持一致：`jpg / jpeg / png / gif / webp`，单张 ≤ 5MB。
 
 全局交互：
 
@@ -303,7 +316,7 @@ docker run -d --name yiguixingtu-web \
 
 ## 依赖的后端接口
 
-前端共调用后端 **18 个接口中的 17 个**：
+前端共调用后端 **19 个接口中的 18 个**：
 
 | 页面 | 调用的接口 |
 |------|-----------|
@@ -312,6 +325,7 @@ docker run -d --name yiguixingtu-web \
 | 登录 / 注册 | `POST /auth/login`、`POST /auth/register`、`GET /auth/me` |
 | 后台 · 用户管理 | `GET /user/page`、`PUT /user/{id}/status`、`PUT /user/{id}/role`、`PUT /user/{id}/password`、`DELETE /user/{id}` |
 | 后台 · 文章管理 | `GET /admin/article/page`、`GET /admin/article/{id}`、`POST /admin/article`、`PUT /admin/article/{id}`、`PUT /admin/article/{id}/status`、`DELETE /admin/article/{id}` |
+| 后台 · 封面上传 | `POST /upload` |
 
 > 唯一没被调用的 `POST /auth/logout` —— 原因见下方「已知待办」。
 

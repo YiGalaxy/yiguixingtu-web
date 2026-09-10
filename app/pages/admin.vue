@@ -293,7 +293,32 @@ v-model="artForm.categoryId" placeholder="选择分类（也可以不选）"
 
       <div class="af-row">
         <span class="ed-label">封面</span>
-        <el-input v-model="artForm.cover" placeholder="封面图 URL（可不填）" />
+        <div class="cover-field">
+          <img v-if="artForm.cover" :src="artForm.cover" class="cover-preview" alt="封面预览" >
+          <div class="cover-btns">
+            <!--
+              用 el-upload 但关掉它自带的请求（auto-upload=false + on-change）：
+              真正的上传逻辑在 useUpload 里，这样上传规则可以单独写测试，
+              也不会因为 Element Plus 的版本差异而影响业务逻辑。
+              另外不要用 el-upload 的 action 属性直接传 URL ——
+              那样它不会带上 Authorization 头，后端会返回 401。
+            -->
+            <el-upload
+              :show-file-list="false"
+              :auto-upload="false"
+              accept="image/jpeg,image/png,image/gif,image/webp"
+              :on-change="onCoverChosen"
+            >
+              <el-button :loading="coverUploading">
+                {{ artForm.cover ? '更换封面' : '上传封面' }}
+              </el-button>
+            </el-upload>
+            <el-button v-if="artForm.cover" plain @click="artForm.cover = ''">移除</el-button>
+          </div>
+          <span class="af-hint">
+            支持 {{ ALLOWED_EXTENSIONS.join(' / ') }}，单张不超过 {{ MAX_SIZE_TEXT }}
+          </span>
+        </div>
       </div>
 
       <div class="af-row">
@@ -581,6 +606,42 @@ const artForm = reactive({
   isTop: 0,
 })
 
+// ---------- 封面上传 ----------
+// 逻辑都在 useUpload 里（含类型/大小的前端预检），这里只负责
+// "把界面上发生的事转成调用 + 把结果反馈给用户"
+const { upload: uploadCover, ALLOWED_EXTENSIONS, MAX_SIZE_TEXT } = useUpload()
+const coverUploading = ref(false)
+
+/**
+ * el-upload 选中文件后的回调（auto-upload 关掉时由这个回调接管上传）。
+ *
+ * 【注意这里拿的是 uploadFile.raw】
+ *   el-upload 的 on-change 给的是一个包装对象，真正的浏览器 File 在 .raw 上。
+ *   直接把它当 File 用（比如读 .size）会得到 undefined。
+ */
+const onCoverChosen = async (uploadFile) => {
+  const file = uploadFile?.raw
+  if (!file) return
+
+  coverUploading.value = true
+  try {
+    const res = await uploadCover(file)
+    if (res.ok && res.url) {
+      // 上传成功：把返回的 URL 回填到表单，保存文章时一起提交
+      artForm.cover = res.url
+      ElMessage.success('封面上传成功')
+    } else {
+      // 失败时提示后端给的具体原因（比如"只允许上传 xxx 格式的图片"），
+      // 而不是笼统的"上传失败"—— 用户看着提示才知道该怎么改
+      ElMessage.error(res.message || '封面上传失败')
+    }
+  } finally {
+    // 放在 finally 里：不管成功失败都要把 loading 收掉，
+    // 否则一次异常就会让按钮永久转圈
+    coverUploading.value = false
+  }
+}
+
 const resetArtForm = () => {
   artForm.id = null
   artForm.title = ''
@@ -765,6 +826,16 @@ onMounted(async () => {
 
 .af-opts { display: flex; align-items: center; gap: 28px; flex-wrap: wrap; }
 .af-hint { color: var(--muted); font-size: 12px; }
+
+/* ---------- 封面：预览 + 上传按钮 ---------- */
+/* 用 flex-wrap 让窄屏时按钮自动换到预览图下面，而不是把布局挤变形 */
+.cover-field { flex: 1; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+/* 固定高度 + object-fit: cover：不同长宽比的封面在这里都显示成统一大小的缩略图，
+   不用去裁剪原图，也不会把表单撑高 */
+.cover-preview { height: 64px; width: 96px; object-fit: cover; border-radius: 8px;
+  border: 1px solid rgba(150,190,240,.18); background: #0d1b38; }
+.cover-btns { display: flex; align-items: center; gap: 8px; }
+
 .af-editor { margin-top: 8px; }
 /* 编辑器这一块不参与 .af-row 的垂直居中对齐 */
 .af-editor .md-editor { border: 1px solid rgba(150,190,240,.18); }
