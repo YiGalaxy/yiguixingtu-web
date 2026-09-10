@@ -46,29 +46,32 @@ v-for="c in categories" :key="c.id" class="cat"
           <div class="st"><b>{{ statText(siteStats.viewCount) }}</b><span>浏览</span></div>
           <div class="st"><b>{{ statText(siteStats.categoryCount) }}</b><span>分类</span></div>
         </div>
-        <div class="pf-links">
-          <span class="pl" title="GitHub">GU</span>
-          <span class="pl" title="邮箱">@</span>
-          <span class="pl" title="RSS">RSS</span>
-        </div>
+        <!-- 这里原来还有 GitHub / 邮箱 / RSS 三个按钮，但它们背后【没有任何地址】：
+             点下去什么也不会发生。与其摆三个"看起来能点"的假入口，
+             不如先不显示 —— 等真有链接了再加回来（顺便说：本站也没有 RSS 输出，
+             后端根本没这个接口）。 -->
       </div>
 
+      <!-- 音乐卡片：播放的是站点自带的那个真实音频文件（public/bg-music.mp3）。
+           改之前这里是个"假播放列表"：三个曲名（雨落星轨 / 夜航 / 星际漫游）
+           与上一首 / 下一首按钮都是写死的，而实际上只有这一个音频文件，
+           点下一首只是把 cur 加一、曲名换个字，音乐从头开始放同一段。
+           现在只保留真实存在的东西：一个音轨、一个播放键。 -->
       <div id="music" class="music glass">
-        <div class="mu-badge">CLOUD MUSIC</div>
+        <div class="mu-badge">BACKGROUND MUSIC</div>
         <div class="mu-main">
-          <div class="mu-cover"><img :src="tracks[cur].cover" alt="cover" ></div>
+          <div class="mu-cover"><img src="/cover-1.png" alt="背景音乐封面" ></div>
           <div class="mu-info">
-            <div class="mu-title">{{ tracks[cur].title }}</div>
-            <div class="mu-art">亿轨星途</div>
+            <!-- 不写曲名：本站没有这些曲目，编一个"雨落星轨"出来只是好看 -->
+            <div class="mu-title">背景音乐</div>
+            <div class="mu-art">站点自带音轨</div>
           </div>
         </div>
         <div class="mu-progress"><div class="mu-bar" :style="{ width: prog + '%' }"/></div>
         <div class="mu-ctl">
-          <button @click="prev">⏮</button>
           <button class="play" @click="playPause">{{ playing ? '❚❚' : '▶' }}</button>
-          <button @click="next">⏭</button>
         </div>
-        <audio ref="audioRef" src="/bg-music.mp3" @timeupdate="onTime" @ended="next"/>
+        <audio ref="audioRef" src="/bg-music.mp3" @timeupdate="onTime" @ended="onEnded"/>
       </div>
     </section>
 
@@ -122,13 +125,13 @@ v-for="(a, i) in articles" :key="a.id" href="#" class="af glass"
     <!-- 右下浮动小角色 -->
     <div class="mascot" title="亿轨星途" @click="onMascot"><img src="/cover-2.png" ></div>
 
-    <!-- 左下观看人数 -->
-    <div class="viewers"><span class="dot"/> 1 人正在看</div>
+    <!-- 左下角原来有个「1 人正在看」的在线人数。
+         那是写死的字符串：后端没有在线人数接口，这个数字永远不会变，
+         连"当前访客自己"都不一定算得准。假装有实时数据比没有更糟，直接删掉。 -->
 
     <!-- 左侧吸附菜单 -->
     <div class="dock">
       <button class="di" :class="{ on: open.clock }" @click="toggle('clock')"><span>◷</span><i>时钟</i></button>
-      <button v-if="isAdmin" class="di" :class="{ on: open.msg }" @click="toggle('msg')"><span>✉</span><i>留言</i></button>
     </div>
 
     <!-- 时钟面板 -->
@@ -143,36 +146,28 @@ v-for="(a, i) in articles" :key="a.id" href="#" class="af glass"
       </div>
     </div>
 
-    <!-- 留言面板（仅后台可见） -->
-    <div v-if="open.msg" class="wpanel glass" :style="posStyle('msg')">
-      <div class="wp-head" @pointerdown="startDrag('msg', $event)">
-        <span class="wp-t">后台留言</span>
-        <span class="wp-x" @click="close('msg')">×</span>
-      </div>
-      <div class="wp-body msgs">
-        <div v-for="(m, i) in msgs" :key="i" class="msg">
-          <img class="msg-av" :src="m.av" >
-          <div><div class="msg-n">{{ m.name }}</div><div class="msg-c">{{ m.text }}</div></div>
-        </div>
-      </div>
-    </div>
+    <!-- 这里原来还有一个「后台留言」浮窗，里面两条留言（访客A / 访客B）是写死的数组，
+         不是真评论（后端还没有评论模块，前端也没有任何地方能读到它们）。
+         为了让首页"看起来有人气"而摆两条假留言，和真实数据混在一起最难被发现，
+         所以连面板、左边那个「留言」按钮、拖动它的坐标一起删掉。 -->
   </div>
 </template>
 
 <script setup>
 import { ElMessage } from 'element-plus'
-const { user } = useAuth()
-const isAdmin = computed(() => user.value?.role === 'ADMIN')
 
-const tracks = [
-  { title: '雨落星轨', cover: '/cover-1.png' },
-  { title: '夜航', cover: '/cover-2.png' },
-  { title: '星际漫游', cover: '/cover-3.png' },
-]
-const cur = ref(0)
+// ================================================================
+//  背景音乐（只有一个音源：public/bg-music.mp3）
+//
+//  【为什么不做"播放列表"】改了之前这里有个 tracks 数组与上一首/下一首按钮，
+//  但三首曲名是编的、音频只有一个文件 —— 点下一首只是把下标加一，
+//  曲名换个字，声音从头再放同一段。这种"看起来像功能、其实什么都没做"的东西
+//  比没有更糟，所以只保留真实存在的部分。
+// ================================================================
 const playing = ref(false)
 const prog = ref(0)
 const audioRef = ref()
+
 const playPause = () => {
   if (!audioRef.value) return
   // 这里用 if / else 而不是三元表达式：两个分支都是为了产生副作用（暂停/播放），
@@ -182,10 +177,14 @@ const playPause = () => {
   else audioRef.value.play()
   playing.value = !playing.value
 }
+
+// timeupdate 是 <audio> 的原生事件，播放过程中大约每 250ms 触发一次；
+// duration 在读元数据之前是 NaN，所以要判断一下再算百分比
 const onTime = () => { if (audioRef.value?.duration) prog.value = (audioRef.value.currentTime / audioRef.value.duration) * 100 }
-const prev = () => { cur.value = (cur.value - 1 + tracks.length) % tracks.length; resetAudio() }
-const next = () => { cur.value = (cur.value + 1) % tracks.length; resetAudio() }
-const resetAudio = () => { if (audioRef.value) { audioRef.value.currentTime = 0; prog.value = 0; if (playing.value) audioRef.value.play() } }
+
+// 放完之后把按钮切回「播放」。再点播放时浏览器会从头开始放
+// （HTML 规范里 play() 对已结束的媒体会先回到起始位置），所以不需要手动 currentTime = 0
+const onEnded = () => { playing.value = false }
 
 // ================================================================
 //  文章列表：从后端真实拉取
@@ -302,16 +301,14 @@ const tick = () => { const d = new Date(); now.time = d.toLocaleTimeString('zh-C
 tick()
 onMounted(() => setInterval(tick, 1000))
 
-const msgs = [
-  { name: '访客A', text: '这个站点真好看！', av: '/cover-3.png' },
-  { name: '访客B', text: '期待你的技术文章。', av: '/cover-1.png' },
-]
-
 // —— 侧边菜单 + 可拖动面板 ——
-const open = reactive({ clock: false, msg: false })
-const pos = reactive({ clock: { x: 90, y: 160 }, msg: { x: 90, y: 260 } })
+// 现在只剩「时钟」一个面板（「留言」那个假浮窗已随它的两条假留言一起删掉），
+// 但这里仍然按 key 来写：拖动、定位、开关都对"任意个面板"通用，
+// 将来再加面板（比如分类导航）不用重写这套坐标逻辑
+const open = reactive({ clock: false })
+const pos = reactive({ clock: { x: 90, y: 160 } })
 const posStyle = (k) => ({ left: pos[k].x + 'px', top: pos[k].y + 'px' })
-const toggle = (k) => { open[k] = !open[k]; if (open[k]) { pos[k].x = 90; pos[k].y = 120 + Object.keys(open).filter(x => x !== k).length * 0 } }
+const toggle = (k) => { open[k] = !open[k]; if (open[k]) { pos[k].x = 90; pos[k].y = 160 } }
 const close = (k) => { open[k] = false; pos[k].x = 90; pos[k].y = 160 }
 let drag = null
 const startDrag = (k, e) => { drag = { k, sx: e.clientX, sy: e.clientY, ox: pos[k].x, oy: pos[k].y }; document.addEventListener('pointermove', onMove); document.addEventListener('pointerup', onUp) }
@@ -361,13 +358,11 @@ onMounted(() => {
 .pf-avatar img { width: 100%; height: 100%; object-fit: cover; }
 .pf-name { font-size: 22px; font-weight: 800; }
 .pf-sub { color: var(--muted); font-size: 13px; margin-top: 4px; }
-.pf-stats { display: flex; gap: 32px; margin: 22px 0; }
+.pf-stats { display: flex; gap: 32px; margin: 22px 0 0; }
 .st { display: flex; flex-direction: column; }
 .st b { font-size: 24px; font-weight: 800; color: var(--accent); }
 .st span { color: var(--muted); font-size: 12px; }
-.pf-links { display: flex; gap: 10px; }
-.pl { width: 32px; height: 32px; border-radius: 9px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,.06); border: 1px solid var(--line); color: var(--muted); font-size: 12px; cursor: pointer; transition: .2s; }
-.pl:hover { color: var(--accent); border-color: var(--accent); }
+/* .pf-links / .pl 两条样式随 GitHub / 邮箱 / RSS 三个假按钮一起删掉 */
 
 .music { border-radius: 22px; padding: 20px 22px; }
 .mu-badge { font-size: 11px; letter-spacing: 2px; color: var(--accent); font-weight: 700; }
@@ -440,9 +435,7 @@ onMounted(() => {
 .mascot { position: fixed; right: 22px; top: 45%; width: 84px; height: 84px; border-radius: 50%; overflow: hidden; cursor: pointer; border: 2px solid rgba(242,193,78,.5); box-shadow: 0 12px 30px rgba(0,0,0,.4); animation: bob 5s ease-in-out infinite; z-index: 5; }
 .mascot img { width: 100%; height: 100%; object-fit: cover; }
 @keyframes bob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-14px); } }
-.viewers { position: fixed; left: 22px; bottom: 22px; color: var(--muted); font-size: 13px; display: flex; align-items: center; gap: 8px; z-index: 5; }
-.viewers .dot { width: 8px; height: 8px; border-radius: 50%; background: #4ade80; box-shadow: 0 0 8px #4ade80; animation: pulseDot 1.6s infinite; }
-@keyframes pulseDot { 0%,100% { opacity: .4; } 50% { opacity: 1; } }
+/* .viewers / .dot / @keyframes pulseDot 随写死的「1 人正在看」一起删掉 */
 
 .dock { position: fixed; left: 0; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 10px; padding: 12px 10px; background: rgba(14,24,48,.72); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border-radius: 0 16px 16px 0; z-index: 10; border: 1px solid rgba(180,210,245,.12); border-left: none; }
 .di { display: flex; flex-direction: column; align-items: center; gap: 4px; background: none; border: none; color: var(--muted); cursor: pointer; padding: 6px 8px; border-radius: 10px; }
@@ -459,11 +452,7 @@ onMounted(() => {
 .clock { text-align: center; }
 .ck-time { font-size: 30px; font-weight: 800; letter-spacing: 2px; color: var(--accent); }
 .ck-date { color: var(--muted); font-size: 12px; margin-top: 6px; }
-.msgs { display: flex; flex-direction: column; gap: 12px; max-height: 220px; overflow-y: auto; }
-.msg { display: flex; gap: 10px; }
-.msg-av { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; }
-.msg-n { font-size: 12px; font-weight: 700; color: var(--accent); }
-.msg-c { font-size: 13px; color: var(--ink); margin-top: 2px; }
+/* .msgs / .msg / .msg-av / .msg-n / .msg-c 随「后台留言」假浮窗一起删掉 */
 
 @media (max-width: 820px) {
   .toprow { grid-template-columns: 1fr; }
