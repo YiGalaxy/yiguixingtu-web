@@ -11,7 +11,7 @@
 > 基于 Nuxt 4 + Vue 3 + Element Plus 的个人博客前端
 > 后端为独立仓库 `yiguixingtu`（Spring Boot 4，默认跑在 `localhost:8082`）
 >
-> **243 个测试用例 + ESLint + 生产构建，全部在 CI 里自动跑**（见下文「持续集成」）
+> **280 个测试用例 + ESLint + 生产构建，全部在 CI 里自动跑**（见下文「持续集成」）
 
 ## 项目简介
 
@@ -74,6 +74,9 @@ yiguixingtu-web
 │       └── element-plus.ts          # Element Plus 注册
 ├── server
 │   ├── routes/media/[...file].get.ts # 仅开发环境生效：把 /media/** 指向 static-media/
+│   ├── routes/sitemap.xml.get.ts     # GET /sitemap.xml：运行时生成（分页取全部已发布文章）
+│   ├── routes/robots.txt.get.ts      # GET /robots.txt：允许抓取 + 指向 sitemap + 挡掉后台
+│   ├── utils/sitemap.ts              # XML / robots 的生成与"翻页取全部文章"（纯函数）
 │   └── utils/mediaFile.ts            # 文件名 → 磁盘路径（穿越防护）+ Range 解析（纯函数）
 ├── public                           # 参与构建的小静态资源（封面图、favicon）
 ├── static-media                     # 【不参与构建】背景视频 / 音乐，部署时上传到 /var/www/media/
@@ -189,7 +192,7 @@ npm run lint:fix     # 自动修掉能修的部分
 | 步骤 | 命令 | 为什么单独一步 |
 |------|------|---------------|
 | 代码检查 | `npm run lint` | 串成一条命令的话，Actions 页面只会显示一句 exit 1，看不出是哪一步挂的 |
-| 运行测试 | `npm run test` | 243 个用例；**不需要后端与数据库**，CI 里不用起任何服务 |
+| 运行测试 | `npm run test` | 280 个用例；**不需要后端与数据库**，CI 里不用起任何服务 |
 | 生产构建 | `npm run build` | 保证"测试过了但build 不过"这种情况不会漏到线上 |
 
 用 `npm ci` 而不是 `npm install`：它严格按 `package-lock.json` 安装，
@@ -262,6 +265,8 @@ docker run -d --name yiguixingtu-web \
 | 4 | 后端地址用的是服务名/内网地址，不是 `localhost`（容器里的 `localhost` 指容器自己） |
 | 5 | **`static-media/` 里的文件已经传到服务器 `/var/www/media/`**，浏览器直接打开 `https://你的域名/media/bg-music.mp3` 能播放（能播就说明 Nginx 的 `location /media/` 生效、且没被 `location /` 抢走） |
 | 6 | `NUXT_PUBLIC_SITE_URL` 填的是**真实域名**：`curl -s https://你的域名/ \| grep canonical` 出来的应该是那个域名，而不是默认的 `www.yigalaxy.xin`（填错的表现是"canonical 指向别人的域名"，等于把收录送出去） |
+| 7 | `curl -s https://你的域名/robots.txt` 能拿到内容（**不是 404**）：它是 Nitro 的运行时路由，必须由反代转发给 Node；同时确认里面的 `Sitemap:` 是真实域名 |
+| 8 | `curl -s https://你的域名/sitemap.xml` 返回 `200 + application/xml`，且**文章条数对得上**（不是只有首页那一条 —— 只有首页通常意味着后端地址配错、取数降级了） |
 
 
 **测试环境**：Vitest 5 + `@nuxt/test-utils` 4，跑在 **nuxt 环境**而不是裸的 jsdom。
@@ -271,7 +276,7 @@ docker run -d --name yiguixingtu-web \
 > 这些在裸 node / jsdom 里根本不存在。用 nuxt 环境测的是"代码在 Nuxt 里的真实行为"，
 > 而不是把所有依赖都 mock 掉自己骗自己。
 
-**当前 15 个测试文件、243 个用例：**
+**当前 16 个测试文件、280 个用例：**
 
 | 测试文件 | 用例数 | 覆盖 |
 |---------|:---:|------|
@@ -289,6 +294,7 @@ docker run -d --name yiguixingtu-web \
 | `test/useRememberedLogin.nuxt.spec.ts` | 16 | 「记住用户名」：构造出来的 cookie **只含 `username`**（白名单断言，写不出 password）、用户名为空时不写 cookie；读回填兼容对象 / JSON 字符串 / 纯字符串三种形态；**老 cookie（带明文密码）在挂载时被主动改写成只含用户名**（对象与字符串两种形态都测）、新格式不做无意义写入；**挂载整个外壳**验证：浏览器里那条带密码的 cookie 被清掉、输入框只回填用户名而**密码框是空的**、勾选后登录写入的 cookie 里不含密码、没勾则删掉 cookie |
 | `test/linkUnderline.nuxt.spec.ts` | 4 | `el-link` 的 `underline` **不再传废弃的布尔值**：外壳里两个链接（登录弹窗的「去注册」、注册弹窗的「已有账号？去登录」）拿到的 prop 都是字符串 `'never'`、**渲染它们时一条 `ElementPlusError` 都不打印**（改之前会打 2~3 条）、类名与改之前一致（`never` 既不带 `is-underline` 也不带 `is-hover-underline`）；并配了一条**对照组**：直接给 `ElLink` 传 `underline: false` 时确实会打印那段警告 —— 否则一个从未被触发过的 `console.warn` 间谍会让"没有警告"永远为真 |
 | `test/seo.nuxt.spec.ts` | 20 | 全站 SEO 元信息。**纯函数层**（15 条）：首页/文章页/后台页三种页面的 title、description、canonical、四条 og 的拼装；**没有封面时整条 `og:image` 都不出现**（不是空值）、有封面时把 `/uploads/x.png` 拼成绝对地址、封面本来就是绝对地址时原样保留；标题/描述为空时回落站点默认值（不能出现空 `title`）；站点地址的归一化（去掉尾斜杠、空值/`www.x.com` 这种缺协议的值一律回落到默认域名，否则会产出被搜索引擎忽略的相对 canonical）；后台页带 `noindex, nofollow`、普通页面不带；每页都带 `lang="zh-CN"`。**组件层**（5 条）：首页挂载后 head 里**真的有** title / description / canonical / og（读 `document.head`）、带筛选参数的地址 canonical 仍指向干净的 `/`、**首屏渲染就已经带着文章列表**（改成 SSR 的核心诉求）；详情页的 `og:type=article`、标题跟着文章走、封面拼成绝对地址、canonical 指向文章自己；后台页带 noindex |
+| `test/sitemap.nuxt.spec.ts` | 37 | `sitemap.xml` 与 `robots.txt` 的纯函数。**XML 转义**：五个特殊字符都要转义、`&` 必须最先替换（否则双重转义）、标题里的 `&`/`<` 不会让 sitemap 非法、`loc` 里的 `&`/`'` 会被转义；**分页取全部文章**：total=0 只请求一次、**恰好 50 条只请求一次**、51 条翻两页（最后一页不满）、120 条翻三页；`total` 明显不对时靠"空页"停下、后端永远返回满页时在**页数上限**停下（防死循环）并标记 `truncated`；**降级**：接口失败/抛异常/返回结构不对都不抛异常，保留已取到的部分、返回的仍是**合法且含首页**的 XML；按 id 去重、没有 id 的记录丢掉（不拼 `/article/undefined`）；`lastmod` 只用日期、拿不到就整条不写；robots.txt 的 `Disallow: /admin` 与绝对地址 `Sitemap:`、站点地址归一化与 canonical 同源 |
 
 **为什么先测这几个**：
 - `useApi` 是全部请求的唯一出口，页面自己不做错误处理，全靠它返回的 `ok` / `code`。
@@ -342,6 +348,14 @@ docker run -d --name yiguixingtu-web \
   相对地址、`og:image` 拼出一个空值，本地打开页面全都正常，只有被搜到、
   被分享的时候才发现不对 —— 所以规则那一层用纯函数钉死（含"没有封面时
   整条 `og:image` 都不出现"这种边界），接线那一层断言 head 里真的有那些标签。
+- `sitemap.nuxt.spec.ts` 守的是**"没有任何人会去打开的那些文件"**：
+  sitemap 少了一批文章、XML 里有个没转义的 `&` 导致整份非法、
+  robots.txt 里 `Sitemap:` 写成了相对地址 —— 这三种情况在浏览器里
+  要么看不出来、要么看起来完全正常，唯一的信号是"几周后搜不到"。
+  翻页边界（50 / 51 / 120）尤其值得钉：**只有几十篇文章时，
+  "不翻页"和"翻页"的结果一模一样**，等文章多起来才会发现第 51 篇之后再没被收录。
+  降级那几条守的是"接口挂了也不能 500、不能空 body"——
+  爬虫收到 500 反复重试、收到空 body 当非法，比"少收录几篇"严重得多。
 - 追踪号那几条守的是**"提示里到底有没有那串号"**：头名字写错（比如写成
   `X-B3-TraceId`）、或者只盯着 catch 分支而漏掉 HTTP 200 的业务失败，
   两种写法都不会报错，只会让用户永远看不到追踪号 ——
@@ -594,6 +608,81 @@ curl -s http://127.0.0.1:3111/ | grep -o '<title>[^<]*</title>'
 个人简介同一类），不是伪装成接口数据的东西，所以在接后端公告模块之前先维持原样。
 这些"删掉的东西不会再回来"由 `test/homeContent.nuxt.spec.ts` 的 11 个用例守着。
 
+### sitemap.xml 与 robots.txt（Nitro 运行时路由）
+
+要能被搜到，除了页面上的 meta 还需要这两份文件：爬虫靠 `robots.txt` 知道
+"什么可以抓、sitemap 在哪"，靠 `sitemap.xml` 知道"站点上有哪些地址"。
+两者都由 **Nitro 的运行时路由**提供（`server/routes/*.get.ts`），
+内容生成在 `server/utils/sitemap.ts`（纯函数，有单测）。
+
+**为什么是运行时路由，而不是构建时生成一个静态 `sitemap.xml`** —— 两个硬约束：
+
+| 构建时生成 | 运行时生成（现在的做法） |
+|---|---|
+| 前端镜像的 `docker build` 里**连不上后端**（构建阶段后端容器可能还没起、也不在同一个网络），只能构建失败或生成一份**空的** sitemap —— 后者更糟：构建看着成功了，而线上那份 sitemap 永远只有首页 | 构建与后端解耦，构建阶段只编译代码 |
+| 新文章发布后必须**重新构建、重新部署镜像** sitemap 才更新，而"发文章"和"重新构镜像"在时间上毫无关系，站长很容易漏掉这一步 | 发布后最多等一个缓存周期（`Cache-Control: max-age=300`）就更新 |
+
+**"取全部文章"必须分页循环**：后端 `GET /article/page` 单页上限是
+**50 条**（`ArticleQuery.MAX_PAGE_SIZE`，传更大的 size 会被夹到 50），
+所以只取第一页的话，第 51 篇之后的文章**永远不会**出现在 sitemap 里。
+更麻烦的是这件事**在文章少的时候完全看不出来**（几十篇时一页就取完了），
+等文章多起来才发现"最近的文章都没被收录"，而那时已经过去很久。
+
+三种终止条件缺一不可（都在 `collectAllArticles()` 里）：
+
+- 这一页返回空数组 → 没有更多了（也兜住了后端 `total` 不准的情况）
+- 已取条数 ≥ `total` → 取完了（`total` 为 0 / 缺失时不据此判断）
+- 翻到 `MAX_ARTICLE_PAGES`（40 页）→ **防死循环的上限**。没有它，
+  一个错误的 `total` 会让循环一直翻下去，表现是"sitemap 请求挂着、把后端打满"
+
+**接口挂了也要返回一份合法的 sitemap**（降级，绝不 500、绝不空 body）：
+
+- 爬虫收到 500 会反复重试、收到**空 body** 会当成非法 sitemap；
+  而"暂时只收录首页"只是少收录，代价小得多
+- 已经取到的那部分照样写进去（第一页拿到的 50 篇是真数据，没理由丢掉）
+- 一份"只有首页"的 sitemap 与正常版本长得很像 —— 结构、命名空间、
+  `Content-Type` 全部一致，区别只是少了几条 `<url>`
+- 实测：把 `NUXT_API_BASE_SERVER` 指向一个死端口之后，
+  `/sitemap.xml` 仍然返回 **200 + `application/xml`**，内容是一份只含首页的合法 urlset
+
+**robots.txt**：允许抓取（`User-Agent: *` + `Allow: /`）、
+挡掉后台（`Disallow: /admin`）、并用**绝对地址**指向 sitemap
+（`Sitemap: https://你的域名/sitemap.xml` —— 写成 `/sitemap.xml` 会被直接忽略，
+而且没有任何提示）。
+
+- **它从 `public/robots.txt` 改成了运行时路由**：原来那个静态文件只有两行，
+  而且**没法带域名**（静态文件里写死域名的话，本地 / 测试 / 正式环境就各需要一份），
+  于是 `Sitemap:` 这一行根本没法正确写出来。
+  现在域名从 `runtimeConfig.public.siteUrl` 读，三处地址（canonical、sitemap 里的
+  `<loc>`、robots 里的 `Sitemap:`）由**同一个** `absoluteUrl()` 拼出来 ——
+  各写一份的话迟早会出现"canonical 指向 A 域名、sitemap 指向 B 域名"，
+  而两份文件单独看都没问题
+- **后台为什么既 `Disallow` 又 `noindex`**：两者挡的不是一回事。
+  `Disallow` 只挡住"抓取这个地址"，但别处有链接指向它时，搜索结果里
+  仍然可能出现这个地址（只是没有摘要）；`noindex` 才是"别收录"
+
+**⚠️ 部署注意**：这两条是**运行时路由**，不是 `.output/public` 里的静态文件 ——
+Nginx 必须把 `/robots.txt` 与 `/sitemap.xml` 也转发给 Node（落在 `location /` 的反代里）。
+哪天为了"省一次反代"把静态目录直出，这两个地址会 404，
+而 404 的 robots.txt 会让爬虫退回"默认全允许、没有 sitemap"，通常不会有人发现。
+
+**怎么验证**（实测过）：
+
+```bash
+npm run build
+NUXT_API_BASE_SERVER=http://后端地址 PORT=3111 node .output/server/index.mjs
+curl -s http://127.0.0.1:3111/robots.txt
+curl -s http://127.0.0.1:3111/sitemap.xml
+```
+
+实测结果：robots.txt 里有 `Allow: /`、`Disallow: /admin` 与
+`Sitemap: https://www.yigalaxy.xin/sitemap.xml`；sitemap 返回
+`200 + application/xml; charset=utf-8`，内容是首页 + 后端当时真实的
+两篇文章（`/article/117`、`/article/116`，各带 `<lastmod>`）。
+把 `NUXT_PUBLIC_SITE_URL` 覆盖成 `https://test.example.com/` 之后，
+canonical、sitemap 的 `<loc>`、robots 的 `Sitemap:` 三处**一起**变成
+`https://test.example.com`（结尾斜杠也被归一化掉了）。
+
 ### 接口被限流为什么有两种提示（`app/utils/apiError.ts`）
 
 后端有两个 `code = 429` 的场景，**含义相反、用户该做的事也相反**，
@@ -836,6 +925,15 @@ location /media/ {
 > "已加载的 12 篇之和"（点一次「加载更多」数字就变）、分类数是当前页列表长度。
 > 接口失败时显示「—」而不是 0（0 会被访客当成"站点真的没有文章"）。
 
+> ✅ 曾经的「`public/robots.txt` 只有两行、也没有 `sitemap.xml`」也已经修好了：
+> 现在 `/robots.txt` 与 `/sitemap.xml` 都是 **Nitro 的运行时路由**
+> （`server/routes/*.get.ts`），robots 里写明 `Allow: /`、`Disallow: /admin`
+> 与**绝对地址**的 `Sitemap:`，sitemap 里是首页 + **全部分页取回来的已发布文章**。
+> 之所以不做成构建时生成的静态文件：前端镜像的 `docker build` 里连不上后端
+> （生成出来只会是空的），而且新文章发布后要重新构建镜像 sitemap 才会更新 ——
+> 细节与实测见上文「sitemap.xml 与 robots.txt」。
+> 这条由 `test/sitemap.nuxt.spec.ts` 的 37 个用例守着（含翻页边界与失败降级）。
+
 > ✅ 曾经的「后台概览数字不可靠」也已经修好了：概览的四个数字改成**独立请求**
 > （文章 / 浏览量 / 分类走 `GET /article/stats`，用户数走一次 `page=1&size=1` 的
 > `/user/page` 只取总数），进入 `/admin` 就并行拉好、切到「概览」菜单再刷新一次。
@@ -863,6 +961,13 @@ location /media/ {
 - **没有 RSS / Atom 输出**（后端也没有这个接口），订阅只能靠收藏页面
 - **文章详情页的 `description` 用文章摘要**：作者没写摘要时回落到站点描述，
   所以"没写摘要的文章"在搜索结果里长得都一样 —— 这属于内容侧的习惯问题
+- **sitemap 每次请求都要翻页取一遍全部文章**：文章很多时（上千篇）会是一串
+  连续的同源请求。目前靠 `Cache-Control: max-age=300` 扛住；
+  真到那个规模应该改成"按需缓存到磁盘 / Redis"，或者让后端提供一个
+  只回 URL 列表的轻量接口
+- **sitemap 里没有 `<lastmod>` 的时区**（只写日期）：后端给的是
+  `LocalDateTime`，没有时区信息；写日期形态是规范允许的、也最不容易出错，
+  但精度就到"天"
 
 **工程**
 
