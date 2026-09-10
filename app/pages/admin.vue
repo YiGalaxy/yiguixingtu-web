@@ -230,7 +230,79 @@ background
         </div>
       </template>
 
-      <!-- ==================== ④ 其他模块占位 ==================== -->
+      <!-- ==================== ④ 标签管理 ==================== -->
+      <template v-else-if="cur === 'tags'">
+        <header class="top">
+          <h1>标签管理</h1>
+          <p>共 {{ tags.length }} 个标签（「已发布文章数」只统计已发布的文章，草稿不计入）</p>
+        </header>
+
+        <div class="toolbar glass">
+          <el-button type="success" @click="openTagCreate">+ 新建标签</el-button>
+          <el-button @click="fetchTags">刷新</el-button>
+          <!-- 这句提示是必要的：标签全靠这里建，而文章弹窗的下拉框只能"选"不能"加" -->
+          <span class="tb-hint">标签在文章弹窗里是多选框的选项，这里建完立刻就能选到。</span>
+        </div>
+
+        <div class="panel glass">
+          <el-table
+v-loading="tagLoading" :data="tags"
+                    empty-text="还没有标签，点左上角「新建标签」建一个吧">
+            <el-table-column prop="name" label="标签名" min-width="200">
+              <template #default="{ row }"><span class="art-title">{{ row.name }}</span></template>
+            </el-table-column>
+            <el-table-column prop="sort" label="排序" width="90" />
+            <el-table-column prop="articleCount" label="已发布文章数" width="130">
+              <template #default="{ row }">
+                <!-- 【0 也要显示成 0，不能显示成「—」】这里的 0 是后端算出来的确定答案
+                     （一条 GROUP BY 的结果，没有文章就是 0，不是"读不到"）；
+                     这类数字显示成占位符反而会让人以为接口坏了。 -->
+                {{ row.articleCount ?? 0 }}
+              </template>
+            </el-table-column>
+            <!-- 固定列宽度只放一个「编辑」一个「删除」，170px 够；
+                 列宽合计 90+130+170=390，加上名字那列的 min-width 也不会超过表格可用宽度，
+                 右侧 fixed 的「操作」列不会压到别的列（用户表那次踩过的坑） -->
+            <el-table-column label="操作" width="170" fixed="right">
+              <template #default="{ row }">
+                <el-button size="small" @click="openTagEdit(row)">编辑</el-button>
+                <el-button size="small" type="danger" @click="removeTag(row)">删除</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+      </template>
+
+      <!-- ==================== ⑤ 分类（只读） ==================== -->
+      <!-- 【为什么分类只做只读，不做增删改】
+           后端其实【已经】把分类的写接口做好了（AdminCategoryController：
+           POST/PUT/DELETE /admin/category），但这一批任务的约定是"分类的增删改不在本次范围内"，
+           所以这里刻意只接一个 GET /admin/category/list。
+           【为什么不摆一个"该模块开发中"的占位】因为分类数据是真实存在、真实可读的，
+           摆占位等于把"已经有了的东西"说成没有；只读列表至少是诚实的：
+           管理员能看见现在有哪些分类、各是什么描述，也知道改不了。
+           下面那行说明写清楚"接口有、前台没接"，免得有人以为是后端不支持。 -->
+      <template v-else-if="cur === 'categories'">
+        <header class="top">
+          <h1>分类</h1>
+          <p>共 {{ categories.length }} 个分类</p>
+        </header>
+
+        <div class="panel glass">
+          <div class="panel-note">
+            当前为<strong>只读</strong>：分类的增删改后端已有接口，前台的编辑界面还没接。
+            需要调整分类请先在数据库或后端接口上操作。
+          </div>
+          <el-table :data="categories" empty-text="还没有分类">
+            <el-table-column prop="id" label="ID" width="80" />
+            <el-table-column prop="name" label="分类名" min-width="180" />
+            <el-table-column prop="sort" label="排序" width="90" />
+            <el-table-column prop="description" label="描述" min-width="260" />
+          </el-table>
+        </div>
+      </template>
+
+      <!-- ==================== ⑥ 其他模块占位 ==================== -->
       <template v-else>
         <header class="top"><h1>{{ curLabel }}</h1><p>该模块开发中。</p></header>
         <div class="panel glass"><div class="empty">该模块开发中 · 敬请期待</div></div>
@@ -378,6 +450,38 @@ v-model="artForm.content"
         <el-button type="primary" :loading="artSaving" @click="saveArticle">保存</el-button>
       </template>
     </el-dialog>
+    <!-- ==================== 新建 / 编辑标签弹窗 ==================== -->
+    <el-dialog
+v-model="tagEditVisible" class="art-edit-modal" :title="tagForm.id ? '编辑标签' : '新建标签'"
+               width="min(460px, 92vw)" :close-on-click-modal="false">
+      <div class="af-row">
+        <span class="ed-label">标签名</span>
+        <!-- maxlength 与后端 @Size(max=30) 对齐：前端拦一道只是体验（本地即时反馈），
+             真正生效的仍然是后端那一层（直接调接口可以绕过前端） -->
+        <el-input
+v-model="tagForm.name" placeholder="比如：Vue、部署、读书笔记"
+                  maxlength="30" show-word-limit @keyup.enter="saveTag" />
+      </div>
+
+      <div class="af-row">
+        <span class="ed-label">排序</span>
+        <el-input-number v-model="tagForm.sort" :min="0" :max="9999" controls-position="right" />
+        <span class="af-hint">越小越靠前</span>
+      </div>
+
+      <!-- 【为什么失败原因要显示在弹窗里，而不是只弹一个 toast】
+           重名（后端返回 400「标签名已存在」）是这个表单最常见的失败，
+           而 toast 三秒后自己就消失了，用户那时还在看弹窗、正准备点第二次保存。
+           把原因留在弹窗里 + 弹窗不关闭，用户才能当场改名重试；
+           只弹 toast 的表现是"点保存没反应，提示一闪而过"。 -->
+      <p v-if="tagFormError" class="ed-error">{{ tagFormError }}</p>
+
+      <template #footer>
+        <span class="af-foot-tip">名字首尾的空格会被自动去掉</span>
+        <el-button @click="tagEditVisible = false">取消</el-button>
+        <el-button type="primary" :loading="tagSaving" @click="saveTag">保存</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -419,11 +523,17 @@ const { user } = useAuth()
 const myId = computed(() => user.value?.id)
 
 // ---------- 左侧菜单 ----------
+// 「分类 / 标签」那个占位菜单这次拆成了两个真实的页面：
+//   · 标签管理：后端已经有完整的增删改查，所以这里是真能用的
+//   · 分类：后端【已经】有增删改接口了（AdminCategoryController），
+//     但这一批任务里明确不做分类的写操作，所以这里只做只读展示 ——
+//     见「分类」那一块模板前的说明
 const menus = [
   { key: 'overview', label: '概览' },
   { key: 'articles', label: '文章管理' },
   { key: 'users',    label: '用户管理' },
-  { key: 'taxonomy', label: '分类 / 标签' },
+  { key: 'tags',     label: '标签管理' },
+  { key: 'categories', label: '分类' },
   { key: 'settings', label: '设置' },
 ]
 const cur = ref('users')
@@ -935,11 +1045,150 @@ const removeArticle = async (row) => {
 // ---------- 时间格式化 ----------
 const fmtTime = (t) => (t ? String(t).replace('T', ' ').slice(0, 19) : '—')
 
+// ================================================================
+//  标签管理（增删改查）
+//
+//  【数据源就是上面那个 tags（GET /admin/tag/list）】
+//   文章弹窗的下拉框与这个列表看的是同一份，所以在这里新建一个标签之后，
+//   那个下拉框立刻就有它 —— 不需要"再刷新一次页面才能选到"。
+//   这也是为什么全文只有一个 tags ref：两处各拉一份迟早会有一处是旧的。
+// ================================================================
+
+const tagLoading = ref(false)
+const tagSaving = ref(false)
+const tagEditVisible = ref(false)
+/** 保存失败时显示在弹窗里的原因（见模板里那段说明：toast 会消失，弹窗不会） */
+const tagFormError = ref('')
+
+const tagForm = reactive({ id: null, name: '', sort: 0 })
+
+/** 带 loading 的刷新（切到标签菜单时用；弹窗里那个「刷新」按钮走 fetchTags 也够） */
+const loadTags = async () => {
+  tagLoading.value = true
+  await fetchTags()
+  tagLoading.value = false
+}
+
+const openTagCreate = () => {
+  tagForm.id = null
+  tagForm.name = ''
+  // 排序默认 0：后端的排序规则是"越小越靠前"，0 是它的默认值。
+  // 这里不自动算 max+1 —— 自动算出来的数字用户看不懂（"为什么是 7？"），
+  // 而绝大多数标签用默认值就够了，想调的人自己会去改。
+  tagForm.sort = 0
+  tagFormError.value = ''
+  tagEditVisible.value = true
+}
+
+const openTagEdit = (row) => {
+  tagForm.id = row.id
+  tagForm.name = row.name || ''
+  // sort 可能是 null（后端允许不传）。el-input-number 拿到 null 会显示成空，
+  // 用户一保存就把排序变成 0 —— 所以这里显式兜成 0
+  tagForm.sort = Number(row.sort) || 0
+  tagFormError.value = ''
+  tagEditVisible.value = true
+}
+
+/**
+ * 保存标签（新建或编辑）。
+ *
+ * 【提交前必须 trim】后端会 trim 之后再查重（"工作" 与 " 工作 " 是同一个名字），
+ *   而这里是"同一套规则的显示端"：不 trim 的话，用户输入 " 工作 " 时
+ *   我们会把带空格的字符串发上去（后端能处理，但请求体和日志里都是脏数据），
+ *   而且 maxlength=30 会因为空格而提前截断一个本来合法的名字。
+ *
+ * 【为什么前端也校验一遍长度和必填】和封面那套一样，前端预检只是体验优化
+ *   （本地即时反馈、不浪费一次往返），真正生效的永远是后端那一层。
+ */
+const saveTag = async () => {
+  tagFormError.value = ''
+
+  const name = tagForm.name.trim()
+  if (!name) {
+    tagFormError.value = '标签名不能为空'
+    return
+  }
+  if (name.length > 30) {
+    tagFormError.value = '标签名最长 30 字'
+    return
+  }
+  // 防连点：按钮上虽然有 :loading，但两次点击落在同一帧时它还没重绘
+  if (tagSaving.value) return
+
+  tagSaving.value = true
+  const body = { name, sort: Number(tagForm.sort) || 0 }
+  const isEdit = !!tagForm.id
+
+  const res = isEdit
+    ? await request('/admin/tag/' + tagForm.id, { method: 'PUT', body })
+    : await request('/admin/tag', { method: 'POST', body })
+
+  tagSaving.value = false
+
+  if (res.ok) {
+    ElMessage.success(isEdit ? '已保存' : '标签已创建')
+    tagEditVisible.value = false
+    // 重新拉列表（而不是把新的这一条塞进本地数组）：sort 是后端排的，
+    // 本地插进去的位置不一定对；而且 articleCount 只有后端算得准
+    fetchTags()
+    return
+  }
+
+  // 【失败：弹窗留着 + 把后端的原因写在弹窗里】
+  //   最典型的就是重名：后端返回 400 + 「标签名已存在」。
+  //   useApi 已经弹过一次 toast（那句话就是后端的原文），这里再显示一遍是为了
+  //   "留在用户眼前" —— 重名时他要做的动作是改名字再点一次保存，
+  //   而 toast 三秒后消失，那时他还在看这个弹窗。
+  tagFormError.value = res.message || '保存失败，请稍后再试'
+}
+
+/**
+ * 删除标签。
+ *
+ * 【二次确认里必须说清"会同时解除文章关联"】
+ *   后端这个删除是【物理删除】：标签行删掉，同时把它与文章的所有关联一起删掉
+ *   （文章本身不会消失，只是少了这个标签）。用户在列表上看到的就是一个名字，
+ *   不告诉他的话很容易以为"只是从标签库里去掉了，文章上的标签还在"。
+ *   所以确认框里把影响写全：有几篇已发布文章也报出来（articleCount 就是为这个准备的）。
+ */
+const removeTag = async (row) => {
+  const count = Number(row.articleCount) || 0
+  const impact = count > 0
+    ? `它下面还有 ${count} 篇已发布文章，删除后会同时解除这些文章与它的关联（文章本身不会被删除）。`
+    : '目前没有文章使用它。'
+
+  try {
+    await ElMessageBox.confirm(
+      `确定要删除标签「${row.name}」吗？${impact}删除后无法恢复。`,
+      '危险操作',
+      { type: 'error', confirmButtonText: '确认删除', cancelButtonText: '取消' },
+    )
+  } catch { return }
+
+  const res = await request('/admin/tag/' + row.id, { method: 'DELETE' })
+  if (res.ok) {
+    ElMessage.success('已删除')
+    fetchTags()
+    return
+  }
+  // 【404 = 别人（或另一个标签页）已经把它删掉了】
+  //   这时什么都不做的话，用户看到的是一条"标签不存在"的报错 + 一个还列着它的表格，
+  //   他会以为删除失败、再点一次。刷新列表才是能自愈的做法：表格里那条自己就没了。
+  if (res.code === 404) {
+    ElMessage.warning('这个标签已经不在了，列表已刷新')
+    fetchTags()
+  }
+}
+
 // 切到文章管理时如果还没加载过，补一次；切到概览时刷新一次概览数据
 // （比如刚从文章管理发布/删除了文章，回到概览看到的应该是新的数字，而不是进页面那一刻的）
+// 标签管理同理：在别处（文章弹窗、另一个标签页）改过标签之后切过来，
+// 看到的应该是当前的标签，而不是进页面那一刻的快照
 watch(cur, (v) => {
   if (v === 'articles' && articles.value.length === 0) fetchArticles()
   if (v === 'overview') loadOverview()
+  if (v === 'tags') loadTags()
 })
 
 onMounted(async () => {
@@ -992,7 +1241,25 @@ onMounted(async () => {
 
 .toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; border-radius: 18px; padding: 16px 18px; margin-bottom: 20px; }
 .tb-item { width: 180px; }
+/* 工具条上的说明文字（标签管理那句"这里建完立刻就能选到"）：靠右、弱化，
+   它解释的是"这个页面和别处的关系"，不是必须读的操作指引 */
+.tb-hint { color: var(--muted); font-size: 12px; margin-left: auto; }
 .pager { display: flex; justify-content: flex-end; margin-top: 18px; }
+
+/* 面板顶部的一行说明（分类那页的"只读"提示）。
+   用左边一条竖线而不是纯文字：它需要被看见，但不需要抢标题的位置 */
+.panel-note {
+  color: var(--muted); font-size: 13px; line-height: 1.7;
+  border-left: 3px solid rgba(242,193,78,.5); padding: 2px 0 2px 12px; margin-bottom: 18px;
+}
+.panel-note strong { color: var(--accent); }
+
+/* 弹窗里的失败原因（比如「标签名已存在」）。
+   用主题里的错误色而不是灰色：它是一条"必须处理才能继续"的信息 */
+.ed-error {
+  color: var(--el-color-danger, #f56c6c);
+  font-size: 13px; line-height: 1.6; margin: 4px 0 0;
+}
 
 /* 编辑弹窗内的行 */
 .ed-row { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }

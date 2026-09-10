@@ -164,8 +164,13 @@ describe('后台 · 概览数字', () => {
     expect(cardValues(wrapper).slice(0, 3)).toEqual(['—', '—', '—'])
     // 用户那一路是好的，照常显示
     expect(cardValues(wrapper)[3]).toBe('7')
-    // 页面没崩：左侧菜单、最近文章面板都在
-    expect(wrapper.findAll('.side-nav a').length).toBe(5)
+    // 页面没崩：左侧菜单、最近文章面板都在。
+    // 【为什么这里从 5 改成了 6】原来那个「分类 / 标签」占位菜单这次拆成了
+    // 「标签管理」（真能增删改）与「分类」（只读）两个入口 ——
+    // 它们背后是后端两套不同的接口，挤在一个菜单里没法表达"标签能改、分类暂时不能"。
+    // 断言菜单项的文字而不只是数量：只数个数的话，菜单被换成 6 个空壳也照样通过。
+    expect(wrapper.findAll('.side-nav a').map(a => a.text()))
+      .toEqual(['概览', '文章管理', '用户管理', '标签管理', '分类', '设置'])
     expect(wrapper.text()).toContain('最近文章')
   })
 
