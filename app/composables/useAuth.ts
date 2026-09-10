@@ -3,6 +3,16 @@
 // 作用：登录/注册的"大脑"。把"登录、注册、退出"这套逻辑集中写在这里，
 //       页面只调用它、看结果，不用管请求细节。
 // 核心思想：逻辑与界面分离（就跟后端把逻辑放 Service 一样）。
+//
+// 【登录限流（429）与冷却】后端对 /auth/login 有 Resilience4j 的应用层限流：
+//   5 次/分钟。配额用完时后端返回**真正的 HTTP 429** + {code:429, message:"请求过于频繁，请稍后再试"}。
+//   注意这时 $fetch 会【抛异常】（HTTP 非 2xx），而不是像业务失败那样
+//   返回一个 code≠200 的对象 —— 所以原来的 catch 会把"被限流"统一成
+//   「登录失败，请稍后再试」，用户完全看不出真正的原因（服务端好好的，
+//   只是让他等一会儿），会以为是密码错了或者网站坏了，于是接着点，
+//   而每点一次都在往限流窗口里再记一次。
+//   现在这里做两件事：① 认得出 429 并给出专门的提示；
+//   ② 触发一段冷却（见 LOGIN_COOLDOWN_SECONDS 的说明），冷却期间不再发请求。
 // ============================================================
 
 // 定义一个可复用的函数 useAuth（Nuxt 约定：可复用逻辑都以 use 开头）。
@@ -26,12 +36,65 @@ export const useAuth = () => {
     //         而是配在一处、代码统一取 —— 将来改地址只改一处。
     const config = useRuntimeConfig()
 
+    // ----------【2.5】登录冷却：被限流之后先别让用户再点 ----------
+    // 关键词：
+    //   ref / computed  = Vue 的响应式数据与派生值（模板里靠它们自动更新）
+    //   setInterval     = 每隔固定时间执行一次（这里用来走倒计时）
+    // 为什么要有它：
+    //   后端登录限流是 5 次/分钟，而用户被拦下之后的第一个反应就是"再点一次"。
+    //   不拦着的话，那一次点击只会再撞一次 429（还占掉限流窗口里的一个位置），
+    //   用户看到的现象是"点了没反应、提示反复出现"。给按钮一段冷却，
+    //   把"等一会儿"这件事变成界面上看得见的状态，比反复弹提示有用得多。
+    const cooldownLeft = ref(0)                                  // 剩余秒数
+    const coolingDown = computed(() => cooldownLeft.value > 0)   // 模板用它禁用按钮
+    let cooldownTimer = null
+
+    /** 停掉倒计时并清零。冷却结束、或组件卸载时调用 */
+    const stopCooldown = () => {
+        if (cooldownTimer) {
+            clearInterval(cooldownTimer)   // 不清的话这个定时器会一直跑下去（内存/日志里都能看到）
+            cooldownTimer = null
+        }
+        cooldownLeft.value = 0
+    }
+
+    /**
+     * 开始一段冷却（默认 LOGIN_COOLDOWN_SECONDS 秒）。
+     * 先 stopCooldown 再开新的：重复触发时不会留下两个定时器一起倒数，
+     * 那种情况下按钮上的秒数会跳着掉（两个 interval 各减一次）。
+     */
+    const startCooldown = (seconds = LOGIN_COOLDOWN_SECONDS) => {
+        stopCooldown()
+        cooldownLeft.value = Math.max(1, Math.trunc(seconds))
+        cooldownTimer = setInterval(() => {
+            cooldownLeft.value -= 1
+            if (cooldownLeft.value <= 0) stopCooldown()
+        }, 1000)
+    }
+
+    // 【为什么在这里清定时器】useAuth() 是在 app.vue 的 setup 里调用的，
+    // 组件卸载（测试里就是 wrapper.unmount()）时如果定时器还活着，
+    // 它会继续改一个已经没人看的 ref，测试环境里还会报"有句柄没释放"。
+    // getCurrentScope() 是为了在没有组件作用域时（比如直接在单测里
+    // 调用 useAuth()）不报 "onScopeDispose() is called when there is no
+    // active effect scope" 的警告。
+    if (getCurrentScope()) onScopeDispose(stopCooldown)
+
     // ----------【3】登录 ----------
     // 关键词：
     //   async  = 声明此函数是"异步"的（因为要发请求、等后端）。
     //   (username, password) = 参数：页面把用户填的用户名、密码传进来。
     // 为什么：把"登录"写成函数，接收账号密码，准备交给后端核对。
     const login = async (username, password) => {
+
+        // 【冷却期间直接拒绝，连请求都不发】
+        // 为什么在 composable 里也拦一道，而不只靠按钮 disabled：
+        //   登录弹窗里提交有三条路 —— 点按钮、密码框回车（@keyup.enter）、
+        //   表单 submit（@submit.prevent）。按钮 disabled 只挡得住第一条，
+        //   回车照样能把请求发出去。拦在最里面这一层才是真的拦住了。
+        if (coolingDown.value) {
+            return { ok: false, rateLimited: true, cooldownLeft: cooldownLeft.value, message: cooldownMessage(cooldownLeft.value) }
+        }
 
         // 关键词：try { ... } 尝试执行；catch { ... } 出错就跳这里兜底。
         // 为什么：发网络请求可能失败（后端没启动、断网）。
@@ -58,6 +121,12 @@ export const useAuth = () => {
             if (res.code === 200) {
                 token.value = res.data.token      // 登录成功 → 存 token
                 user.value = res.data              // 存用户信息（含 role，供判断管理员）
+                // 【为什么成功时也要清冷却】看着像多余（冷却期间上面那道
+                // 守卫根本不让人登录），但它挡的是一个真实的竞态：
+                // 用户连点两下，两次请求都通过了守卫 —— 一次撞上 429 把冷却
+                // 打开了，另一次却成功登录。这时候如果不清，用户明明已经登录成功，
+                // 界面却还要空等 10 秒（而且冷却状态会跟着他进到下一个页面）。
+                stopCooldown()
                 return { ok: true }               // 告诉页面：成功
             }
 
@@ -65,7 +134,26 @@ export const useAuth = () => {
             // 为什么：code ≠ 200（如密码错），把后端给的 message 显示给用户。
             return { ok: false, message: res.message || '用户名或密码错误' }
 
-        } catch {
+        } catch (err) {
+            // 【被限流（HTTP 429）要和"网络/后端出问题"分开说】
+            // 走到 catch 的可能是三种完全不同的情况，用户该做的事也不同：
+            //   · 被限流 → 等一会儿（服务端好好的，是我们问得太勤）
+            //   · 网络/后端故障 → 检查网络或稍后重试
+            //   · 其它 → 未知
+            // 原来三者统一成「登录失败，请稍后再试」，等于什么都没说；
+            // 而"限流"这件事的提示必须具体，因为用户等 10 秒就真的能用。
+            if (isRateLimited(err)) {
+                startCooldown()
+                // 优先后端 message（它就是「请求过于频繁，请稍后再试」），
+                // 万一代理层给了一个没有 body 的 429，就用我们自己的兜底文案
+                return {
+                    ok: false,
+                    rateLimited: true,
+                    cooldownLeft: cooldownLeft.value,
+                    message: pickMessage(readBackendMessage(err), RATE_LIMITED_MESSAGE),
+                }
+            }
+
             // 为什么：走到这 = 网络/后端出问题了，给个不吓人的提示。
             return { ok: false, message: '登录失败，请稍后再试' }
         }
@@ -131,5 +219,8 @@ export const useAuth = () => {
     // ----------【6】出口：把这个文件的功能交出去 ----------
     // 为什么：页面用 const { login, register, logout, token } = useAuth()
     //         就能拿到它们。这个文件"只负责登录逻辑"，到此为止。
-    return { token, user, login, register, logout }
+    // cooldownLeft / coolingDown 给页面用来禁用登录按钮并显示倒计时；
+    // stopCooldown 也导出，是为了让调用方（以及测试）能主动结束冷却，
+    // 而不用等满 10 秒。
+    return { token, user, login, register, logout, cooldownLeft, coolingDown, startCooldown, stopCooldown }
 }

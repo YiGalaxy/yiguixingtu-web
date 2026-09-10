@@ -322,6 +322,100 @@ describe('useApi', () => {
   })
 
   // ---------------------------------------------------------------
+  // 分支 ⑤：两种 429（这是后来的限流功能加上去的，也最容易混）
+  //
+  // 【为什么必须分成两条断言】
+  //   后端有两个 body.code = 429 的场景，但含义相反：
+  //     · HTTP 429（真被限流，比如登录 5 次/分钟）→ 等一下就好
+  //     · HTTP 200 + body.code=429（幂等键命中"另一个相同请求正在处理中"）
+  //       → 别重复提交
+  //   它们只能在**HTTP 层**区分：前者 $fetch 直接抛异常，后者是正常返回。
+  //   如果只写成一句"请求过于频繁"，点两下按钮的人会以为第一次失败了，
+  //   于是再点一下 —— 正好又撞一次幂等键。
+  // ---------------------------------------------------------------
+
+  it('HTTP 429 时_should 提示"太频繁"，不能落回通用的网络异常', async () => {
+    // 后端 Resilience4j 限流的真实形状
+    fetchMock.mockRejectedValue({ status: 429, data: { code: 429, message: '请求过于频繁，请稍后再试' } })
+
+    const { request } = useApi()
+    const res = await request('/auth/login', { method: 'POST' })
+
+    expect(res.ok).toBe(false)
+    expect(res.code).toBe(429)
+    expect(res.rateLimited).toBe(true)
+    expect(errorSpy).toHaveBeenCalledWith('请求过于频繁，请稍后再试')
+    // 这条是本次修复的核心：429 原来会掉进最后的兜底分支，
+    // 用户看到的是"网络异常，请稍后再试"—— 而真实原因是"问得太勤了"，
+    // 服务端一切正常。提示成网络故障会把人带去查网线/重启路由器。
+    expect(errorSpy).not.toHaveBeenCalledWith('网络异常，请稍后再试')
+  })
+
+  it('HTTP 429 但没有 body 时_should 用兜底文案（代理层可能给一个空的 429）', async () => {
+    fetchMock.mockRejectedValue({ status: 429 })
+
+    const { request } = useApi()
+    const res = await request('/article/page')
+
+    expect(res.code).toBe(429)
+    expect(res.message).toBe(RATE_LIMITED_MESSAGE)
+    expect(errorSpy).toHaveBeenCalledWith(RATE_LIMITED_MESSAGE)
+  })
+
+  it('HTTP 429 时_should 不清 token（限流和登录状态没关系）', async () => {
+    fetchMock.mockRejectedValue({ status: 429 })
+    tokenRef.value = 'still-valid-token'
+
+    const { request } = useApi()
+    await request('/article/page')
+
+    // 被限流只说明"请求太多"，不代表通行证失效；
+    // 顺手把 token 清掉的话，用户会莫名其妙地被登出
+    expect(tokenRef.value).toBe('still-valid-token')
+  })
+
+  it('body_code 429（HTTP 200 + 幂等键命中"处理中"）_should 提示"请勿重复提交"', async () => {
+    // 这个形状是【正常返回】：HTTP 200，业务码是 429
+    fetchMock.mockResolvedValue({ code: 429, message: '请求正在处理中，请勿重复提交', data: null })
+
+    const { request } = useApi()
+    const res = await request('/admin/article', { method: 'POST' })
+
+    expect(res.ok).toBe(false)
+    expect(res.code).toBe(429)
+    expect(res.duplicateSubmit).toBe(true)
+    expect(errorSpy).toHaveBeenCalledWith('请求正在处理中，请勿重复提交')
+    // 不能退化成通用的"操作失败"：那样用户会以为第一次没成功，再点一下
+    expect(errorSpy).not.toHaveBeenCalledWith('操作失败')
+  })
+
+  it('body_code 429 但没带 message 时_should 用"处理中"的兜底文案', async () => {
+    fetchMock.mockResolvedValue({ code: 429, data: null })
+
+    const { request } = useApi()
+    const res = await request('/admin/article', { method: 'POST' })
+
+    expect(res.message).toBe(DUPLICATE_SUBMIT_MESSAGE)
+    expect(errorSpy).toHaveBeenCalledWith(DUPLICATE_SUBMIT_MESSAGE)
+  })
+
+  it('两种 429 的提示_should 必须不一样（一个是"等一下"，一个是"别重复点"）', async () => {
+    // 直接把两条分支的文案放在一起比，防止以后有人"顺手统一一下措辞"
+    fetchMock.mockRejectedValue({ status: 429, data: { code: 429, message: RATE_LIMITED_MESSAGE } })
+    const { request } = useApi()
+    const limited = await request('/auth/login', { method: 'POST' })
+
+    fetchMock.mockReset()
+    fetchMock.mockResolvedValue({ code: 429, message: DUPLICATE_SUBMIT_MESSAGE })
+    const { request: request2 } = useApi()
+    const duplicate = await request2('/admin/article', { method: 'POST' })
+
+    expect(limited.message).not.toBe(duplicate.message)
+    expect(limited.rateLimited).toBe(true)
+    expect(duplicate.duplicateSubmit).toBe(true)
+  })
+
+  // ---------------------------------------------------------------
   // 接口约定
   // ---------------------------------------------------------------
 
@@ -331,8 +425,10 @@ describe('useApi', () => {
     const cases = [
       { name: '成功', mock: () => fetchMock.mockResolvedValue({ code: 200, data: 1 }) },
       { name: '业务失败', mock: () => fetchMock.mockResolvedValue({ code: 404, message: '文章不存在' }) },
+      { name: '幂等重复提交（200 + code 429）', mock: () => fetchMock.mockResolvedValue({ code: 429, message: '处理中' }) },
       { name: '401', mock: () => fetchMock.mockRejectedValue({ status: 401 }) },
       { name: '403', mock: () => fetchMock.mockRejectedValue({ status: 403 }) },
+      { name: '429（限流）', mock: () => fetchMock.mockRejectedValue({ status: 429 }) },
       { name: '网络异常', mock: () => fetchMock.mockRejectedValue(new Error('boom')) },
     ]
 

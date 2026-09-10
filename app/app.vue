@@ -74,7 +74,18 @@
           <el-checkbox v-model="rememberPassword">记住密码</el-checkbox>
           <el-link type="primary" :underline="false" @click="switchToRegister">去注册</el-link>
         </div>
-        <el-button type="primary" class="auth-submit" :loading="loading" @click="onLogin">登 录</el-button>
+        <!-- 登录按钮：被限流之后 disabled + 显示倒计时。
+             为什么要禁用而不是只弹一句提示：被 429 拦下之后用户的第一个反应是
+             "再点一次"，而每点一次都会再撞一次限流（还占掉 1 分钟窗口里的一个位置），
+             点了没反应会让人以为按钮坏了。禁用 + 秒数把"要等一会儿"变成看得见的状态。
+             注意 disabled 只挡得住点击，挡不住"密码框回车提交"，
+             所以真正的拦截在 useAuth().login() 里面（那边也会拒绝）。 -->
+        <el-button
+          type="primary"
+          class="auth-submit"
+          :loading="loading"
+          :disabled="coolingDown"
+          @click="onLogin">{{ loginButtonText }}</el-button>
       </div>
     </el-dialog>
 
@@ -97,7 +108,7 @@
 
 <script setup>
 import { ElMessage } from 'element-plus'
-const { login, register, logout, token, user } = useAuth()
+const { login, register, logout, token, user, coolingDown, cooldownLeft } = useAuth()
 const { loginVisible, registerVisible, openLogin, openRegister } = useAuthUi()
 const { request } = useApi()
 
@@ -159,7 +170,15 @@ onMounted(async () => {
 })
 const switchToRegister = () => { loginVisible.value = false; registerVisible.value = true }
 const switchToLogin = () => { registerVisible.value = false; loginVisible.value = true }
+
+// 冷却期间按钮上直接写秒数：用户知道还要等多久，就不会反复点了
+const loginButtonText = computed(() => (coolingDown.value ? `请 ${cooldownLeft.value} 秒后再试` : '登 录'))
+
 const onLogin = async () => {
+  // 冷却中：连"请输入用户名和密码"的校验都不做（用户此刻做什么都没用），
+  // 只告诉他还要等多久。这条兜的是"密码框回车提交"那条路 —— 按钮虽然 disabled，
+  // 但回车绕得过去，所以这里必须再拦一次。
+  if (coolingDown.value) return ElMessage.warning(cooldownMessage(cooldownLeft.value))
   if (!form.username || !form.password) return ElMessage.warning('请输入用户名和密码')
   loading.value = true
   const res = await login(form.username, form.password)
