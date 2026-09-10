@@ -45,9 +45,23 @@ const CATEGORIES = [
   { id: 3, name: '读书' },
 ]
 
+/**
+ * 标签列表（GET /tag/list）。形状照抄后端 TagVO：
+ * id / name / sort / articleCount，其中 articleCount 是【已发布】文章数，
+ * 没有文章时后端给的是 0（不是 null）。
+ */
+const TAGS = [
+  { id: 7, name: 'Vue', sort: 1, articleCount: 2 },
+  { id: 8, name: '部署', sort: 2, articleCount: 0 },
+]
+
+/** 文章列表项带 tags（没有标签时是空数组，这里第二篇刻意留空以覆盖这一种） */
 const ARTICLES = [
-  { id: 11, title: '第一篇', categoryName: '技术', viewCount: 5, createTime: '2026-09-10T10:00:00' },
-  { id: 12, title: '第二篇', categoryName: '随笔', viewCount: 3, createTime: '2026-09-09T10:00:00' },
+  {
+    id: 11, title: '第一篇', categoryName: '技术', viewCount: 5, createTime: '2026-09-10T10:00:00',
+    tags: [{ id: 7, name: 'Vue', sort: 1, articleCount: null }, { id: 8, name: '部署', sort: 2, articleCount: null }],
+  },
+  { id: 12, title: '第二篇', categoryName: '随笔', viewCount: 3, createTime: '2026-09-09T10:00:00', tags: [] },
 ]
 
 /**
@@ -64,6 +78,7 @@ const mockBackend = (overrides = {}) => {
     const path = pathOf(url)
     if (path in overrides) return Promise.resolve(overrides[path])
     if (path === '/category/list') return Promise.resolve(body(CATEGORIES))
+    if (path === '/tag/list') return Promise.resolve(body(TAGS))
     if (path === '/article/stats') return Promise.resolve(body(SITE_STATS))
     // total 给 6、records 只给 2 条：这样 articles.length < total，
     // 页面才会渲染出「加载更多」按钮（分页那条用例要用到它）
@@ -87,6 +102,12 @@ const lastArticleParams = () => {
 
 /** 页面上渲染出来的分类按钮文字（含「全部」） */
 const catLabels = (wrapper) => wrapper.findAll('.cat').map(c => c.text())
+
+/** 页面上渲染出来的标签筛选胶囊（**不含**分类那一排，两边是不同的 class） */
+const tagPillLabels = (wrapper) => wrapper.findAll('.tags .tagp').map(c => c.text())
+
+/** 文章卡片上的标签胶囊 */
+const cardTagLabels = (wrapper) => wrapper.findAll('.af .af-tags .tg').map(c => c.text())
 
 /** 当前地址栏的 query（用真路由读，证明"确实写进去了"） */
 const currentQuery = (wrapper) => wrapper.vm.$router.currentRoute.value.query
@@ -349,5 +370,173 @@ describe('首页 · 搜索与分类筛选', () => {
     await settleRoute()
 
     expect(wrapper.findAll('.pf-stats .st b').map(b => b.text())).toEqual(['2', '28', '3'])
+  })
+
+  // ---------------------------------------------------------------
+  // 六、标签：展示 + 按标签筛选
+  //
+  // 【这一组守的是什么】标签是筛选状态的第三个维度，它必须和关键词、分类
+  // 走【同一套】机制。分开写两套的表现是"筛了却不生效"或者
+  // "两处状态对不上"，而且不报任何错 —— 只能靠挂载页面来测。
+  // ---------------------------------------------------------------
+
+  it('标签接口有数据_should渲染标签筛选条，并且每个胶囊带 # 前缀', async () => {
+    const wrapper = await mountSuspended(IndexPage)
+    await settleRoute()
+
+    expect(tagPillLabels(wrapper)).toEqual(['#Vue', '#部署'])
+    // 标签条和分类条是两个不同的类名：分类那一排的用例按 .cat 数，
+    // 共用类名会让"分类有几个"这种断言跟着标签数量一起变（假绿）
+    expect(catLabels(wrapper)).toEqual(['全部', '技术', '随笔', '读书'])
+  })
+
+  it('标签接口失败_should整条标签条不渲染，页面照常显示文章', async () => {
+    mockBackend({ '/tag/list': { code: 500, message: '服务器开小差了' } })
+
+    const wrapper = await mountSuspended(IndexPage)
+    await settleRoute()
+
+    // 和分类同一个原则：一排空胶囊比没有更糟
+    expect(wrapper.find('.tags').exists()).toBe(false)
+    expect(wrapper.text()).toContain('第一篇')
+  })
+
+  it('标签接口返回了非数组_should当成空标签处理，而不是把渲染打挂', async () => {
+    mockBackend({ '/tag/list': body({ records: [] }) })
+
+    const wrapper = await mountSuspended(IndexPage)
+    await settleRoute()
+
+    expect(wrapper.find('.tags').exists()).toBe(false)
+    expect(wrapper.text()).toContain('第一篇')
+  })
+
+  it('文章卡片_should显示这篇文章的标签（没有标签的那篇不渲染标签区）', async () => {
+    const wrapper = await mountSuspended(IndexPage)
+    await settleRoute()
+
+    // 第一篇有两个标签，第二篇 tags 是空数组 —— 空的那些不该渲染出一个空框
+    expect(cardTagLabels(wrapper)).toEqual(['#Vue', '#部署'])
+    expect(wrapper.findAll('.af .af-tags').length).toBe(1)
+  })
+
+  it('点标签筛选条_should用 tagId 重新请求、写进地址栏，并把该胶囊点亮', async () => {
+    const wrapper = await mountSuspended(IndexPage)
+    await settleRoute()
+
+    await wrapper.findAll('.tags .tagp')[1].trigger('click')   // 「#部署」
+    await settleRoute()
+
+    // ① 请求参数：tagId 必须是数字 8（后端按 Long 绑定）
+    expect(lastArticleParams().tagId).toBe(8)
+    // ② 地址栏
+    expect(currentQuery(wrapper).tagId).toBe('8')
+    // ③ 高亮 + 标题
+    expect(wrapper.findAll('.tags .tagp')[1].classes()).toContain('on')
+    expect(wrapper.find('.w-head h2').text()).toContain('部署')
+  })
+
+  it('点文章卡片上的标签_should按标签筛选，而且【不会跳去文章详情】', async () => {
+    const wrapper = await mountSuspended(IndexPage)
+    await settleRoute()
+
+    const cardPill = wrapper.find('.af .af-tags .tg')
+    expect(cardPill.text()).toBe('#Vue')
+
+    await cardPill.trigger('click')
+    await settleRoute()
+
+    // 卡片外层是 <a @click.prevent="goArticle">，标签上的 .stop 必须真的拦住冒泡，
+    // 否则"点标签看同标签的文章"会变成"进了当前这篇的详情页"
+    expect(lastArticleParams().tagId).toBe(7)
+    expect(currentQuery(wrapper).tagId).toBe('7')
+    expect(wrapper.vm.$router.currentRoute.value.path).toBe('/')
+  })
+
+  it('再点一次已选中的标签_should取消标签筛选（标签条上没有「全部」按钮）', async () => {
+    const wrapper = await mountSuspended(IndexPage, { route: '/?tagId=7' })
+    await settleRoute()
+    expect(lastArticleParams().tagId).toBe(7)
+
+    await wrapper.findAll('.tags .tagp')[0].trigger('click')
+    await settleRoute()
+
+    expect(lastArticleParams().tagId).toBeUndefined()
+    expect(currentQuery(wrapper).tagId).toBeUndefined()
+    expect(wrapper.find('.w-head h2').text()).toBe('最新文章')
+  })
+
+  it('标签与分类叠加_should两个条件一起发给后端（后端按 AND 过滤）', async () => {
+    const wrapper = await mountSuspended(IndexPage, { route: '/?categoryId=1' })
+    await settleRoute()
+
+    await wrapper.findAll('.tags .tagp')[0].trigger('click')
+    await settleRoute()
+
+    expect(lastArticleParams().categoryId).toBe(1)
+    expect(lastArticleParams().tagId).toBe(7)
+    expect(currentQuery(wrapper).categoryId).toBe('1')
+    expect(currentQuery(wrapper).tagId).toBe('7')
+    // 标题要同时体现两个范围，否则用户看不出"分类还筛着"
+    expect(wrapper.find('.w-head h2').text()).toContain('技术')
+    expect(wrapper.find('.w-head h2').text()).toContain('Vue')
+  })
+
+  it('带着 tagId 的地址直接打开（等于刷新）_should恢复标签高亮与首屏请求参数', async () => {
+    const wrapper = await mountSuspended(IndexPage, { route: '/?tagId=7' })
+    await settleRoute()
+
+    // 首屏第一次请求就带着 tagId，而不是先拉一遍全部再拉筛选结果
+    expect(lastArticleParams().tagId).toBe(7)
+    expect(wrapper.findAll('.tags .tagp')[0].classes()).toContain('on')
+    expect(wrapper.find('.w-head h2').text()).toContain('Vue')
+    expect(wrapper.find('.w-clear').exists()).toBe(true)
+  })
+
+  it('换了标签_should重新发请求（key 里必须带 tagId，否则两个标签会共用同一份缓存）', async () => {
+    const wrapper = await mountSuspended(IndexPage, { route: '/?tagId=7' })
+    await settleRoute()
+    const before = callCount('/article/page')
+
+    await wrapper.findAll('.tags .tagp')[1].trigger('click')   // 换到「#部署」
+    await settleRoute()
+
+    // 只断言"请求参数变了"是不够的：参数对了但 useAsyncData 的 key 没带 tagId 时，
+    // 页面会沿用上一份 payload（一个请求都不发），列表还是上一批 ——
+    // 所以这里连【请求次数】一起钉住
+    expect(callCount('/article/page')).toBe(before + 1)
+    expect(lastArticleParams().tagId).toBe(8)
+  })
+
+  it('地址栏里的 tagId 是非法值_should当成没选标签，而不是把页面打挂', async () => {
+    const wrapper = await mountSuspended(IndexPage, { route: '/?tagId=abc' })
+    await settleRoute()
+
+    expect(lastArticleParams().tagId).toBeUndefined()
+    expect(wrapper.find('.w-head h2').text()).toBe('最新文章')
+    expect(wrapper.text()).toContain('第一篇')
+  })
+
+  it('清除筛选_should把关键词、分类、标签三个条件一起清干净', async () => {
+    const wrapper = await mountSuspended(IndexPage, { route: '/?keyword=nuxt&categoryId=2&tagId=7' })
+    await settleRoute()
+    expect(wrapper.find('.w-clear').exists()).toBe(true)
+
+    await wrapper.find('.w-clear').trigger('click')
+    await settleRoute()
+
+    expect(lastArticleParams().tagId).toBeUndefined()
+    expect(currentQuery(wrapper).tagId).toBeUndefined()
+    expect(currentQuery(wrapper).categoryId).toBeUndefined()
+    expect(wrapper.findAll('.tags .tagp').every(p => !p.classes().includes('on'))).toBe(true)
+  })
+
+  it('筛选后没有结果_should提示"换个关键词、分类或标签试试"', async () => {
+    mockBackend({ '/article/page': body({ records: [], total: 0 }) })
+
+    const wrapper = await mountSuspended(IndexPage, { route: '/?tagId=7' })
+    await settleRoute()
+
+    expect(wrapper.find('.w-empty').text()).toContain('标签')
   })
 })

@@ -27,6 +27,21 @@ v-for="c in categories" :key="c.id" class="cat"
                 :class="{ on: categoryId === c.id }"
                 @click="selectCategory(c.id)">{{ c.name }}</button>
       </div>
+
+      <!-- 标签筛选：数据来自公开接口 GET /tag/list（带每个标签下【已发布】的文章数）。
+           标签是筛选状态的【第三个维度】，和关键词、分类共用同一套 URL query
+           与同一次 /article/page 请求（后端把三者按 AND 叠加），
+           所以这里不新开一套状态，只把 useArticleFilter 里的 tagId 绑上去。
+           与分类那一排有一个刻意的区别：这里【没有「全部标签」按钮】——
+           标签的数量不定，再排一个按钮既占地方、又和分类那排的按钮重复；
+           取消的方式是在同一颗胶囊上再点一次（见 useArticleFilter 的 selectTag）。 -->
+      <div v-if="tags.length" class="tags">
+        <button
+v-for="t in tags" :key="t.id" class="tagp"
+                :class="{ on: tagId === t.id }"
+                :title="tagCountTip(t)"
+                @click="selectTag(t.id)">#{{ t.name }}</button>
+      </div>
     </div>
 
     <!-- 个人卡片 + 音乐卡片（两卡并排） -->
@@ -98,7 +113,7 @@ v-for="c in categories" :key="c.id" class="cat"
            不会出现"转圈的同时还显示着上次的数据"这种错乱。 -->
       <div v-if="loading && articles.length === 0" class="w-empty">加载中…</div>
       <div v-else-if="articles.length === 0" class="w-empty">
-        {{ isFiltered ? '没有找到相关文章，换个关键词或分类试试' : '还没有发布任何文章' }}
+        {{ isFiltered ? '没有找到相关文章，换个关键词、分类或标签试试' : '还没有发布任何文章' }}
       </div>
       <div v-else class="waterfall">
         <a
@@ -110,6 +125,18 @@ v-for="(a, i) in articles" :key="a.id" href="#" class="af glass"
             <span class="af-tag">{{ a.categoryName || '未分类' }}</span>
             <h3 class="af-title">{{ a.title }}</h3>
             <p v-if="a.summary" class="af-sum">{{ a.summary }}</p>
+            <!-- 文章身上的标签（后端列表项与详情都会带 tags，没有标签时是空数组）。
+                 点它 = 按这个标签筛一批文章：请求参数与地址栏都由 useArticleFilter 管，
+                 这里只负责把 id 交出去。
+                 【@click.stop.prevent 两个修饰符都不能省】
+                   · .prevent：它外面那层 <a href="#"> 否则会跳一下
+                   · .stop：不拦下来的话事件冒泡到卡片，会变成"点标签 = 打开文章"，
+                     用户想看同标签的其他文章，结果进了当前这篇的详情页 -->
+            <div v-if="a.tags && a.tags.length" class="af-tags">
+              <span
+v-for="t in a.tags" :key="t.id" class="tg"
+                    @click.stop.prevent="selectTag(t.id)">#{{ t.name }}</span>
+            </div>
             <div class="af-meta">
               <span>{{ fmtDate(a.createTime) }}</span>
               <span>{{ a.viewCount || 0 }} 次浏览</span>
@@ -205,11 +232,14 @@ const onEnded = () => { playing.value = false }
 //   让浏览器端复用（不会重复请求），HTML 里直接带着文章列表。
 //
 //  【key 怎么定】key 是"这批数据是谁"的唯一标识，也是 payload 里的键：
-//   · 必须唯一：和站点统计、分类列表各自的 key 不能撞（撞了会共用同一份缓存）
+//   · 必须唯一：和站点统计、分类列表、标签列表各自的 key 不能撞（撞了会共用同一份缓存）
 //   · 必须带上筛选条件：固定写 'home-articles' 的话，
 //     "全部"与"分类 2"两个页面的数据会被当成同一份 —— 换了筛选条件却
-//     显示上一批文章。所以把 keyword / categoryId 拼进 key，
+//     显示上一批文章。所以把 keyword / categoryId / tagId 三个条件都拼进 key，
 //     条件一变 key 就变，useAsyncData 会自动重新取（不用再写 watch）
+//   · 【标签尤其不能漏】分类和标签常常指向同一批文章，漏了 tagId 的表现是
+//     "标签 A"与"标签 B"共用同一份 payload 缓存：点了标签，地址栏变了、
+//     请求也该变，可列表还是上一批（而且不报任何错，最难查的一种）
 //
 //  【为什么"加载更多"不用 useAsyncData】它是在已有列表后面追加，
 //   不是"这一页的首屏数据"，也不需要写进 payload（服务端只渲染第一页）；
@@ -217,14 +247,17 @@ const onEnded = () => { playing.value = false }
 // ================================================================
 const { request } = useApi()
 
-// 筛选条件（关键词 + 分类）：状态、防抖、URL 同步全在 useArticleFilter 里，
-// 页面只负责把它绑到输入框 / 分类按钮上。
+// 筛选条件（关键词 + 分类 + 标签）：状态、防抖、URL 同步全在 useArticleFilter 里，
+// 页面只负责把它绑到输入框 / 分类按钮 / 标签胶囊上。
 // 【keyword 与 keywordInput 的区别】前者是"生效中"的关键词（请求、标题、地址栏都用它），
 // 后者是输入框里的内容（即时）；防抖就发生在这两者之间。
 // 【为什么不直接写 ref 放在这里】不防抖会按字发请求，而"刷新后从地址栏恢复筛选"
 // 又必须和 URL 双向同步 —— 这些逻辑混在 400 行的页面里既难读也难测，
-// 抽出去之后有 28 个用例守着（test/useArticleFilter.nuxt.spec.ts）。
-const { keyword, keywordInput, categoryId, isFiltered, selectCategory, clearAll, applyKeywordNow } = useArticleFilter()
+// 抽出去之后有 36 个用例守着（test/useArticleFilter.nuxt.spec.ts）。
+const {
+  keyword, keywordInput, categoryId, tagId,
+  isFiltered, selectCategory, selectTag, clearAll, applyKeywordNow,
+} = useArticleFilter()
 
 const page = ref(1)
 const SIZE = 12                 // 每页 12 篇，3 列瀑布流正好 4 行
@@ -240,23 +273,25 @@ const loadingMore = ref(false)
  * 这里请求的是【前台公开接口】/article/page —— 它只返回已发布的文章，
  * 所以你后台的草稿绝不会出现在首页上（这条在 ArticlePublicTest 里有测试守着）。
  *
- * 参数由 toArticleParams() 统一拼装：它保证「空关键词不发、没选分类不发」，
- * 也就是后端 GET /article/page?page=&size=&keyword=&categoryId= 中后两个是可选参数。
+ * 参数由 toArticleParams() 统一拼装：它保证「空关键词不发、没选分类不发、
+ * 没选标签不发」，也就是后端 GET /article/page 里 keyword / categoryId / tagId
+ * 三个都是可选参数，可以任意组合（后端按 AND 叠加）。
  */
 const requestArticles = (pageNo) => request('/article/page', {
   params: toArticleParams({
     keyword: keyword.value,
     categoryId: categoryId.value,
+    tagId: tagId.value,
     page: pageNo,
     size: SIZE,
   }),
 })
 
 // 首屏第一页：服务端取好、写进 payload（见上面那段说明）。
-// 三个请求互不依赖，所以先各自发起、再一起 await —— 串行 await 会让
-// 首屏多等两个往返（原来的 onMounted 写法就是并行的，这里不能退回去）。
+// 几个请求互不依赖，所以先各自发起、再一起 await —— 串行 await 会让
+// 首屏多等几个往返（原来的 onMounted 写法就是并行的，这里不能退回去）。
 const articlesAsync = useAsyncData(
-  () => `home-articles:${keyword.value || '-'}:${categoryId.value ?? '-'}`,
+  () => `home-articles:${keyword.value || '-'}:${categoryId.value ?? '-'}:${tagId.value ?? '-'}`,
   () => requestArticles(1),
 )
 
@@ -275,6 +310,24 @@ const categoriesAsync = useAsyncData('home-categories', async () => {
   return res.ok && Array.isArray(res.data) ? res.data : []
 })
 
+/**
+ * 标签列表（前台公开接口 GET /tag/list，带每个标签下【已发布】的文章数）。
+ *
+ * 【为什么也要 SSR】和分类同一个理由：它决定筛选条，也决定列表标题里那个标签名
+ * （URL 里只有 tagId，没有名字）。留在 onMounted 里的话，服务端渲染的 HTML 上
+ * 筛选条是空的、标题永远回落到「最新文章」，带 ?tagId= 的链接被爬虫/别人打开时
+ * 看到的就是"筛选没生效"的样子。
+ *
+ * 【为什么同样要 Array.isArray】和分类一样：后端返回的对象结构一旦变化，
+ * 直接拿去 v-for / .find 会把首页渲染带崩；兜成空数组最多是标签条不显示。
+ * 注意 articleCount 在【没有文章时是 0 而不是 null】（后端一条 GROUP BY 的兜底），
+ * 所以下面判断"有没有文章"用 === 0 而不是真值判断。
+ */
+const tagsAsync = useAsyncData('home-tags', async () => {
+  const res = await request('/tag/list')
+  return res.ok && Array.isArray(res.data) ? res.data : []
+})
+
 // 站点统计（文章数 / 总浏览量 / 分类数）。
 // 【为什么不用页面里的列表自己算】改之前这里是 total.value（会被筛选条件影响）、
 // articles.value.reduce(...)（只是"已加载的 12 篇"之和，点一次「加载更多」数字就变）
@@ -287,11 +340,12 @@ const categoriesAsync = useAsyncData('home-categories', async () => {
 const { stats: siteStats, failed: statsFailed, load: loadSiteStats } = useSiteStats()
 const statsAsync = useAsyncData('home-site-stats', () => loadSiteStats())
 
-// 等服务端把三份数据都拿到（并行）再渲染页面
-await Promise.all([articlesAsync, categoriesAsync, statsAsync])
+// 等服务端把这几份数据都拿到（并行）再渲染页面
+await Promise.all([articlesAsync, categoriesAsync, tagsAsync, statsAsync])
 
 const { data: firstPage, pending: firstPending } = articlesAsync
 const categories = computed(() => categoriesAsync.data.value ?? [])
+const tags = computed(() => tagsAsync.data.value ?? [])
 
 /** 首屏那一页的文章（useAsyncData 给的；接口失败时是空数组） */
 const firstPageArticles = computed(() => (firstPage.value?.ok ? (firstPage.value.data?.records ?? []) : []))
@@ -311,15 +365,40 @@ const loading = computed(() => firstPending.value || loadingMore.value)
 /**
  * 列表标题：让标题、空状态、清除按钮都跟着筛选条件走，
  * 用户一眼能看出"现在看到的是哪一批文章"。
- * 分类名要从 categories 里查 —— URL 里只有 categoryId，没有名字。
+ * 分类名/标签名要从各自的列表里查 —— URL 里只有 id，没有名字。
+ *
+ * 【为什么把范围拼成一段而不是写四个 if】三个条件是可以叠加的
+ * （后端按 AND 过滤），写死成"要么关键词要么分类"就会出现
+ * "同时选了分类和标签，标题只提分类"这种漏报。
+ * keyword 与范围谁缺谁在就退化成对应的短句，两个都没有才是「最新文章」。
  */
 const listTitle = computed(() => {
   const category = categories.value.find(c => c.id === categoryId.value)
-  if (keyword.value && category) return `「${keyword.value}」在「${category.name}」中的结果`
+  const tag = tags.value.find(t => t.id === tagId.value)
+  // 范围部分：分类和标签可以同时生效，中间用「与」连起来
+  const scope = [
+    category ? `「${category.name}」分类` : '',
+    tag ? `「${tag.name}」标签` : '',
+  ].filter(Boolean).join('与')
+
+  if (keyword.value && scope) return `「${keyword.value}」在${scope}下的结果`
   if (keyword.value) return `「${keyword.value}」的搜索结果`
-  if (category) return `「${category.name}」分类下的文章`
+  if (scope) return `${scope}下的文章`
   return '最新文章'
 })
+
+/**
+ * 标签胶囊的悬浮提示。
+ * 【为什么用 tooltip 而不是把数字印在胶囊上】首页的标签条是导航，
+ * 一排「#技术 3 #随笔 1」会把按钮撑得很宽、也会让人以为那个数字可以点。
+ * 数字放在 title 里：想知道某个标签下有几篇，悬停一下就有；
+ * 而且【没有文章时 articleCount 是 0】（后端保证不是 null），
+ * 这时如实说明"点进去会是空的"，比让用户点一下看到空列表要友好。
+ */
+const tagCountTip = (t) => {
+  const count = Number(t.articleCount) || 0
+  return count > 0 ? `该标签下有 ${count} 篇已发布文章` : '该标签下还没有已发布的文章'
+}
 
 /**
  * 数字的显示。
@@ -344,11 +423,11 @@ const hasMore = computed(() => articles.value.length < total.value)
 // 但"加载更多"追加进来的还是【旧筛选条件】下的文章 —— 不清掉就会出现
 // "新关键词的结果 + 老关键词的尾巴"这种混在一起的列表。
 // 【为什么这里不再手动发请求】重新取数的触发条件是 useAsyncData 的 key，
-// 而 key 就是由 keyword / categoryId 拼出来的 —— 条件一变它自己就会重新取，
+// 而 key 就是由 keyword / categoryId / tagId 拼出来的 —— 条件一变它自己就会重新取，
 // 再多写一次请求就等于同一批数据打两次后端（/article/page 还有 300 次/分钟的限流）。
 // 这个 watch 同时也接住了浏览器的前进/后退 —— 那种情况下 useArticleFilter
 // 会把地址栏的参数写回状态，于是这里照样会清一次。
-watch([keyword, categoryId], () => {
+watch([keyword, categoryId, tagId], () => {
   page.value = 1
   moreArticles.value = []
 })
@@ -436,6 +515,20 @@ useSeoMetaFor(() => ({
 .cat:hover { color: var(--ink); border-color: rgba(242,193,78,.45); }
 .cat.on { color: #0a1224; background: linear-gradient(135deg, var(--accent), var(--cyan)); border-color: transparent; font-weight: 700; }
 
+/* 标签筛选条：和分类同一行胶囊样式，但刻意做得更"轻"一点
+   （更小的字号与内边距、前缀一个 #），因为标签数量通常比分类多得多，
+   视觉上要和"分类"这一排区分开，用户才知道自己在筛哪一类东西。
+   它【不叫 .cat】：分类那一排的用例是按 .cat 数的（首页内容真实性那组），
+   两边共用一个类名会让"分类有几个"这种断言跟着标签数量一起变 —— 最难查的那种假绿。 */
+.tags { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.tagp {
+  padding: 4px 12px; border-radius: 999px; cursor: pointer; font-size: 12px;
+  background: rgba(30,47,82,.5); border: 1px dashed rgba(180,210,245,.22);
+  color: var(--muted); transition: color .2s, border-color .2s, background .2s;
+}
+.tagp:hover { color: var(--accent); border-color: rgba(242,193,78,.5); }
+.tagp.on { color: #0a1224; background: linear-gradient(135deg, var(--accent), var(--cyan)); border-style: solid; border-color: transparent; font-weight: 700; }
+
 .toprow { max-width: 1080px; margin: 0 auto; padding: 20px 32px; display: grid; grid-template-columns: 1.4fr 1fr; gap: 20px; }
 /* 毛玻璃降档：blur 14->10 并去掉 saturate()。
    backdrop-filter 会让浏览器【每一帧】重新采样并模糊它背后的内容，
@@ -488,6 +581,19 @@ useSeoMetaFor(() => ({
 .af-tag { font-size: 12px; color: #cfe0f0; border: 1px solid rgba(180,210,245,.25); border-radius: 999px; padding: 2px 10px; }
 .af-title { font-size: 17px; font-weight: 700; line-height: 1.4; margin: 10px 0 8px; color: var(--ink); }
 .af-go { color: var(--accent); font-size: 12px; font-weight: 600; }
+
+/* 卡片上的标签胶囊：点了就按这个标签筛一批文章（不是打开文章）。
+   做成实心的小块而不是描边，是为了和上面那颗描边的「分类」胶囊区分开 ——
+   同一张卡片上两个都能点、但行为不一样，长得一样会让人点错。
+   cursor: pointer 必须自己写：它是个 <span>（不能嵌在 <a> 里的 <button>），
+   浏览器默认给的是文本光标，用户看不出这里能点。 */
+.af-tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
+.af-tags .tg {
+  font-size: 11px; color: #cfe0f0; cursor: pointer;
+  background: rgba(242,193,78,.14); border-radius: 6px; padding: 2px 8px;
+  transition: background .2s, color .2s;
+}
+.af-tags .tg:hover { background: rgba(242,193,78,.3); color: var(--ink); }
 
 /* 卡片摘要：最多 2 行，超出打省略号。
    -webkit-line-clamp 是"多行省略"的标准写法（带前缀，但 Chrome/Edge/Safari/Firefox 都支持）。 */

@@ -18,7 +18,24 @@
       <!-- ③ 正文 -->
       <article v-else class="doc">
         <header class="doc-head">
-          <span v-if="article.categoryName" class="doc-cat">{{ article.categoryName }}</span>
+          <!-- 分类与标签放在同一行：它们是同一类东西（这篇属于哪儿），
+               分开两行会让标题上方的空白被撑得很高。 -->
+          <div class="doc-labels">
+            <span v-if="article.categoryName" class="doc-cat">{{ article.categoryName }}</span>
+            <!-- 标签：点它去首页看"同标签的其他文章"。
+                 详情页自己只有一篇文章、没有筛选的能力，所以"按标签看"只能落到
+                 首页那一套筛选状态上：跳过去时把 ?tagId= 带上，
+                 首页的 useArticleFilter 启动时就从地址栏把它恢复出来
+                 （和"别人甩一条带筛选参数的链接给你"走的是同一条路，没有第二套逻辑）。
+                 【为什么写成 <a href> 而不是 <span>】内链是爬虫发现"标签下还有哪些文章"
+                 的入口；保留 href 也让中键/右键新标签打开这些浏览器的原生行为照常可用，
+                 .prevent 只是把左键点击换成站内路由跳转（和上面那个「返回首页」一样）。 -->
+            <a
+v-for="t in articleTags" :key="t.id" class="doc-tag"
+               :href="tagLink(t.id)"
+               :title="'查看「' + t.name + '」标签下的全部文章'"
+               @click.prevent="goTag(t.id)">#{{ t.name }}</a>
+          </div>
           <h1 class="doc-title">{{ article.title }}</h1>
           <div class="doc-meta">
             <span>{{ fmtDate(article.createTime) }}</span>
@@ -87,6 +104,15 @@ const { data: res, pending } = await useAsyncData(
 const article = computed(() => (res.value?.ok ? res.value.data : null))
 const errMsg = computed(() => res.value?.message || '它可能已被删除，或者还只是一篇没发布的草稿。')
 
+/**
+ * 这篇文章身上的标签。
+ * 【为什么要 Array.isArray 兜一道】后端保证"没有标签时是空数组"，
+ * 但详情接口一旦挂掉、或者以后 tags 变成 null / 别的结构，直接 v-for 会把
+ * 整个详情页渲染带崩 —— 而正文才是这一页的全部价值，
+ * 为了几颗标签把正文也弄没了是绝对不能接受的。兜成空数组最差只是不显示标签。
+ */
+const articleTags = computed(() => (Array.isArray(article.value?.tags) ? article.value.tags : []))
+
 /*
  * 【SEO】标题、摘要、og、canonical 都交给 useSeoMetaFor 拼（规则在 app/utils/seo.ts）。
  *
@@ -132,6 +158,20 @@ if (res.value && !res.value.ok) {
 }
 
 const goHome = () => navigateTo('/')
+
+/**
+ * 去首页按这个标签筛文章。
+ * 【为什么用对象形式的 navigateTo】tagId 必须走 query（首页的筛选条件全都在 query 里），
+ * 拼字符串 '/?tagId=3' 也能用，但对象形式让"这一个是路径、那一个是查询参数"
+ * 在代码里就分得清清楚楚，以后加第二个条件（比如同时带 categoryId）不用改写法。
+ * 【为什么 String() 一下】route.query 的值只有字符串，先转成字符串能让
+ * "生成出来的地址"和"路由解析出来的地址"完全一致（否则测试里断言会对不上）。
+ */
+const goTag = (id) => navigateTo({ path: '/', query: { tagId: String(id) } })
+
+/** 标签链接的 href：给中键/右键/爬虫用的真实地址（左键点击走上面的 goTag） */
+const tagLink = (id) => `/?tagId=${id}`
+
 const fmtDate = (t) => (t ? String(t).replace('T', ' ').slice(0, 10) : '')
 </script>
 
@@ -171,11 +211,20 @@ const fmtDate = (t) => (t ? String(t).replace('T', ' ').slice(0, 10) : '')
   box-shadow: inset 0 1px 0 rgba(255,255,255,.06), 0 24px 60px rgba(0,0,0,.35);
 }
 .doc-head { margin-bottom: 28px; padding-bottom: 24px; border-bottom: 1px solid rgba(150,190,240,.12); }
+/* 分类与标签同一行，窄屏自动换行（标签多的文章不该把标题挤下去） */
+.doc-labels { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 14px; }
 .doc-cat {
   display: inline-block; font-size: 12px; color: #cfe0f0;
   border: 1px solid rgba(180,210,245,.25); border-radius: 999px;
-  padding: 2px 12px; margin-bottom: 14px;
+  padding: 2px 12px;
 }
+/* 标签做得比分类淡一些：# 前缀 + 实心底，一眼能看出"这是标签、而且能点" */
+.doc-tag {
+  display: inline-block; font-size: 12px; color: #cfe0f0; text-decoration: none;
+  background: rgba(242,193,78,.14); border-radius: 999px; padding: 3px 12px;
+  transition: background .2s, color .2s;
+}
+.doc-tag:hover { background: rgba(242,193,78,.3); color: var(--ink); }
 .doc-title { font-size: 32px; font-weight: 800; line-height: 1.35; margin: 0 0 14px; color: var(--ink); }
 .doc-meta { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13px; flex-wrap: wrap; }
 .doc-meta .dot { opacity: .5; }

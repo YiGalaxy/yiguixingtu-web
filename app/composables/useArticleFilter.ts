@@ -1,6 +1,6 @@
 // ============================================================
 // app/composables/useArticleFilter.ts
-// 作用：首页的「筛选条件」（关键词 + 分类）状态，并把它和地址栏的 query 双向同步。
+// 作用：首页的「筛选条件」（关键词 + 分类 + 标签）状态，并把它和地址栏的 query 双向同步。
 //       最终产出两个东西：① 页面上要显示的状态 ② 发给后端 /article/page 的参数。
 //
 // 【为什么不直接写在 index.vue 里，要单独抽一个 composable】
@@ -13,6 +13,15 @@
 //        又让「语义相同」的地址变成两条不同的历史记录
 //   抽出来之后可以脱离页面直接断言（见 test/useArticleFilter.nuxt.spec.ts），
 //   index.vue 只管渲染。
+//
+// 【标签（tagId）为什么并进这里，而不是另起一套】
+//   它是和关键词、分类【完全同质的第三个过滤维度】：都写在同一个地址栏里
+//   （/?keyword=&categoryId=&tagId=）、都被同一份 useAsyncData 的 key 管着、
+//   并且后端 /article/page 把三者按 AND 叠加。
+//   如果为它单独写一个 ref + 一个 watch + 一次 router.replace，就会出现两套
+//   "谁负责写地址栏"的逻辑：点标签写一次、点分类又写一次，两边各自看到的
+//   状态还是旧的 —— 最典型的表现是"点标签之后分类高亮莫名消失"。
+//   所以这里只增加一个维度，同步机制（防抖、空值不写、后退回填）一条都不重写。
 //
 // 【为什么把「读写 URL」做成注入进来的两个函数，而不是内部直接 useRoute/useRouter】
 //   这是踩过的坑：测试里用 mockNuxtImport 把 useRouter 整个换成假的之后，
@@ -51,18 +60,30 @@ export const normalizeKeyword = (value) => {
 }
 
 /**
- * 分类 ID 归一化：只接受【正整数】。
- * 'abc' / '0' / '-1' / '' / undefined 一律当成「没有选分类」（返回 null）。
- * 【为什么要卡这么死】categoryId 是从地址栏来的、用户可以直接改，
+ * 主键类筛选条件（categoryId / tagId）的归一化：只接受【正整数】。
+ * 'abc' / '0' / '-1' / '' / undefined 一律当成「没选」（返回 null）。
+ * 【为什么要卡这么死】这些值是从地址栏来的、用户可以直接改，
  * 一个 "abc" 传下去后端解析 Long 会报 400，页面就成了一片空白；
- * 转成 null 相当于「不按分类过滤」，最多是筛选没生效，不会把页面打挂。
+ * 转成 null 相当于「不按它过滤」，最多是筛选没生效，不会把页面打挂。
+ *
+ * 【为什么分类和标签各留一个具名函数，而不是只留这一个】
+ *   两者的规则必须一模一样（都是后端的主键），所以实现只有这一份；
+ *   但调用点上写 normalizeTagId(...) 比写 normalizePositiveId(...) 更能说明
+ *   "归一化的是哪个条件" —— 以后哪个字段改成字符串 ID 时，
+ *   也只有它自己那一个函数需要动，不会连带另一个。
  */
-export const normalizeCategoryId = (value) => {
+const normalizePositiveId = (value) => {
   const raw = firstValue(value)
   if (raw === undefined || raw === null || raw === '') return null
   const num = Number(raw)
   return Number.isInteger(num) && num > 0 ? num : null
 }
+
+/** 分类 ID 归一化（规则见上面的 normalizePositiveId） */
+export const normalizeCategoryId = (value) => normalizePositiveId(value)
+
+/** 标签 ID 归一化（规则见上面的 normalizePositiveId） */
+export const normalizeTagId = (value) => normalizePositiveId(value)
 
 /**
  * 纯函数：地址栏 query → 筛选状态。
@@ -72,28 +93,30 @@ export const normalizeCategoryId = (value) => {
 export const parseArticleFilter = (query) => ({
   keyword: normalizeKeyword(query?.keyword),
   categoryId: normalizeCategoryId(query?.categoryId),
+  tagId: normalizeTagId(query?.tagId),
 })
 
 /**
  * 纯函数：筛选状态 → 要写进地址栏的 query。
  *
  * 【为什么空值一律不写】
- *   `?keyword=&categoryId=` 这种地址既难看，又会让「什么都没筛」有两种写法，
- *   历史记录和后端缓存都会多存一份；不写，才只有一种表示。
+ *   `?keyword=&categoryId=&tagId=` 这种地址既难看，又会让「什么都没筛」有多种写法，
+ *   历史记录和后端缓存都会多存几份；不写，才只有一种表示。
  *
- * 【为什么 categoryId 要转成字符串】
+ * 【为什么 categoryId / tagId 要转成字符串】
  *   route.query 的值只有 string / string[] 两种类型，写数字进去 vue-router 也会
  *   转成字符串；这里显式转换，免得测试断言和真实行为对不上。
  */
-export const toArticleQuery = ({ keyword, categoryId } = {}) => {
+export const toArticleQuery = ({ keyword, categoryId, tagId } = {}) => {
   const query = {}
 
   const kw = normalizeKeyword(keyword)
   if (kw) query.keyword = kw
 
   // 注意判断用的是 null / undefined 而不是「假值」：
-  // 分类 ID 都是正整数，用 `if (categoryId)` 会不小心把 0 或 '' 也当成有值
+  // 分类 ID 与标签 ID 都是正整数，用 `if (categoryId)` 会不小心把 0 或 '' 也当成有值
   if (categoryId !== null && categoryId !== undefined) query.categoryId = String(categoryId)
+  if (tagId !== null && tagId !== undefined) query.tagId = String(tagId)
 
   return query
 }
@@ -104,20 +127,24 @@ export const toArticleQuery = ({ keyword, categoryId } = {}) => {
  * 【为什么空字符串不发给后端】
  *   后端 ArticleQuery.keyword 用 StringUtils.hasText 判断，空串等价于「不筛」，
  *   结果一样；但不发出去能让请求更像「真的没筛」，日志和缓存 key 都干净。
- *   categoryId 直接传数字，交给 $fetch 序列化（?categoryId=2）。
+ *   categoryId / tagId 直接传数字，交给 $fetch 序列化（?categoryId=2&tagId=3）。
+ *
+ * 【三个条件是 AND 关系】后端把 keyword / categoryId / tagId 叠加成同一条 WHERE，
+ *   所以这里不需要（也不该）做"三选一"的互斥处理 —— 用户当然可以先选分类再点标签。
  */
-export const toArticleParams = ({ keyword, categoryId, page, size } = {}) => {
+export const toArticleParams = ({ keyword, categoryId, tagId, page, size } = {}) => {
   const params = { page, size }
 
   const kw = normalizeKeyword(keyword)
   if (kw) params.keyword = kw
   if (categoryId !== null && categoryId !== undefined) params.categoryId = categoryId
+  if (tagId !== null && tagId !== undefined) params.tagId = tagId
 
   return params
 }
 
 /**
- * 两份 query 是否等价（只看我们管的这两个键）。
+ * 两份 query 是否等价（只看我们管的这三个键）。
  * 【为什么不能直接比较对象】对象每次都是新建的，引用永远不同；
  * 逐个键比字符串才是「地址栏是否需要改动」的正确判据。
  */
@@ -160,6 +187,7 @@ export const createArticleFilter = ({
   const keywordInput = ref(initial.keyword)
   const keyword = ref(initial.keyword)
   const categoryId = ref(initial.categoryId)
+  const tagId = ref(initial.tagId)
 
   // 定时器只在防抖期间存在；用普通变量而不是 ref —— 它不参与渲染，
   // 放进响应式只会多触发一轮无关的更新
@@ -167,7 +195,11 @@ export const createArticleFilter = ({
 
   /** 把当前【已生效】的筛选条件写进地址栏（用 replace 而不是 push，理由见下） */
   const applyUrl = () => {
-    const next = toArticleQuery({ keyword: keyword.value, categoryId: categoryId.value })
+    const next = toArticleQuery({
+      keyword: keyword.value,
+      categoryId: categoryId.value,
+      tagId: tagId.value,
+    })
 
     // 【这一行同时挡掉两种重复写入】
     //   ① 值没变：比如连点两次同一个分类
@@ -176,7 +208,7 @@ export const createArticleFilter = ({
     //      不会出现「后退 → 又往前写一次」的循环
     if (isSameQuery(toValue(querySource), next)) return
 
-    // 用 replace 而不是 push：搜索是「连续微调」的操作（打字、换分类），
+    // 用 replace 而不是 push：搜索是「连续微调」的操作（打字、换分类、点标签），
     // 每个中间状态都进历史记录的话，用户按一次后退只能退回上一个关键词，
     // 想离开首页得按十几次。代价是后退不会回到上一个筛选条件。
     replaceUrl(next)
@@ -204,22 +236,24 @@ export const createArticleFilter = ({
   watch(keywordInput, scheduleCommit)
 
   // keyword 已经是【防抖之后】的值，所以这里不必再防抖：
-  // 关键词和分类谁变了都立刻写地址栏。两个 ref 在同一个 tick 里一起改时
+  // 关键词、分类、标签谁变了都立刻写地址栏。多个 ref 在同一个 tick 里一起改时
   // （例如"点分类前先把待生效的关键词落地"），Vue 的 watcher 会合并成一次回调，
   // 所以地址栏只被改一次，不会闪。
-  watch([keyword, categoryId], applyUrl)
+  watch([keyword, categoryId, tagId], applyUrl)
 
   /**
    * 地址栏自己变了（浏览器前进/后退，或别处用 navigateTo 改了 query）→ 同步回状态。
    * 少这一步，输入框就会和地址栏各说各话：地址栏回到 ?keyword=nuxt，
    * 输入框还停在刚才输的别的词上，用户再按一次回车就像"什么都没发生"。
-   * 两个变量都要写：只改 keyword 的话，输入框里还留着旧的字。
+   * 三个变量都要写：只改 keyword 的话，输入框里还留着旧的字，
+   * 而且"后退之后标签高亮还亮着、列表却已经不是那批文章"。
    */
   watch(querySource, () => {
     const parsed = parseArticleFilter(toValue(querySource))
     if (parsed.keyword !== keywordInput.value) keywordInput.value = parsed.keyword
     if (parsed.keyword !== keyword.value) keyword.value = parsed.keyword
     if (parsed.categoryId !== categoryId.value) categoryId.value = parsed.categoryId
+    if (parsed.tagId !== tagId.value) tagId.value = parsed.tagId
   })
 
   // 组件卸载后定时器还在跑的话，会往一个已经销毁的组件上写状态，还会白改一次地址栏
@@ -236,6 +270,20 @@ export const createArticleFilter = ({
     categoryId.value = id
   }
 
+  /**
+   * 点标签：同样是离散操作，所以不需要防抖（和 selectCategory 一致）。
+   *
+   * 【为什么再点一次已选中的标签就是取消筛选】
+   *   分类那一排有明确的「全部」按钮可以退出去，而标签可能有很多个、
+   *   再排一个「全部标签」按钮既占地方又和分类那排重复。
+   *   胶囊按钮的通用手势本来就是"再点一下取消勾选"，
+   *   所以这里把「同一个 id 传两次」解释成取消；想一次性清干净仍然用 clearAll。
+   */
+  const selectTag = (id) => {
+    if (keyword.value !== normalizeKeyword(keywordInput.value)) commitKeyword()
+    tagId.value = tagId.value === id ? null : id
+  }
+
   /** 一键清掉全部筛选条件（搜索框的 ✕、「清除筛选」都用它） */
   const clearAll = () => {
     clearTimeout(timer)
@@ -243,10 +291,12 @@ export const createArticleFilter = ({
     keywordInput.value = ''
     keyword.value = ''
     categoryId.value = null
+    tagId.value = null
   }
 
   /** 当前是否有生效的筛选条件：标题文案、空状态文案、清除按钮都看它 */
-  const isFiltered = computed(() => Boolean(keyword.value) || categoryId.value !== null)
+  const isFiltered = computed(() =>
+    Boolean(keyword.value) || categoryId.value !== null || tagId.value !== null)
 
   return {
     // 生效中的关键词：发给后端、写进地址栏、显示在标题里
@@ -254,8 +304,10 @@ export const createArticleFilter = ({
     // 输入框绑定的值（即时）
     keywordInput,
     categoryId,
+    tagId,
     isFiltered,
     selectCategory,
+    selectTag,
     clearAll,
     // 按回车时调用：语义是「我不想等防抖，现在就搜」
     applyKeywordNow: commitKeyword,

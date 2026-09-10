@@ -295,6 +295,23 @@ v-model="artForm.categoryId" placeholder="选择分类（也可以不选）"
         </el-select>
       </div>
 
+      <!-- 标签：多选。
+           · 选项来自 GET /admin/tag/list（后台那份【不走缓存】，刚建的标签立刻能选到）
+           · 打开弹窗时会重新拉一次：标签管理那边刚建完标签就切过来编辑文章，
+             下拉框里必须已经有它，否则用户只能"刷新整个页面"才能选到
+           · 提交时【永远带上 tagIds】（一个都没选就是空数组），语义见 saveArticle 里的说明 -->
+      <div class="af-row">
+        <span class="ed-label">标签</span>
+        <el-select
+v-model="artForm.tagIds" multiple collapse-tags collapse-tags-tooltip
+                   :max-collapse-tags="4"
+                   :placeholder="tags.length ? '选择标签（可以不选）' : '还没有标签，去「标签管理」新建'"
+                   style="width:100%">
+          <el-option v-for="t in tags" :key="t.id" :label="t.name" :value="t.id" />
+        </el-select>
+        <span class="af-hint">一个都不选就是「没有标签」</span>
+      </div>
+
       <div class="af-row">
         <span class="ed-label">封面</span>
         <div class="cover-field">
@@ -606,6 +623,20 @@ const artTableRef = ref()
 // 分类列表：筛选下拉框 + 编辑弹窗里的分类选择都靠它
 const categories = ref([])
 
+/**
+ * 标签列表（后台接口 GET /admin/tag/list，需要 ADMIN）。
+ *
+ * 【为什么后台不用前台的 GET /tag/list】两个接口形状一样，差别只有一条：
+ *   前台那份**走了缓存**（标签是给访客看的导航，几乎不变），
+ *   后台这份不走缓存 —— 管理员刚建完标签就要能在文章的标签下拉框里选到它。
+ *   用前台那份的话，新建的标签可能几分钟内都选不到，
+ *   而"是不是没保存成功"这种疑惑是后台最不该出现的东西。
+ *
+ * 【为什么这一个 ref 同时喂两处】文章弹窗的标签下拉框与「标签管理」页共用它：
+ *   两处看到的必须是同一批标签，各拉一份迟早会有一处是旧的。
+ */
+const tags = ref([])
+
 const artQuery = reactive({
   page: 1, size: 10,
   keyword: '', categoryId: null, status: null,
@@ -616,6 +647,15 @@ const artQuery = reactive({
 const fetchCategories = async () => {
   const res = await request('/category/list')
   if (res.ok) categories.value = res.data || []
+}
+
+// ---------- 拉标签（后台接口，不走缓存）----------
+const fetchTags = async () => {
+  const res = await request('/admin/tag/list')
+  // 和分类一样用 Array.isArray 兜一道：它会被 v-for 和 .find 用到，
+  // 接口挂了 / 结构变了（比如返回 {records:[]}）时兜成空数组，
+  // 最差只是下拉框是空的，不会把整个后台渲染带崩
+  tags.value = res.ok && Array.isArray(res.data) ? res.data : []
 }
 
 // ---------- 拉文章列表 ----------
@@ -682,6 +722,8 @@ const { rotate: rotateIdempotencyKey, ensure: ensureIdempotencyKey } = useIdempo
 const artForm = reactive({
   id: null, title: '', summary: '', content: '', cover: '',
   categoryId: null,
+  // 选中的标签 id 数组。空数组 = 这篇文章没有标签（不是"不改标签"，见 saveArticle）
+  tagIds: [],
   status: 0,      // 默认草稿 —— 安全默认值，避免半成品被直接发出去
   isTop: 0,
 })
@@ -729,6 +771,9 @@ const resetArtForm = () => {
   artForm.content = ''
   artForm.cover = ''
   artForm.categoryId = null
+  // 新建时是空数组（"还没打标签"），不是上一篇文章的标签 ——
+  // 不清的话会出现"新建的文章莫名其妙带着上一篇的标签"
+  artForm.tagIds = []
   artForm.status = 0
   artForm.isTop = 0
 }
@@ -738,6 +783,9 @@ const openCreate = () => {
   // 每次「新建」都换一个新幂等键：这一次动作里的所有重复点击共用它。
   // 详见上面 newArticleIdempotencyKey 的注释（为什么不是每次点保存才生成）。
   rotateIdempotencyKey()
+  // 打开弹窗顺手刷新标签选项：用户很可能刚在「标签管理」里建完标签就来写文章。
+  // 不 await —— 下拉框的数据晚几十毫秒到没关系，不该因此拖慢弹窗出现
+  fetchTags()
   artEditVisible.value = true
 }
 
@@ -754,12 +802,35 @@ const openArticleEdit = async (row) => {
   artForm.categoryId = row.categoryId
   artForm.status = row.status
   artForm.isTop = row.isTop
+  // 列表项其实也带着 tags，先用它回显，这样即使详情接口慢了/挂了，
+  // 下拉框里也是这篇真实的标签，而不是空着（空着会让用户以为"这篇没标签"，
+  // 一保存就把标签全清了）
+  artForm.tagIds = tagIdsOf(row.tags)
 
-  const res = await request('/admin/article/' + row.id)
-  if (res.ok) artForm.content = res.data.content || ''
+  // 标签选项与文章详情并行拉（两者互不依赖，串行要等两个往返）
+  const [, detail] = await Promise.all([
+    fetchTags(),
+    request('/admin/article/' + row.id),
+  ])
+
+  if (detail.ok) {
+    artForm.content = detail.data.content || ''
+    // 【以详情为准】详情里的 tags 是这篇文章最新的标签；
+    // 列表那一份可能是几分钟前拉的（别人刚改过标签时就会不一致）。
+    // 注意要用 Array.isArray 兜底：tags 缺失时不能把已回显的标签清成空数组。
+    if (Array.isArray(detail.data.tags)) artForm.tagIds = tagIdsOf(detail.data.tags)
+  }
 
   artEditVisible.value = true
 }
+
+/**
+ * 把接口给的 tags（对象数组）转成表单要的 id 数组。
+ * 【为什么要过滤一遍】表单里只需要 id，而 tags 里还带着 name/sort/articleCount；
+ * 顺手把非数字的项丢掉，避免一个脏数据让 el-select 回显不出来
+ * （那种情况的表现是"标签明明有，弹窗里却是空的"，最难查）。
+ */
+const tagIdsOf = (list) => (Array.isArray(list) ? list.map(t => t?.id).filter(id => Number.isInteger(id)) : [])
 
 const saveArticle = async () => {
   if (!artForm.title.trim()) {
@@ -786,6 +857,15 @@ const saveArticle = async () => {
     content: artForm.content || null,
     cover: artForm.cover || null,
     categoryId: artForm.categoryId,
+    // 【tagIds 永远传，一个都不选时是 []】
+    //   后端这两个接口对标签是【覆盖式】语义：不传这个字段、和传空数组，
+    //   结果都是"清空这篇文章的标签"（先删关联、再按传入的 id 重建）。
+    //   既然两者等价，那就显式传一个空数组 —— 它把"我就是要清空"这个意图
+    //   写在了请求体里，看日志的人一眼能分辨"用户清空了标签"
+    //   和"前端忘了传这个字段"（后者是 bug，两者在后端看起来一样）。
+    //   另外传一个不存在的标签 id 时后端返回 404 并且【不会动原有的标签】
+    //   （校验先于写入），所以这里不需要先自己校验一遍 id 是否存在。
+    tagIds: [...artForm.tagIds],
     status: artForm.status,
     isTop: artForm.isTop,
   }
@@ -865,7 +945,7 @@ watch(cur, (v) => {
 onMounted(async () => {
   // 这几件事互不依赖，并行发出去（Promise.all 而不是一个个 await，省几个来回的网络时间）
   await ensureUser()
-  await Promise.all([fetchUsers(), fetchCategories(), fetchArticles(), loadOverview()])
+  await Promise.all([fetchUsers(), fetchCategories(), fetchTags(), fetchArticles(), loadOverview()])
 })
 </script>
 
