@@ -45,27 +45,51 @@ export default defineNuxtConfig({
     /**
      * 【icon: false —— 关掉"把整套图标都注册成全局组件"这件事】
      *
-     * 这个模块默认会把 @element-plus/icons-vue 里 **293 个图标**全部注册成
-     * 全局组件（名字形如 `ElIconPlus`，好让你在模板里直接写 `<el-icon-plus />`）。
+     * 这个模块默认会把 @element-plus/icons-vue 里的**整套图标**（当前版本 293 个导出）
+     * 全部注册成 Nuxt 的全局组件（名字形如 `ElIconPlus`，好让你在模板里直接写
+     * `<el-icon-plus />`）。我们一个都没用（全站搜不到 el-icon 的用法；
+     * Element Plus 组件内部自己要用的箭头、叉号是那些组件各自 import 的，跟这个开关无关），
+     * 所以这堆注册纯属白搭。关掉之后的**效果**是：Nuxt 生成的组件清单里
+     * `ElIcon*` 这类声明从 586 条变成 **0 条**
+     * （586 = 293 + 293 —— 每注册一个全局组件，Nuxt 会生成 `ElIconXxx` 与
+     * `LazyElIconXxx` 两条声明，实测两边各 293）。
      *
-     * 我们一个都没用（全站搜不到 el-icon / ElIcon 的用法；Element Plus 组件内部
-     * 自己要用的箭头、叉号是那些组件各自 import 的，跟这个开关无关），
-     * 所以这 293 个注册纯属白搭。实测差别在 Nuxt 生成的组件清单上：
-     * `.nuxt/components.d.ts` 从 **104 423 字节降到 6 157 字节**
-     * （里面再也搜不到 `ElIconXxx` 这类条目）。
+     * 【⚠️ 这里为什么不写"从 x 字节降到 y 字节"（我第一版就是这么写的，写错了）】
+     *   `.nuxt/components.d.ts` 是**派生产物**：内容随代码变（多一个组件就多几条），
+     *   而且实测**只有 `npx nuxi prepare` 会写它** —— `npm run build` 与 `npm run test`
+     *   跑完它的 mtime 纹丝不动（专门验过）。所以我原来那组"104 423 → 6 157 字节"
+     *   是把**两次不同条件下**量到的值并排写了（一次是 prepare 写的、一次是更早、
+     *   组件更少的时候写的），别人在当前工作区上根本复现不出来。
+     *   要量它请固定写清命令：`npx nuxi prepare` 之后立刻看，
+     *   而且更要紧的是看**有没有 `ElIcon*` 条目**（0 条是绝对的），而不是看字节数。
+     *
+     * 【⚠️ 它不改变产物，这一点必须说清】
+     *   加与不加 `icon: false`，`npm run build` 出来的 `_nuxt` 里**所有资源文件逐字节一样**：
+     *   A/B 两次构建的 **138 个资源（132 个 JS + 6 个 CSS）的路径 / 大小 / SHA256 完全相同**
+     *   （用 SHA256 清单逐条比对），JS 总量都是 2 487 246 字节 / gzip 896 694、
+     *   CSS 都是 299 404 / gzip 52 292，最大的 chunk 同名同内容（`C28LwzqT.js`，581 913 字节）。
+     *   唯一不同的是 Nitro 自己的构建元数据（`_nuxt/builds/latest.json` 与
+     *   `_nuxt/builds/meta/<uuid>.json`）—— 那两个文件**每次构建都会变**，
+     *   同一份配置连跑两次也在这里不同，所以与这行配置无关。
+     *   原因：Nuxt 的全局组件是**懒加载**的，模板里没出现过的组件根本不会被 import 进包。
+     *   由此还能推出一个反例：**"在产物里搜 `icons-vue` / `UserFilled` 得到 0 次"
+     *   不能当作这行配置生效的证据** —— 不加它同样是 0 次（实测对过）。
+     *
+     * 【那为什么还留着它】注册 586 个永远用不到的全局组件没有任何意义，
+     *   成本是一行配置；它换来的是 Nuxt 组件清单干净。
      *
      * 【⚠️ 说清楚它没能解决什么，免得后人以为它能治那个问题】
-     * 单测里"把 Nuxt 环境搭起来"那一步从 2.9 秒涨到 11 秒，**不是**这 293 个图标造成的
-     * —— 实测把它关掉、甚至把 `components` 传成空数组（一个组件都不注册），
-     * 那一步仍然是 11 秒。真正的开销是这个模块在**配置加载期**就
-     * `import * as AllComponents from 'element-plus'`（要把组件枚举出来才能逐个注册），
-     * 而 nuxt.config 是被 jiti 逐文件转换执行的。那个开销躲不掉，
-     * 处理办法见 vitest.config.ts 里的 `hookTimeout`。
+     *   单测里"把 Nuxt 环境搭起来"那一步从 2.9 秒涨到 11 秒，**不是**这堆图标造成的
+     *   —— 实测把它关掉、甚至把 `components` 传成空数组（一个组件都不注册），
+     *   那一步仍然是 11 秒。真正的开销是这个模块在**配置加载期**就
+     *   `import * as AllComponents from 'element-plus'`（要把组件枚举出来才能逐个注册），
+     *   而 nuxt.config 是被 jiti 逐文件转换执行的。那个开销躲不掉，
+     *   处理办法见 vitest.config.ts 里的 `hookTimeout`。
      *
      * 【为什么敢关】这不是"少一个功能"，而是"少一套自动注册"：
-     * 哪天真要用图标，`import { Plus } from '@element-plus/icons-vue'` 之后
-     * 写 `<el-icon><Plus /></el-icon>` 照样能用（显式导入永远合法），
-     * 或者把这一行删掉即可 —— 它只是一行配置，不是一个要重写的地方。
+     *   哪天真要用图标，`import { Plus } from '@element-plus/icons-vue'` 之后
+     *   写 `<el-icon><Plus /></el-icon>` 照样能用（显式导入永远合法），
+     *   或者把这一行删掉即可 —— 它只是一行配置，不是一个要重写的地方。
      */
     icon: false,
   },
