@@ -62,8 +62,18 @@ yiguixingtu-web
 │   ├── pages
 │   │   ├── index.vue                # 首页：服务端渲染的文章信息流 + 搜索（防抖）+ 分类/标签筛选 + 加载更多
 │   │   ├── archive.vue              # 归档：按年月浏览全部已发布文章（服务端渲染，顺序完全照搬后端）
-│   │   ├── admin.vue                # 后台：用户 / 文章（+标签多选）/ 标签管理 / 分类管理 / 评论审核 + Markdown 编辑器
+│   │   ├── admin.vue                # 后台外壳：左侧菜单 + 七个面板的状态编排（原本 2141 行的单文件，
+│   │   │                            #   w7.4 拆成下面 components/admin/ 里的七个组件，只剩 681 行）
 │   │   └── article/[id].vue         # 文章详情（SSR + Markdown 渲染 + 标签 + 评论区 + 软 404）
+│   ├── components
+│   │   └── admin                    # 后台的七个面板（Nuxt 自动给目录名加前缀，所以模板里写 <AdminXxxPanel>）
+│   │       ├── OverviewPanel.vue    #   概览：四张数字卡片 + 最近文章（纯展示，一个请求都不发）
+│   │       ├── ArticlesPanel.vue    #   文章管理：筛选 + 表格 + 分页
+│   │       ├── ArticleEditDialog.vue#   文章弹窗：整张表单 + Markdown 编辑器 + 封面上传 + 幂等键
+│   │       ├── UsersPanel.vue       #   用户管理：筛选 + 表格 + 编辑弹窗（含改角色 / 重置密码）
+│   │       ├── TagsPanel.vue        #   标签管理：列表 + 新建/编辑弹窗 + 二次确认删除
+│   │       ├── CategoriesPanel.vue  #   分类管理：同上，但多一个「描述」，且删除可能被拒
+│   │       └── CommentsPanel.vue    #   评论审核：状态筛选 + 通过/拒绝/删除 + 待审核数
 │   ├── composables
 │   │   ├── useApi.ts                # 统一请求封装：带 token、判 body.code、401/403/429 处理、429 不自动重试
 │   │   ├── useArticleFilter.ts      # 首页筛选条件：关键词防抖 + 分类 + 标签，三者与地址栏双向同步
@@ -77,6 +87,7 @@ yiguixingtu-web
 │   │   ├── media.ts                 # 大文件（视频 / 音乐）的地址约定 mediaUrl()
 │   │   ├── seo.ts                   # SEO 纯函数：标题 / 描述 / canonical / og 的拼装规则
 │   │   ├── comment.ts               # 评论的纯规则：长度上限、校验、表单 → 请求体、列表归一化
+│   │   ├── time.ts                  # 时间显示的唯一规则 formatDateTime()（后台四张表格 + 概览共用）
 │   │   └── apiError.ts              # 两种 429（限流 / 重复提交）的判断与文案、追踪号 X-Trace-Id、重试状态码白名单
 │   ├── middleware
 │   │   └── admin.ts                 # 后台路由守卫（未登录 → 弹登录框 + 回首页）
@@ -284,7 +295,7 @@ docker run -d --name yiguixingtu-web \
 | 8 | `curl -s https://你的域名/sitemap.xml` 返回 `200 + application/xml`，且**文章条数对得上**（不是只有首页那一条 —— 只有首页通常意味着后端地址配错、取数降级了） |
 | 9 | `curl -s https://你的域名/archive` 能看到按年月分好组的文章（**在 HTML 里**，不是靠 JS 补的），导航里也能点到「归档」 |
 | 10 | `curl -s https://你的域名/feed.xml` 返回 `200 + application/rss+xml`，里面有**真实文章的标题与链接**（只有站点信息、没有 `<item>` 说明后端地址配错、取数降级了）；再用一个 RSS 阅读器实际订阅一次，确认能拉到条目 |
-| 11 | **按需引入的样式真的进了产物**（w7.3 之后新增的一条）：`curl -s https://你的域名/ \| grep -o '<link rel="stylesheet"[^>]*>'` 有输出，且把它指向的那个 `/_nuxt/*.css` 取下来能搜到 `.el-message`（错误提示 / 二次确认框全靠它）；后台表格的样式在 `/_nuxt/admin.*.css` 或后台页内联的 `<style>` 里，能搜到 `.el-table`、`.el-dialog`、`.el-input`。**同时反向确认**：`grep -c el-carousel` 应该是 `0`（不是 0 说明按需引入被改回了全量，体积白降）。这一条之所以必须人工看：样式丢了不会报错、不会让任何用例变红，只会让线上所有提示框变成没有样式的裸文本 |
+| 11 | **按需引入的样式真的进了产物**（w7.3 之后新增的一条）：`curl -s https://你的域名/ \| grep -o '<link rel="stylesheet"[^>]*>'` 有输出，且把它指向的那个 `/_nuxt/*.css` 取下来能搜到 `.el-message`（错误提示 / 二次确认框全靠它）；后台表格的样式在 `/_nuxt/admin.*.css` 或后台页内联的 `<style>` 里，能搜到 `.el-table`、`.el-dialog`、`.el-input`，**还要能搜到 `.admin .panel` 与 `.ed-row`**（前者是拆组件后挪到全局块的面板样式、后者是弹窗里的表单行 —— 它们丢了的表现是"后台变成一排没有边框没有内边距的裸表格"）。**同时反向确认**：`grep -c el-carousel` 应该是 `0`（不是 0 说明按需引入被改回了全量，体积白降）。这一条之所以必须人工看：样式丢了不会报错、不会让任何用例变红，只会让线上所有提示框变成没有样式的裸文本 |
 
 
 **测试环境**：Vitest 5 + `@nuxt/test-utils` 4，跑在 **nuxt 环境**而不是裸的 jsdom。
@@ -587,14 +598,19 @@ export default defineNuxtPlugin((nuxtApp) => { nuxtApp.vueApp.use(ElementPlus) }
 而我们实际只用得到十来种。
 
 **改前改后（都是我自己在这台机器上 `npm run build` 跑出来的，`FileInfo` 统计
-`.output/public/_nuxt` 下的 `.js` / `.css`，gzip 用 `GZipStream(CompressionLevel.Optimal)` 现算）：**
+`.output/public/_nuxt` 下的 `.js` / `.css`，gzip 用 `GZipStream(CompressionLevel.Optimal)` 现算。
+表格里的"改后"一列是**当前这份代码**的实测值，w7.4 拆完后台组件之后重新量过一次）：**
 
 | `.output/public/_nuxt` | 改前（全量注册） | 改后（按需引入） | 变化 |
 |---|---|---|---|
-| **JS** | 3 025 646 字节 / gzip 1 059 251（131 个文件） | **2 483 252 字节 / gzip 894 879**（132 个文件） | −542 394（**−17.9%**）/ gzip −164 372（−15.5%） |
-| **CSS** | 521 014 字节 / gzip 80 623（5 个文件） | **299 419 字节 / gzip 52 051**（6 个文件） | −221 595（**−42.5%**）/ gzip −28 572（−35.4%） |
-| 其中最大的那个 Element Plus chunk | 904 115 字节 | **578 635 字节** | −325 480（−36.0%） |
-| `npm run build` 汇总行 | `Σ Total size: 12.9 MB (3.63 MB gzip)` | **`Σ Total size: 10.9 MB (2.95 MB gzip)`** | −2.0 MB / gzip −0.68 MB |
+| **JS** | 3 025 646 字节 / gzip 1 059 251（131 个文件） | **2 487 246 字节 / gzip 896 698**（132 个文件） | −538 400（**−17.8%**）/ gzip −162 553（−15.4%） |
+| **CSS** | 521 014 字节 / gzip 80 623（5 个文件） | **299 404 字节 / gzip 52 293**（6 个文件） | −221 610（**−42.5%**）/ gzip −28 330（−35.1%） |
+| 其中最大的那个 Element Plus chunk | 904 115 字节 | **581 913 字节** | −322 202（−35.6%） |
+| `npm run build` 汇总行 | `Σ Total size: 12.9 MB (3.63 MB gzip)` | **`Σ Total size: 11 MB (2.96 MB gzip)`** | −1.9 MB / gzip −0.67 MB |
+
+> 拆后台组件（w7.4）让 JS 多了约 **4 KB**（`props` / `emits` / `v-model` 这些接口声明本身也要字节），
+> CSS 少 15 字节 —— 相对这里减少的五十四万字节可以忽略，所以没有为它单列一行。
+> 数字写在这里是为了**别留下过期的数字**：这个仓库已经出现过好几次"文档里的数字没人回写"。
 
 > CSS **文件数**从 5 变成 6 不是变糟：样式从"一个全局大文件"变成"每个路由带自己用到的那些"
 > （`admin.*.css` 151 772 + `entry.*.css` 60 488 + …），所以单个页面的 CSS 比以前小得多。
@@ -613,9 +629,9 @@ export default defineNuxtPlugin((nuxtApp) => { nuxtApp.vueApp.use(ElementPlus) }
 | Nuxt 测试环境搭建 | 11 秒（模块在**配置加载期** import 整个 element-plus） | 3.1 秒（与改前的 2.9 秒持平） |
 | 与计划文本 | 不一致（更省事） | 与计划一致 |
 
-- **为什么"手工那套丢样式"是致命的**：本项目有 4 个文件是**显式** import `ElMessage` 的
-  （`app.vue`、`useApi.ts`、`index.vue`、`admin.vue`，另外 `admin.vue` 还用着 `ElMessageBox`）。
-  解析器只会对"模板里用到、但没被 import 的组件"动手，所以这四个文件拿到的**只有 JS 没有 CSS**
+- **为什么"手工那套丢样式"是致命的**：本项目有一批文件是**显式** import `ElMessage` / `ElMessageBox` 的
+  （`app.vue`、`useApi.ts`、`index.vue`，以及后台那几个面板 —— w7.4 拆组件之前它们都在 `admin.vue` 里）。
+  解析器只会对"模板里用到、但没被 import 的组件"动手，所以这些文件拿到的**只有 JS 没有 CSS**
   —— 表现是**所有错误提示与二次确认框都是没有样式的裸文本**。它不会报错、不会让任何一条用例变红，
   只有真去点一下才知道。
 - **官方模块为什么能顾到这种情况**：它对样式的判断有两条路 ——
@@ -784,7 +800,94 @@ curl -s -b "token=x" http://127.0.0.1:3111/admin | grep -o '\.el-table__header-w
 > （before-image 里同时存着修改前的正文）把原来的标题/正文/摘要还原回去了，
 > 只保留联调打上的那枚标签。教训：**在真实数据上发全量 PUT 之前，先把原值读出来原样带回去。**
 
-**后台的标签管理与分类管理（`admin.vue`）**
+**后台为什么要拆成七个组件（`app/pages/admin.vue` → `app/components/admin/`）**
+
+w7.4 之前后台是**一个 2141 行的单文件**：模板、脚本、样式，七个菜单全挤在一起
+（标签、评论、分类三批功能各加了三百多行）。改一处评论审核要先滚过一千多行别的模块 ——
+所以这次按菜单把它切开：
+
+| 组件 | 行数 | 里面是什么 |
+|---|--:|---|
+| `app/pages/admin.vue` | **681**（原来 2141） | 外壳：左侧菜单、七个面板的数据编排、跨菜单共享的状态 |
+| `components/admin/OverviewPanel.vue` | 82 | 概览（纯展示） |
+| `components/admin/ArticlesPanel.vue` | 194 | 文章管理（筛选 / 表格 / 分页） |
+| `components/admin/ArticleEditDialog.vue` | 386 | 文章弹窗（表单 + Markdown 编辑器 + 封面上传 + 幂等键） |
+| `components/admin/UsersPanel.vue` | 310 | 用户管理（含编辑弹窗） |
+| `components/admin/TagsPanel.vue` | 219 | 标签管理（含新建/编辑弹窗） |
+| `components/admin/CategoriesPanel.vue` | 302 | 分类管理（含描述字段与"删除被拒"那条说明） |
+| `components/admin/CommentsPanel.vue` | 293 | 评论审核 |
+
+**划分依据是两条，不是"看哪个文件大"**：
+
+- **一个菜单 = 一个独立的"加载 / 刷新单元"**：切过去要重新拉一次的东西
+  （标签列表、分类列表、评论待办、概览数字）恰好就是那个菜单的整块内容。
+  按菜单切之后，"什么时候该刷新"和"哪一段代码该重读"是同一件事，
+  不需要另画一张对照表。文章弹窗单独一个组件，是因为它是这一页里唯一的重依赖
+  （Markdown 编辑器），而且它自己扛着整张表单的状态。
+- **一个菜单 = 一个能独立改坏的单元**：改评论审核只需要打开一个文件。
+
+**跨菜单共享的状态全部留在页面上，一个都没有复制** —— 复制一份就会出现
+"两个地方看到的不是同一批数据"，而这类问题在界面上往往看不出来：
+
+| 状态 | 谁在用 | 怎么传 |
+|---|---|---|
+| `articles` / `artTotal` / `artLoading` / `artQuery` | 文章表格 **+ 概览的「最近文章」** | 列表用 props，筛选条件用 `v-model:query` |
+| `categories` | 文章筛选下拉框 + 文章弹窗的分类单选 + 分类管理页 | 只读 props |
+| `tags` | 文章弹窗的标签多选 + 标签管理页 | 只读 props |
+| `pendingCommentCount` | 左侧菜单角标 + 评论页标题 | `v-model:pending-count` |
+| 概览的四个数字 | 概览面板（**进后台就并行拉好**，不等挂载） | 只读 props |
+
+- **向下传**：只读的用 `props`（`articles` / `categories` / `tags` / `myId`），
+  父子共用的对象与数字用 `v-model`（`v-model:query` / `v-model:pending-count`）
+- **向上抛**：`refresh`（"条件变了或改完了，你去重新拉一次"）、`refresh-tags`、
+  `refresh-pending`、`saved`。**谁持有数据谁负责去读接口**，组件只负责说"要一份新的"
+- **`myId` 走 props 而不是让面板自己再读一次 `useAuth()`**：父页面挂载时还会用
+  `GET /auth/me` 把用户信息补回来（刷新页面后 `useState('user')` 是 null），
+  两边各读一次就有两个来源，其中一个是空的、按钮就禁不住了
+- **用户管理面板的首次加载在它自己的 `onMounted`**：它是后台的默认菜单，
+  父页面一挂载它就跟着挂载，所以"在这里拉一次"和原来"父页面挂载时拉一次"
+  是一次不多一次不少（父页面那份 `Promise.all` 里的 `fetchUsers()` 已经删掉）
+- **评论管理面板同理**：菜单用 `v-if / v-else-if` 切换，"切到评论管理"就等于
+  这个组件被挂载，挂载时刷新一次 = 原来 `watch(cur)` 里的 `refreshComments()`。
+  好处是父页面不用再知道"这一页靠哪个接口加载"
+
+**⚠️ 样式是这次拆分里最容易出事的部分（比逻辑更容易），值得单独说清**
+
+Vue 的 scoped 样式**只会把父组件的 scope 属性打在子组件的根元素上**，
+子组件里面的元素一概不管；而弹窗（`el-dialog`）还会被 teleport 到 `body`，
+**物理上已经不在 `.admin` 里面了**。所以拆完不能什么都不动：
+
+- **面板自己独有的样式**跟着面板走（`<style scoped>`）——
+  scoped 对 teleport 是有效的：scope 属性是**渲染时打在元素上**的，
+  跟元素最后挂在哪个父节点无关。所以 `.stats`、`.panel-note`、`.cm-cell`、
+  `.cover-preview`、`.ed-row` 这些都在自己的组件里
+- **多个面板共用的展示规则**（`.panel` / `.toolbar` / `.top` / `.glass` / `.pager` /
+  `.art-title` …）与**弹层/第三方组件的覆盖**（`.af-*` / `.ed-*` /
+  Element Plus 暗色变量 / `.md-editor-dark`）放进 admin.vue 的**全局 `<style>`**：
+  前者统一加 `.admin` 前缀（不加前缀会漏到首页与归档页 —— 它们自己有同名类
+  `.glass` 的 scoped 定义，两边会互相打架），后者不加前缀
+  （它们在 body 上，加 `.admin` 反而谁也匹配不到；类名本来就是本项目的 `af-`/`ed-`
+  或第三方固定类名，不存在撞车）
+- **改完怎么证明没丢样式**：`npm run build` 之后起生产构建 curl 后台页，
+  看内联的 `<style>` 里还能不能搜到 `.el-table` / `.el-dialog` / `.el-input`、
+  以及 `.admin .panel` / `.admin .glass` / `.ed-row`。
+  实测后台那份 CSS 从 **151 772 字节变成 151 757 字节**（差 15 字节）——
+  体积几乎不动正说明样式是**搬走了**而不是丢了（加了 `.admin ` 前缀、
+  同时去掉了更长的 `[data-v-xxxxxxxx]` 属性选择器，两边基本抵消）。
+  这一条也写进了「上线前的检查」
+
+**行为不变是怎么保证的**（纯重构，一行功能都没改）：
+
+- `npm run test` **26 个文件 / 470 个用例全绿**，用例数与拆分前**完全一样**
+- 拆分后有三处断言"够不着"了（原来直接读 `wrapper.vm.artForm` /
+  `wrapper.vm.tagForm` / `wrapper.vm.categoryForm`，那是 admin.vue 自己的变量）——
+  处理方式是**换定位方式，不是删断言也不是放宽**：先
+  `wrapper.findComponent(ArticleEditDialog)`（或 TagsPanel / CategoriesPanel）
+  再读那个组件自己的表单，比对的还是同样那几件事
+- 真实后端只读核对：`GET /article/stats` 仍是 2 篇文章 / 3 个分类、
+  `GET /category/list` 仍是那 3 个分类、`GET /tag/list` 仍是空 —— 数据一个字节没动
+
+**后台的标签管理与分类管理（`components/admin/TagsPanel.vue` + `CategoriesPanel.vue`）**
 
 原来的「分类 / 标签」是一个写死"该模块开发中"的占位菜单，后来拆成两个真实页面；
 其中分类页一开始是**只读**的（当时的约定是"分类的写操作不在范围内"），
@@ -945,7 +1048,7 @@ curl -s -b "token=x" http://127.0.0.1:3111/admin | grep -o '\.el-table__header-w
 > 顺带实测出一个后端行为：限流是**在业务校验之前**就扣额度的
 > （那 20 次 404 照样消耗了配额）。
 
-**后台的评论审核（`admin.vue`）**
+**后台的评论审核（`components/admin/CommentsPanel.vue`）**
 
 **这个页面不是"锦上添花的后台功能"，而是评论模块能不能真正跑起来的最后一环**：
 评论默认是待审核的，不点通过，前台**永远**看不到它 —— 前台那句"评论已提交，等待审核"
@@ -1375,7 +1478,7 @@ Array.isArray(options.retryStatusCodes)
   （字母数字与 `._-`，4–64 位）。这个值会被直接印在界面上，
   卡一道形状之后，就算哪天头被中间层塞进奇怪内容，也只会表现为"没有追踪号"。
 - **返回值里的 message 只在后端给了原文时才带号**：调用方会自己兜底
-  （`admin.vue` 的封面上传写的是 `res.message || '封面上传失败'`），
+  （`components/admin/ArticleEditDialog.vue` 的封面上传写的是 `res.message || '封面上传失败'`），
   我们若凭空塞一句「操作失败」进去，用户看到的提示反而变笼统 —— 这条契约有单测守着。
 
 ### 背景视频与音乐为什么不放在 `public/` 里
@@ -1617,11 +1720,15 @@ location /media/ {
   `/var/www/media/`，目前只有文档（`static-media/README.md` + 上线检查表第 5 条）
   在提醒这件事，还没有脚本或 CI 步骤去核对
 - **仓库还没有 GitHub 远程地址**，CI 工作流已就位但尚未真正跑过一次
-- `app/pages/admin.vue` 单文件 **2138 行**，用户表格 / 文章表格 / 标签管理 / 分类管理 / 评论审核 / 编辑器弹窗
-  全挤在一个文件里（标签、评论、分类这三批各加了三百多行 ——
-  **"按模块拆成子组件"这件事已经不是"要不要做"而是"该做了"**：
-  现在改一处评论审核要滚过一千多行别的模块才能找到它。
-  顺带说明：这一行以前写的是 1001 行，那个数字早就过期了，这次按实际重新数过）
+- ✅ 曾经的「`app/pages/admin.vue` 单文件 **2138 行**」已经修好了（w7.4）：
+  用户表格 / 文章表格 / 标签管理 / 分类管理 / 评论审核 / 编辑器弹窗全挤在一个文件里，
+  改一处评论审核要先滚过一千多行别的模块。现在按菜单拆成
+  `app/components/admin/` 下的七个组件，`admin.vue` 只剩 **681 行**（外壳 + 共享状态编排）。
+  划分依据、跨菜单共享状态怎么传、以及**样式为什么必须跟着搬家**
+  （父组件的 scoped 样式够不到子组件内部，弹窗还会被 teleport 到 body）
+  都写在上面「后台为什么要拆成七个组件」那一节里。
+  顺带说明：这一行以前写的是"1001 行"，那个数字早就过期了（实际 2141 行），
+  这次按实际重新数过并把最终行数写进了提交信息
 
 **分类（这一批已经接上了）**
 

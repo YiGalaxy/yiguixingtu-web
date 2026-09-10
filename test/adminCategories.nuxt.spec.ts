@@ -3,6 +3,7 @@ import { mockNuxtImport, mountSuspended } from '@nuxt/test-utils/runtime'
 import { flushPromises, enableAutoUnmount } from '@vue/test-utils'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import AdminPage from '~/pages/admin.vue'
+import CategoriesPanel from '~/components/admin/CategoriesPanel.vue'
 
 // =====================================================================
 // 后台「分类管理」的组件测试
@@ -87,6 +88,18 @@ const typeName = async (wrapper, value) => {
 const typeDescription = async (wrapper, value) => {
   await wrapper.find('.el-dialog textarea').setValue(value)
 }
+
+/**
+ * 分类弹窗里的表单状态（名字 / 描述 / 排序）。
+ *
+ * 【w7.4 拆组件之后这里的定位方式变了，断言的内容没变】
+ *   拆分之前 `categoryForm` 是 admin.vue 自己的变量，一句 `categoryFormOf(wrapper)` 就够；
+ *   拆完之后它属于 CategoriesPanel 那个组件（面板自己扛着弹窗表单），
+ *   所以要先找到那个面板、再读它自己的表单。
+ *   "直接改表单的值"这种做法本身没有变 —— 它模拟的是"绕过 el-input 的 maxlength"，
+ *   而 el-input-number / el-input 真正断开的时候，这个断言照样会红。
+ */
+const categoryFormOf = (wrapper) => wrapper.findComponent(CategoriesPanel).vm.categoryForm
 
 /** 某次请求的调用记录（找不到就是 undefined） */
 const callTo = (method, path) =>
@@ -239,13 +252,13 @@ describe('后台 · 分类管理', () => {
     await flushPromises()
 
     // el-input 上的 maxlength 会把输入截断，所以这里直接改表单的值来模拟"绕过前端"的输入
-    wrapper.vm.categoryForm.name = 'x'.repeat(51)
+    categoryFormOf(wrapper).name = 'x'.repeat(51)
     await clickSave(wrapper)
     expect(callTo('POST', '/admin/category')).toBeUndefined()
     expect(wrapper.find('.ed-error').text()).toContain('最长 50 字')
 
-    wrapper.vm.categoryForm.name = '正常的名字'
-    wrapper.vm.categoryForm.description = 'y'.repeat(256)
+    categoryFormOf(wrapper).name = '正常的名字'
+    categoryFormOf(wrapper).description = 'y'.repeat(256)
     await clickSave(wrapper)
     expect(callTo('POST', '/admin/category')).toBeUndefined()
     expect(wrapper.find('.ed-error').text()).toContain('最长 255 字')
@@ -331,8 +344,8 @@ describe('后台 · 分类管理', () => {
     await flushPromises()
 
     // el-input-number 显示的是它自己的值（数字控件，不是原生 input.value）
-    expect(wrapper.vm.categoryForm.sort).toBe(0)
-    expect(wrapper.vm.categoryForm.description).toBe('')
+    expect(categoryFormOf(wrapper).sort).toBe(0)
+    expect(categoryFormOf(wrapper).description).toBe('')
   })
 
   // ---------------------------------------------------------------

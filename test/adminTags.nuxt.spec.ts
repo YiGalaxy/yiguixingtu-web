@@ -3,6 +3,7 @@ import { mockNuxtImport, mountSuspended } from '@nuxt/test-utils/runtime'
 import { flushPromises, enableAutoUnmount } from '@vue/test-utils'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import AdminPage from '~/pages/admin.vue'
+import TagsPanel from '~/components/admin/TagsPanel.vue'
 
 // =====================================================================
 // 后台「标签管理」的组件测试
@@ -66,6 +67,17 @@ const gotoTags = async (wrapper) => {
 
 /** 表格里当前渲染出来的标签名 */
 const tagNames = (wrapper) => wrapper.findAll('.panel .el-table__row').map(r => r.findAll('td')[0].text())
+
+/**
+ * 标签弹窗里的表单状态（名字 / 排序）。
+ *
+ * 【w7.4 拆组件之后这里的定位方式变了，断言的内容没变】
+ *   拆分之前 `tagForm` 是 admin.vue 自己的变量，一句 `wrapper.vm.tagForm` 就够；
+ *   拆完之后它属于 TagsPanel 那个组件（面板自己扛着弹窗表单），
+ *   所以要先找到那个面板、再读它自己的表单 ——
+ *   比对的还是"排序回显成 0 而不是显示成空"，这条用例在拆分前后同样会红。
+ */
+const tagFormOf = (wrapper) => wrapper.findComponent(TagsPanel).vm.tagForm
 
 /** 某次请求的调用记录（找不到就是 undefined） */
 const callTo = (method, path) =>
@@ -271,7 +283,7 @@ describe('后台 · 标签管理', () => {
     await flushPromises()
 
     // el-input-number 显示的是它自己的值（数字控件，不是原生 input.value）
-    expect(wrapper.vm.tagForm.sort).toBe(0)
+    expect(tagFormOf(wrapper).sort).toBe(0)
   })
 
   // ---------------------------------------------------------------

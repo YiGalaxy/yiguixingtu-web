@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mockNuxtImport, mountSuspended } from '@nuxt/test-utils/runtime'
 import { flushPromises, enableAutoUnmount } from '@vue/test-utils'
 import AdminPage from '~/pages/admin.vue'
+import ArticleEditDialog from '~/components/admin/ArticleEditDialog.vue'
 
 // =====================================================================
 // 后台「文章弹窗里的标签多选」组件测试
@@ -116,6 +117,18 @@ const clickSave = async (wrapper) => {
   await flushPromises()
 }
 
+/**
+ * 文章弹窗里当前选中的标签 id（表单状态）。
+ *
+ * 【w7.4 拆组件之后这里的定位方式变了，断言的内容没变】
+ *   拆分之前 `artForm` 是 admin.vue 自己的变量，一句 `artFormTags(wrapper)` 就够；
+ *   拆完之后它属于 ArticleEditDialog 那个组件（弹窗自己扛着整张表单的状态），
+ *   所以要先找到那个组件、再读它自己的表单。
+ *   这是"够不着了换个定位方式"，不是把断言放宽：
+ *   比的还是"哪几个标签被选中"，同样的用例在拆分前会红、拆分后照样会红。
+ */
+const artFormTags = (wrapper) => wrapper.findComponent(ArticleEditDialog).vm.form.tagIds
+
 /** 最近一次文章提交（POST 新建 / PUT 编辑）带上去的请求体 */
 const lastArticleBody = () => {
   const call = [...fetchMock.mock.calls]
@@ -156,12 +169,12 @@ describe('后台 · 文章弹窗的标签多选', () => {
     // 先编辑一篇（把它那一个标签带进表单），再新建 —— 不清空的话新文章会莫名带上它
     await wrapper.findAll('.el-table__row .el-button').find(b => b.text() === '编辑').trigger('click')
     await flushPromises()
-    expect(wrapper.vm.artForm.tagIds).toEqual([7, 8])
+    expect(artFormTags(wrapper)).toEqual([7, 8])
 
     await wrapper.findAll('.toolbar .el-button').find(b => b.text().includes('新建文章')).trigger('click')
     await flushPromises()
 
-    expect(wrapper.vm.artForm.tagIds).toEqual([])
+    expect(artFormTags(wrapper)).toEqual([])
   })
 
   it('编辑一篇文章_should用详情里的 tags 回显选中的标签', async () => {
@@ -174,7 +187,7 @@ describe('后台 · 文章弹窗的标签多选', () => {
 
     // 列表里这篇只有 Vue，详情里是 Vue + 部署 —— 回显必须【以详情为准】，
     // 因为列表那一份可能是几分钟前拉的（别人刚改过标签时就会不一致）
-    expect(wrapper.vm.artForm.tagIds).toEqual([7, 8])
+    expect(artFormTags(wrapper)).toEqual([7, 8])
     expect(formRow(wrapper, '标签').text()).toContain('Vue')
   })
 
@@ -190,7 +203,7 @@ describe('后台 · 文章弹窗的标签多选', () => {
     await wrapper.findAll('.el-table__row .el-button').find(b => b.text() === '编辑').trigger('click')
     await flushPromises()
 
-    expect(wrapper.vm.artForm.tagIds).toEqual([7])
+    expect(artFormTags(wrapper)).toEqual([7])
   })
 
   it('选了标签再保存_should把选中的 id 数组作为 tagIds 发出去', async () => {
@@ -202,7 +215,7 @@ describe('后台 · 文章弹窗的标签多选', () => {
     await flushPromises()
 
     await pickTag(wrapper, '部署')      // 详情回显的是 [7,8]，点它 = 取消
-    expect(wrapper.vm.artForm.tagIds).toEqual([7])
+    expect(artFormTags(wrapper)).toEqual([7])
 
     await clickSave(wrapper)
 
@@ -223,7 +236,7 @@ describe('后台 · 文章弹窗的标签多选', () => {
     // 把两个标签都点掉（回显是 [7,8]，各点一次即取消）
     await pickTag(wrapper, 'Vue')
     await pickTag(wrapper, '部署')
-    expect(wrapper.vm.artForm.tagIds).toEqual([])
+    expect(artFormTags(wrapper)).toEqual([])
 
     await clickSave(wrapper)
 
@@ -247,7 +260,7 @@ describe('后台 · 文章弹窗的标签多选', () => {
 
     expect(wrapper.vm.tags).toEqual([])
     // 详情里仍然有 tags，所以回显还在（选项为空只是"选不到别的标签"）
-    expect(wrapper.vm.artForm.tagIds).toEqual([7, 8])
+    expect(artFormTags(wrapper)).toEqual([7, 8])
     expect(wrapper.find('.art-edit-modal').exists()).toBe(true)
   })
 })
