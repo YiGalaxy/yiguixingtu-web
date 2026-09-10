@@ -49,12 +49,21 @@ const ARTICLES = [
   { id: 12, title: '第二篇', categoryName: '随笔', viewCount: 3, createTime: '2026-09-09T10:00:00' },
 ]
 
+/**
+ * 站点统计接口的返回（就是实测到的那份真实数据）。
+ * 【数字是刻意挑的】文章列表里两篇的 viewCount 是 5 与 3（合计 8），
+ * 而统计接口给的浏览量是 28 —— 只要个人卡片显示 28 而不是 8，
+ * 就证明它确实走了统计接口，而不是"拿当前这一页的文章求和"。
+ */
+const SITE_STATS = { articleCount: 2, viewCount: 28, categoryCount: 3 }
+
 /** 默认的假后端：按接口名分发，并支持单独覆盖某一个接口的返回 */
 const mockBackend = (overrides = {}) => {
   fetchMock.mockImplementation((url) => {
     const path = pathOf(url)
     if (path in overrides) return Promise.resolve(overrides[path])
     if (path === '/category/list') return Promise.resolve(body(CATEGORIES))
+    if (path === '/article/stats') return Promise.resolve(body(SITE_STATS))
     // total 给 6、records 只给 2 条：这样 articles.length < total，
     // 页面才会渲染出「加载更多」按钮（分页那条用例要用到它）
     if (path === '/article/page') return Promise.resolve(body({ records: ARTICLES, total: 6 }))
@@ -81,8 +90,8 @@ const catLabels = (wrapper) => wrapper.findAll('.cat').map(c => c.text())
 /** 当前地址栏的 query（用真路由读，证明"确实写进去了"） */
 const currentQuery = (wrapper) => wrapper.vm.$router.currentRoute.value.query
 
-/** 数一次 /article/page 被请求了几次 */
-const articleCallCount = () => fetchMock.mock.calls.filter(c => pathOf(c[0]) === '/article/page').length
+/** 某个接口被请求了几次 */
+const callCount = (path) => fetchMock.mock.calls.filter(c => pathOf(c[0]) === path).length
 
 describe('首页 · 搜索与分类筛选', () => {
   beforeEach(() => {
@@ -231,7 +240,7 @@ describe('首页 · 搜索与分类筛选', () => {
     const wrapper = await mountSuspended(IndexPage)
     await settleRoute()
 
-    const before = articleCallCount()
+    const before = callCount('/article/page')
 
     // 【为什么在挂载之后才打开假时钟】挂载过程里 Nuxt/vue 自己也要用定时器与
     // requestAnimationFrame，提前接管时钟会让 mountSuspended 卡住
@@ -242,7 +251,7 @@ describe('首页 · 搜索与分类筛选', () => {
     // 输入框已经显示出来了（打字不能卡），但请求一个都没多发
     expect(wrapper.find('.searchbox input').element.value).toBe('nu')
     await vi.advanceTimersByTimeAsync(299)
-    expect(articleCallCount()).toBe(before)
+    expect(callCount('/article/page')).toBe(before)
 
     await vi.advanceTimersByTimeAsync(1)
     await flushPromises()
@@ -265,5 +274,56 @@ describe('首页 · 搜索与分类筛选', () => {
     // 没有筛选条件之后，标题回到默认，「清除筛选」入口也收起来
     expect(wrapper.find('.w-head h2').text()).toBe('最新文章')
     expect(wrapper.find('.w-clear').exists()).toBe(false)
+  })
+
+  // ---------------------------------------------------------------
+  // 五、个人卡片的三个数字：来自站点统计接口
+  // ---------------------------------------------------------------
+
+  it('个人卡片_should显示统计接口给的全站数字，而不是当前页求和', async () => {
+    const wrapper = await mountSuspended(IndexPage)
+    await settleRoute()
+
+    expect(callCount('/article/stats')).toBe(1)
+
+    // 文章 2 / 浏览 28 / 分类 3 全部来自 /article/stats。
+    // 浏览量尤其关键：列表里两篇的 viewCount 合计只有 8，显示 28 才说明
+    // 用的不是"已加载文章求和"（那个数字会随「加载更多」一直变大）
+    expect(wrapper.findAll('.pf-stats .st b').map(b => b.text())).toEqual(['2', '28', '3'])
+  })
+
+  it('统计接口失败_should显示占位符「—」，且文章列表照常渲染', async () => {
+    mockBackend({ '/article/stats': { code: 500, message: '服务器开小差了' } })
+
+    const wrapper = await mountSuspended(IndexPage)
+    await settleRoute()
+
+    // 0 会被访客当成"站点真的没有文章"，「—」才是诚实的"暂时读不到"
+    expect(wrapper.findAll('.pf-stats .st b').map(b => b.text())).toEqual(['—', '—', '—'])
+    // 统计挂了不该连累文章区
+    expect(wrapper.text()).toContain('第一篇')
+  })
+
+  it('统计接口抛异常_should同样只影响这三张数字，不把首页带崩', async () => {
+    fetchMock.mockImplementation((url) => {
+      const path = pathOf(url)
+      if (path === '/article/stats') throw new Error('boom')
+      if (path === '/category/list') return Promise.resolve(body(CATEGORIES))
+      return Promise.resolve(body({ records: ARTICLES, total: 6 }))
+    })
+
+    const wrapper = await mountSuspended(IndexPage)
+    await settleRoute()
+
+    expect(wrapper.findAll('.pf-stats .st b').map(b => b.text())).toEqual(['—', '—', '—'])
+    expect(wrapper.find('.home').exists()).toBe(true)
+    expect(wrapper.text()).toContain('第一篇')
+  })
+
+  it('带着筛选条件进页面_should不影响卡片上的全站数字（统计与筛选是两回事）', async () => {
+    const wrapper = await mountSuspended(IndexPage, { route: '/?categoryId=2' })
+    await settleRoute()
+
+    expect(wrapper.findAll('.pf-stats .st b').map(b => b.text())).toEqual(['2', '28', '3'])
   })
 })

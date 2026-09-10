@@ -17,13 +17,17 @@ v-for="m in menus" :key="m.key"
       <template v-if="cur === 'overview'">
         <header class="top">
           <h1>概览</h1>
-          <p>后台骨架已就绪，等你对接后端接口。</p>
+          <p>全站汇总数据（文章数与浏览量只统计已发布文章）</p>
         </header>
+        <!-- 四个数字的来源是【独立请求】，和下面各管理页当前的筛选条件无关：
+             文章 / 浏览 / 分类走公开接口 GET /article/stats（后端一条聚合 SQL 算好），
+             用户在 /user/page 里筛选了什么都不会影响这里。
+             接口失败时显示「—」，而不是假装是 0。 -->
         <div class="stats">
-          <div class="stat glass"><span>文章</span><b>{{ artTotal }}</b></div>
-          <div class="stat glass"><span>用户</span><b>{{ total }}</b></div>
-          <div class="stat glass"><span>分类</span><b>{{ categories.length }}</b></div>
-          <div class="stat glass"><span>标签</span><b>0</b></div>
+          <div class="stat glass"><span>文章（已发布）</span><b>{{ statText(siteStats.articleCount, statsFailed) }}</b></div>
+          <div class="stat glass"><span>浏览量</span><b>{{ statText(siteStats.viewCount, statsFailed) }}</b></div>
+          <div class="stat glass"><span>分类</span><b>{{ statText(siteStats.categoryCount, statsFailed) }}</b></div>
+          <div class="stat glass"><span>用户</span><b>{{ statText(userCount, userCountFailed) }}</b></div>
         </div>
         <div class="panel glass">
           <div class="panel-head">最近文章</div>
@@ -391,6 +395,43 @@ const curLabel = computed(() => menus.find(m => m.key === cur.value)?.label || '
 const users = ref([])
 const total = ref(0)
 const loading = ref(false)
+
+// ================================================================
+//  概览的四个数字
+// ================================================================
+// 文章 / 浏览 / 分类：公开接口 GET /article/stats（口径：只统计已发布文章），
+// 和首页个人卡片共用同一个 composable，口径与降级行为完全一致。
+const { stats: siteStats, failed: statsFailed, load: loadSiteStats } = useSiteStats()
+
+// 用户数是单独一个 ref，不复用用户表格的 total。
+// 【为什么】total 是"用户管理页当前查询条件"的总数：管理员在那边筛了"禁用用户"，
+// 概览的用户数就会跟着变成禁用用户数 —— 这正是这次要修掉的"数字取决于你点过什么"。
+const userCount = ref(0)
+const userCountFailed = ref(false)
+
+const fetchUserCount = async () => {
+  // size=1：只需要 total 这个总数，不需要真的把那一页数据拉回来
+  const res = await request('/user/page', { params: { page: 1, size: 1 } })
+  if (res.ok) {
+    userCount.value = toCount(res.data?.total)
+    userCountFailed.value = false
+  } else {
+    // 失败就保留旧值 + 显示占位，不把数字清成 0（假装"没有用户"比"读不到"更糟）
+    userCountFailed.value = true
+  }
+}
+
+/**
+ * 拉一次概览数据。
+ * 【为什么进入后台就要主动拉，而不是等用户点「概览」菜单】
+ *   改之前概览的数字来自用户表格 / 文章表格 / 分类列表的变量，而这些表格是
+ *   "哪个菜单被点开才加载"的 —— 于是概览显示什么，取决于你点过哪些菜单：
+ *   直接进后台点「概览」，四个数字全是 0。现在进入页面就并行拉好。
+ */
+const loadOverview = () => Promise.all([loadSiteStats(), fetchUserCount()])
+
+/** 数字显示：接口失败显示「—」，不要用 0 冒充一个确定的答案 */
+const statText = (value, failed) => (failed ? '—' : value)
 
 // sortField / sortOrder：点表头排序时发给后端（后端有字段白名单校验）
 const query = reactive({
@@ -793,15 +834,17 @@ const removeArticle = async (row) => {
 // ---------- 时间格式化 ----------
 const fmtTime = (t) => (t ? String(t).replace('T', ' ').slice(0, 19) : '—')
 
-// 切到文章管理时如果还没加载过，补一次
+// 切到文章管理时如果还没加载过，补一次；切到概览时刷新一次概览数据
+// （比如刚从文章管理发布/删除了文章，回到概览看到的应该是新的数字，而不是进页面那一刻的）
 watch(cur, (v) => {
   if (v === 'articles' && articles.value.length === 0) fetchArticles()
+  if (v === 'overview') loadOverview()
 })
 
 onMounted(async () => {
-  // 三件事互不依赖，并行发出去（Promise.all 而不是三次 await，省两个来回的网络时间）
+  // 这几件事互不依赖，并行发出去（Promise.all 而不是一个个 await，省几个来回的网络时间）
   await ensureUser()
-  await Promise.all([fetchUsers(), fetchCategories(), fetchArticles()])
+  await Promise.all([fetchUsers(), fetchCategories(), fetchArticles(), loadOverview()])
 })
 </script>
 

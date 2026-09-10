@@ -40,9 +40,11 @@ v-for="c in categories" :key="c.id" class="cat"
           </div>
         </div>
         <div class="pf-stats">
-          <div class="st"><b>{{ stat.articles }}</b><span>文章</span></div>
-          <div class="st"><b>{{ stat.views }}</b><span>浏览</span></div>
-          <div class="st"><b>{{ stat.categories }}</b><span>分类</span></div>
+          <!-- 三个数字都来自后端 GET /article/stats（口径：只统计已发布文章），
+               不再是"当前这一页的文章求和" -->
+          <div class="st"><b>{{ statText(siteStats.articleCount) }}</b><span>文章</span></div>
+          <div class="st"><b>{{ statText(siteStats.viewCount) }}</b><span>浏览</span></div>
+          <div class="st"><b>{{ statText(siteStats.categoryCount) }}</b><span>分类</span></div>
         </div>
         <div class="pf-links">
           <span class="pl" title="GitHub">GU</span>
@@ -219,16 +221,21 @@ const listTitle = computed(() => {
   return '最新文章'
 })
 
-// 个人卡片上的三个数字
-const stat = computed(() => ({
-  articles: total.value,
-  categories: categories.value.length,
-  // 【注意】浏览数是"已加载文章"的合计，不是全站总数。
-  // 想要精确总数，需要后端加一个统计接口（比如 GET /article/stats
-  // 直接 SELECT SUM(view_count) FROM article WHERE status=1）。
-  // 现在够用，等文章多了再补。
-  views: articles.value.reduce((sum, a) => sum + (a.viewCount || 0), 0),
-}))
+// 站点统计（文章数 / 总浏览量 / 分类数）。
+// 【为什么不用页面里的列表自己算】改之前这里是 total.value（会被筛选条件影响）、
+// articles.value.reduce(...)（只是"已加载的 12 篇"之和，点一次「加载更多」数字就变）
+// 和 categories.value.length —— 三个数字各有各的口径。
+// 现在统一走后端公开接口 GET /article/stats，口径（只统计已发布文章）写在后端 SQL 里。
+const { stats: siteStats, failed: statsFailed, load: loadSiteStats } = useSiteStats()
+
+/**
+ * 数字的显示。
+ * 【失败时为什么是「—」而不是 0】0 是一个"确定的答案"：访客会以为站点真的没有文章。
+ * 「—」才是诚实的"暂时读不到"，也和 backend 挂掉时"文章列表为空"区分得开。
+ */
+const statText = (count) => (statsFailed.value ? '—' : count)
+
+// 个人卡片上的三个数字：来源见上面的 useSiteStats（后端算好、前端只显示）
 
 // 封面兜底：文章没填封面时，用自带的 3 张图轮着顶，避免出现破图
 const DEFAULT_COVERS = ['/cover-1.png', '/cover-2.png', '/cover-3.png']
@@ -313,10 +320,12 @@ const onUp = () => { drag = null; document.removeEventListener('pointermove', on
 
 const onMascot = () => { ElMessage.info('欢迎来到亿轨星途 ✦') }
 
-// 首屏加载：文章列表 + 分类（两个请求互不依赖，并行发）
+// 首屏加载：文章列表 + 分类 + 站点统计（三个请求互不依赖，并行发）。
+// 统计失败不影响文章区 —— useSiteStats 内部会降级成占位符，不抛异常。
 onMounted(() => {
   fetchArticles(false)
   fetchCategories()
+  loadSiteStats()
 })
 </script>
 
