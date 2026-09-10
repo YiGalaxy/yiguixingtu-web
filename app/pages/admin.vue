@@ -280,31 +280,65 @@ v-loading="tagLoading" :data="tags"
         </div>
       </template>
 
-      <!-- ==================== ⑤ 分类（只读） ==================== -->
-      <!-- 【为什么分类只做只读，不做增删改】
-           后端其实【已经】把分类的写接口做好了（AdminCategoryController：
-           POST/PUT/DELETE /admin/category），但这一批任务的约定是"分类的增删改不在本次范围内"，
-           所以这里刻意只接一个 GET /admin/category/list。
-           【为什么不摆一个"该模块开发中"的占位】因为分类数据是真实存在、真实可读的，
-           摆占位等于把"已经有了的东西"说成没有；只读列表至少是诚实的：
-           管理员能看见现在有哪些分类、各是什么描述，也知道改不了。
-           下面那行说明写清楚"接口有、前台没接"，免得有人以为是后端不支持。 -->
+      <!-- ==================== ⑤ 分类管理（增删改） ==================== -->
+      <!-- 【为什么分类页现在能改了】
+           上一批任务里这里只有一张只读表格，因为当时的约定是"分类的增删改不在范围内"。
+           这一批后端已经有了 AdminCategoryController（POST/PUT/DELETE /admin/category），
+           所以把它接上：形状刻意照「标签管理」那一页（列表 + 新建/编辑弹窗 + 二次确认删除），
+           两边长得不一样的话，管理员每换一个菜单都要重新找一遍按钮在哪。
+           【与标签唯一的形状差别：分类多一个「描述」字段】分类描述是给读者看的
+           （首页的分类筛选条上没有它，但它是分类自己的说明），标签没有这个字段。
+           【与标签最大的行为差别：删除可能被拒】一篇文章只属于一个分类，
+           所以"分类下还有文章"时必须拒绝删除（见 removeCategory 的注释）。 -->
       <template v-else-if="cur === 'categories'">
         <header class="top">
-          <h1>分类</h1>
-          <p>共 {{ categories.length }} 个分类</p>
+          <h1>分类管理</h1>
+          <p>共 {{ categories.length }} 个分类（一篇文章属于一个分类，分类下还有文章时无法删除）</p>
         </header>
 
+        <div class="toolbar glass">
+          <el-button type="success" @click="openCategoryCreate">+ 新建分类</el-button>
+          <el-button @click="loadCategories">刷新</el-button>
+          <!-- 和标签那句提示同一个作用：说清"这里和别处的关系"。
+               分类与标签不同 —— 文章弹窗里的分类是【单选】，而且只选不改 -->
+          <span class="tb-hint">文章弹窗里的分类是单选下拉框，这里建完立刻就能选到。</span>
+        </div>
+
         <div class="panel glass">
-          <div class="panel-note">
-            当前为<strong>只读</strong>：分类的增删改后端已有接口，前台的编辑界面还没接。
-            需要调整分类请先在数据库或后端接口上操作。
+          <!-- 【删除被拒的原因留在这里，而不是只弹一个 toast】
+               toast 三秒后就消失了，而"还有 N 篇文章在用这个分类"是用户**唯一**能据此
+               行动的信息（去文章管理把那几篇改到别的分类）。只弹 toast 的表现是
+               "点了删除、报了一句错、然后没有然后了"，用户既不知道有几篇，
+               也不知道该去哪儿改。所以这句话会一直留在页面上，
+               直到下一次（成功或失败的）操作把它替换掉。 -->
+          <div v-if="categoryNotice" class="panel-note is-error">
+            {{ categoryNotice }}
+            <!-- 【这句为什么写成"如果…"】它能出现在任何一种删除失败下面（超时、500、
+                 以及最主要的"还有文章在用"）。写成"要删掉它，先去文章管理…"的话，
+                 在 500 那种情况下就是一去不回的错误指引；写成条件句才在任何分支下都成立。 -->
+            <span class="pn-hint">如果是因为"分类下还有文章"：先去「文章管理」把这几篇改到别的分类（或删掉），再回来删。</span>
           </div>
-          <el-table :data="categories" empty-text="还没有分类">
+
+          <el-table
+v-loading="categoryLoading" :data="categories"
+                    empty-text="还没有分类，点左上角「新建分类」建一个吧">
             <el-table-column prop="id" label="ID" width="80" />
-            <el-table-column prop="name" label="分类名" min-width="180" />
+            <el-table-column prop="name" label="分类名" min-width="180">
+              <template #default="{ row }"><span class="art-title">{{ row.name }}</span></template>
+            </el-table-column>
             <el-table-column prop="sort" label="排序" width="90" />
-            <el-table-column prop="description" label="描述" min-width="260" />
+            <!-- 描述可能很长（上限 255 字），用 show-overflow-tooltip：
+                 不然它会把行撑成好几行、把操作列挤到看不见的地方。
+                 描述为 null 时后端不给这个字段，这里显示「—」而不是空白 -->
+            <el-table-column prop="description" label="描述" min-width="260" show-overflow-tooltip>
+              <template #default="{ row }">{{ row.description || '—' }}</template>
+            </el-table-column>
+            <el-table-column label="操作" width="170" fixed="right">
+              <template #default="{ row }">
+                <el-button size="small" @click="openCategoryEdit(row)">编辑</el-button>
+                <el-button size="small" type="danger" @click="removeCategory(row)">删除</el-button>
+              </template>
+            </el-table-column>
           </el-table>
         </div>
       </template>
@@ -597,6 +631,52 @@ v-model="tagForm.name" placeholder="比如：Vue、部署、读书笔记"
         <el-button type="primary" :loading="tagSaving" @click="saveTag">保存</el-button>
       </template>
     </el-dialog>
+
+    <!-- ==================== 新建 / 编辑分类弹窗 ==================== -->
+    <!-- 【形状与标签弹窗一致，只多一个「描述」字段】
+         一致的地方：标题随"新建/编辑"变、失败原因留在弹窗里、取消与保存的措辞。
+         多出来的地方：描述（可选，最长 255 字）——
+         后端 CategoryForm 的 @Size(max=255) 与数据库列宽对齐，
+         前端 maxlength 跟着写 255，超长时在本地就提示（而不是让后端截断或报错）。 -->
+    <el-dialog
+v-model="categoryEditVisible" class="art-edit-modal" :title="categoryForm.id ? '编辑分类' : '新建分类'"
+               width="min(520px, 92vw)" :close-on-click-modal="false">
+      <div class="af-row">
+        <span class="ed-label">分类名</span>
+        <!-- maxlength 与后端 @Size(max=50) 对齐；前端拦一道只是体验（本地即时反馈），
+             真正生效的仍然是后端那一层（直接调接口可以绕过前端） -->
+        <el-input
+v-model="categoryForm.name" placeholder="比如：技术笔记、项目复盘"
+                  maxlength="50" show-word-limit @keyup.enter="saveCategory" />
+      </div>
+
+      <div class="af-row">
+        <span class="ed-label">排序</span>
+        <el-input-number v-model="categoryForm.sort" :min="0" :max="9999" controls-position="right" />
+        <span class="af-hint">越小越靠前</span>
+      </div>
+
+      <div class="af-row">
+        <span class="ed-label">描述</span>
+        <!-- 可选字段：留空就存 null（后端把空串也归一成 null），列表里显示成「—」。
+             这一行的样式与文章弹窗的「摘要」那一行完全相同（都是 .af-row + textarea） -->
+        <el-input
+v-model="categoryForm.description" type="textarea" :rows="3"
+                  placeholder="这个分类收什么文章（可以留空）"
+                  maxlength="255" show-word-limit />
+      </div>
+
+      <!-- 【失败原因留在弹窗里，理由与标签弹窗完全相同】
+           重名（后端 400「分类名已存在」）是最常见的一种，
+           而 toast 三秒后自己就消失了，用户那时还看着弹窗、正准备改个名字再保存。 -->
+      <p v-if="categoryFormError" class="ed-error">{{ categoryFormError }}</p>
+
+      <template #footer>
+        <span class="af-foot-tip">名字首尾的空格会被自动去掉</span>
+        <el-button @click="categoryEditVisible = false">取消</el-button>
+        <el-button type="primary" :loading="categorySaving" @click="saveCategory">保存</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -638,17 +718,18 @@ const { user } = useAuth()
 const myId = computed(() => user.value?.id)
 
 // ---------- 左侧菜单 ----------
-// 「分类 / 标签」那个占位菜单这次拆成了两个真实的页面：
-//   · 标签管理：后端已经有完整的增删改查，所以这里是真能用的
-//   · 分类：后端【已经】有增删改接口了（AdminCategoryController），
-//     但这一批任务里明确不做分类的写操作，所以这里只做只读展示 ——
-//     见「分类」那一块模板前的说明
+// 【分类与标签现在是两个对称的菜单】
+//   · 标签管理：标签是多对多（一篇文章可以有多个），增删改齐全
+//   · 分类管理：分类是一对一（一篇文章只属于一个），增删改也齐全，
+//     但**删除可能被拒**（分类下还有文章时后端会拒绝，见 removeCategory）
+//   两个菜单名都带「管理」两个字：它们背后是同一类能力（维护一个维度），
+//   叫法不一致会让人以为分类那一页有什么不同。
 const menus = [
   { key: 'overview', label: '概览' },
   { key: 'articles', label: '文章管理' },
   { key: 'users',    label: '用户管理' },
   { key: 'tags',     label: '标签管理' },
-  { key: 'categories', label: '分类' },
+  { key: 'categories', label: '分类管理' },
   { key: 'comments', label: '评论管理' },
   { key: 'settings', label: '设置' },
 ]
@@ -869,10 +950,28 @@ const artQuery = reactive({
   sortField: '', sortOrder: '',
 })
 
-// ---------- 拉分类（公开接口，不需要 token）----------
+// ---------- 拉分类 ----------
+/**
+ * 分类列表：文章筛选下拉框 + 文章弹窗的分类选择 + 「分类管理」页共用它。
+ *
+ * 【为什么还打公开接口，而不是后台的 GET /admin/category/list】
+ *   后端在 AdminCategoryController 里写明了：分类列表**只有一个缓存**，
+ *   写操作会推进缓存版本号让它立刻失效，所以后台那份和前台那份一定是
+ *   同一份最新数据（这也是后端为什么没有像标签那样单独做一个"不走缓存"的方法）。
+ *   既然两者等价，就沿用已经在用的公开接口 ——
+ *   换来换去只会多出一个要同步的 ref，而"刚建完的分类能不能立刻选到"
+ *   这件事由后端那套版本号保证（联调实测过：新建后立刻再查，列表里就有它）。
+ *
+ * 【失败时为什么保留上一次的结果，而不是清空】
+ *   这个 ref 同时喂着文章筛选下拉框与文章弹窗的分类选择。分类是"很少变、
+ *   一次失败不该影响别的操作"的那种数据：清空的表现是"下拉框突然空了，
+ *   于是这篇文章保存出去就没有分类" —— 比"显示一份几秒钟前的分类"糟得多。
+ *   返回结构不是数组时（比如以后改成分页结构）兜成空数组：
+ *   它会被 v-for 与 .find 用到，直接拿去遍历会把整个后台带崩。 */
 const fetchCategories = async () => {
   const res = await request('/category/list')
-  if (res.ok) categories.value = res.data || []
+  if (!res.ok) return
+  categories.value = Array.isArray(res.data) ? res.data : []
 }
 
 // ---------- 拉标签（后台接口，不走缓存）----------
@@ -1459,14 +1558,201 @@ const removeTag = async (row) => {
   }
 }
 
+// ================================================================
+//  分类管理（增删改）
+//
+//  【形状与标签管理完全对齐，行为有两处本质差别】
+//   ① 分类是【一对一】的：一篇文章属于一个分类（article.category_id），
+//      所以"分类下还有文章"时**后端会拒绝删除**（标签是多对多，
+//      删除只是解除关联，不需要拒绝）
+//   ② 分类多一个「描述」字段（标签没有），它是给读者看的分类说明
+//
+//  【数据源还是上面那个 categories（GET /category/list）】
+//   与文章弹窗的分类下拉框、文章筛选下拉框共用同一份 —— 在这里新建一个分类之后，
+//   切到文章管理打开弹窗就能选到它，不需要"刷新整个页面才能选到"。
+//   这也是为什么全文只有一个 categories ref：两处各拉一份迟早会有一处是旧的。
+// ================================================================
+
+const categoryLoading = ref(false)
+const categorySaving = ref(false)
+const categoryEditVisible = ref(false)
+/** 保存失败时显示在弹窗里的原因（与标签管理同一个考虑：toast 会消失，弹窗不会） */
+const categoryFormError = ref('')
+/**
+ * 删除被拒后**留在页面上**的那句话（不是 toast）。
+ *
+ * 【为什么这条必须留在页面上】删除被拒是分类页最主要的一种失败，
+ *   而后端那句话（"还有 N 篇文章在用这个分类，请先调整这些文章的分类"）
+ *   是用户唯一能据此行动的信息 —— 它既告诉你有几篇、也告诉你该做什么。
+ *   toast 三秒后消失，用户看到的是"点了一下、报了个错、没了"，
+ *   既不知道有几篇、也不知道去哪儿改。所以它一直留着，
+ *   直到下一次操作（不管成功还是失败）把它替换掉。
+ */
+const categoryNotice = ref('')
+
+/** 表单：id 为 null 表示"新建"，否则是编辑 */
+const categoryForm = reactive({ id: null, name: '', description: '', sort: 0 })
+
+/** 带 loading 的刷新（切到分类菜单时用；工具条那个「刷新」按钮走 fetchCategories 也够） */
+const loadCategories = async () => {
+  categoryLoading.value = true
+  await fetchCategories()
+  categoryLoading.value = false
+}
+
+const openCategoryCreate = () => {
+  categoryForm.id = null
+  categoryForm.name = ''
+  categoryForm.description = ''
+  // 排序默认 0（后端的规则是"越小越靠前"，0 就是它的默认值）。
+  // 不自动算 max+1：算出来的数字用户看不懂（"为什么是 7？"），而绝大多数分类用默认值就够
+  categoryForm.sort = 0
+  categoryFormError.value = ''
+  categoryNotice.value = ''
+  categoryEditVisible.value = true
+}
+
+const openCategoryEdit = (row) => {
+  categoryForm.id = row.id
+  categoryForm.name = row.name || ''
+  // 描述可能是 null（后端把空串归一成 null 存的）。el-input 拿到 null 会当成空字符串，
+  // 但显式兜一道：它还会被 .trim() 用到，null 上没有这个方法
+  categoryForm.description = row.description || ''
+  // sort 同样可能是 null：el-input-number 拿到 null 会显示成空，
+  // 用户一保存就把排序变成 0 —— 所以显式兜成 0
+  categoryForm.sort = Number(row.sort) || 0
+  categoryFormError.value = ''
+  categoryNotice.value = ''
+  categoryEditVisible.value = true
+}
+
+/**
+ * 保存分类（新建或编辑）。
+ *
+ * 【提交前必须 trim】后端是 trim 之后再查重与落库（"技术" 与 " 技术 " 是同一个名字），
+ *   这里是"同一套规则的显示端"：不 trim 的话请求体与日志里都是脏数据，
+ *   而且 maxlength=50 会因为空格提前截断一个本来合法的名字。
+ *
+ * 【为什么描述也要 trim，而且留空就发空串】后端会把没有内容的描述归一成 null
+ *   （存 "" 与存 null 在库里是两个值，展示上却是同一个意思 —— 统一成 null 少一种状态）。
+ *   前端不替它做这件事：原样把用户的输入交出去，归一化的规则只在后端一处。
+ *
+ * 【为什么前端也校验一遍必填与长度】和封面、标签那两套一样，前端预检只是体验优化
+ *   （本地即时反馈、不浪费一次往返），真正生效的永远是后端那一层。
+ */
+const saveCategory = async () => {
+  categoryFormError.value = ''
+
+  const name = categoryForm.name.trim()
+  if (!name) {
+    categoryFormError.value = '分类名不能为空'
+    return
+  }
+  if (name.length > 50) {
+    categoryFormError.value = '分类名最长 50 字'
+    return
+  }
+  const description = (categoryForm.description || '').trim()
+  if (description.length > 255) {
+    categoryFormError.value = '分类描述最长 255 字'
+    return
+  }
+  // 防连点：按钮上虽然有 :loading，但两次点击落在同一帧时它还没重绘
+  if (categorySaving.value) return
+
+  categorySaving.value = true
+  const body = { name, description, sort: Number(categoryForm.sort) || 0 }
+  const isEdit = !!categoryForm.id
+
+  const res = isEdit
+    ? await request('/admin/category/' + categoryForm.id, { method: 'PUT', body })
+    : await request('/admin/category', { method: 'POST', body })
+
+  categorySaving.value = false
+
+  if (res.ok) {
+    ElMessage.success(isEdit ? '已保存' : '分类已创建')
+    categoryEditVisible.value = false
+    categoryNotice.value = ''
+    // 重新拉列表（而不是把这一条塞进本地数组）：sort 是后端排的，
+    // 本地插进去的位置不一定对
+    fetchCategories()
+    return
+  }
+
+  // 【失败：弹窗留着 + 把后端的原因写在弹窗里】
+  //   最典型的是重名：后端返回 400 + 「分类名已存在」。
+  //   useApi 已经弹过一次 toast（那句话就是后端的原文），这里再显示一遍是为了
+  //   "留在用户眼前" —— 重名时他要做的动作是改个名字再点一次保存。
+  categoryFormError.value = res.message || '保存失败，请稍后再试'
+}
+
+/**
+ * 删除分类。
+ *
+ * 【为什么二次确认的措辞与标签不一样】
+ *   标签的删除是"物理删除 + 解除关联"，确认框里能报出"还有 N 篇已发布文章"
+ *   （后端在列表里给了 articleCount）。
+ *   分类**没有**这个数字：CategoryVO 里只有 id/name/description/sort。
+ *   所以这里不能像标签那样报出篇数，只能说明"分类下还有文章时会被拒绝"——
+ *   真正有几篇，由后端在拒绝时说（那句话是唯一准确的来源）。
+ *
+ * 【为什么不在点删除前自己查一次"有几篇在用"】
+ *   查得到（`/admin/article/page?categoryId=N` 的 total 就是），但那是**另一套口径**：
+ *   后端的 countArticlesByCategoryId() 数的是该分类下**所有未删除的文章**
+ *   （草稿也算），而文章列表接口是分前台/后台两份的，前端自己数出来的数字
+ *   随时可能和后端拒绝时说的数字对不上 —— 两个不一样的数字同时出现在屏幕上，
+ *   比不给数字更让人迷惑。所以这里只做一次确认，篇数以**后端拒绝时那句话**为准。
+ *
+ * 【删除被拒（还有文章在用）时：把后端那句话原样留在页面上】
+ *   后端返回 HTTP 200 + code 400 + message「还有 N 篇文章在用这个分类，
+ *   请先调整这些文章的分类」。这句话必须原样显示，不能替换成"删除失败"——
+ *   "还有 N 篇"是用户唯一能据此行动的信息（去哪几篇、改到别的分类）。
+ */
+const removeCategory = async (row) => {
+  try {
+    await ElMessageBox.confirm(
+      `确定要删除分类「${row.name}」吗？如果还有文章用着这个分类，删除会被拒绝（会告诉你还有几篇）。删除后无法恢复。`,
+      '危险操作',
+      { type: 'error', confirmButtonText: '确认删除', cancelButtonText: '取消' },
+    )
+  } catch { return }
+
+  const res = await request('/admin/category/' + row.id, { method: 'DELETE' })
+  if (res.ok) {
+    categoryNotice.value = ''
+    ElMessage.success('已删除')
+    fetchCategories()
+    return
+  }
+
+  // 【404 = 别人（或另一个标签页）已经把它删掉了】
+  //   这时什么都不做的话，用户看到的是"报错 + 表格里还列着它"，会以为删除失败再点一次。
+  //   刷新列表才是能自愈的做法：表格里那条自己就没了。
+  if (res.code === 404) {
+    categoryNotice.value = ''
+    ElMessage.warning('这个分类已经不在了，列表已刷新')
+    fetchCategories()
+    return
+  }
+
+  // 【其它失败（最主要的就是"还有 N 篇在用"）】留一句话在页面上
+  categoryNotice.value = res.message
+    ? `删除「${row.name}」失败：${res.message}`
+    : `删除「${row.name}」失败，请稍后再试`
+}
+
 // 切到文章管理时如果还没加载过，补一次；切到概览时刷新一次概览数据
 // （比如刚从文章管理发布/删除了文章，回到概览看到的应该是新的数字，而不是进页面那一刻的）
-// 标签管理同理：在别处（文章弹窗、另一个标签页）改过标签之后切过来，
-// 看到的应该是当前的标签，而不是进页面那一刻的快照
+// 标签/分类管理同理：在别处（文章弹窗、另一个标签页）改过之后切过来，
+// 看到的应该是当前的列表，而不是进页面那一刻的快照
 watch(cur, (v) => {
   if (v === 'articles' && articles.value.length === 0) fetchArticles()
   if (v === 'overview') loadOverview()
   if (v === 'tags') loadTags()
+  // 分类要多一次：列表是进后台时就并行拉好的，但"文章弹窗里改过分类"之后
+  // 切过来看到的应该是当前的（分类很少变，这一次刷新换的是"一定不过期"）
+  if (v === 'categories') loadCategories()
   // 切到评论管理时刷新：在别的标签页/别人审核过之后，看到的应该是当前的待办
   if (v === 'comments') refreshComments()
 })
@@ -1540,13 +1826,23 @@ onMounted(async () => {
 .tb-hint { color: var(--muted); font-size: 12px; margin-left: auto; }
 .pager { display: flex; justify-content: flex-end; margin-top: 18px; }
 
-/* 面板顶部的一行说明（分类那页的"只读"提示）。
-   用左边一条竖线而不是纯文字：它需要被看见，但不需要抢标题的位置 */
+/* 面板顶部的一行说明。
+   用左边一条竖线而不是纯文字：它需要被看见，但不需要抢标题的位置。
+   【is-error 是"这条不是说明、是一条要处理的问题"】删除被拒的原因就属于这种 ——
+   它必须比一般说明更显眼（用户此刻正卡在"为什么删不掉"上），
+   所以换成错误色 + 更实的竖线，而不是沿用金色那条"提示"。 */
 .panel-note {
   color: var(--muted); font-size: 13px; line-height: 1.7;
   border-left: 3px solid rgba(242,193,78,.5); padding: 2px 0 2px 12px; margin-bottom: 18px;
 }
 .panel-note strong { color: var(--accent); }
+.panel-note.is-error {
+  color: var(--el-color-danger, #f56c6c);
+  border-left-color: var(--el-color-danger, #f56c6c);
+}
+/* 跟在错误原因后面的"下一步该去哪"：比原因本身弱一档，但必须在同一块里
+   （分开放的话，用户读完那句话还是不知道去哪儿改） */
+.panel-note .pn-hint { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }
 
 /* 弹窗里的失败原因（比如「标签名已存在」）。
    用主题里的错误色而不是灰色：它是一条"必须处理才能继续"的信息 */
@@ -1555,7 +1851,7 @@ onMounted(async () => {
   font-size: 13px; line-height: 1.6; margin: 4px 0 0;
 }
 
-/* 编辑弹窗内的行 */
+/* 弹窗内的行 */
 .ed-row { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
 .ed-label { width: 72px; flex-shrink: 0; color: var(--muted); font-size: 13px; }
 .ed-static { color: var(--ink); font-weight: 600; }

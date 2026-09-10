@@ -365,37 +365,22 @@ describe('后台 · 标签管理', () => {
   })
 
   // ---------------------------------------------------------------
-  // 六、分类：只读
+  // 六、分类：这一组原来在这里
   // ---------------------------------------------------------------
-
-  it('分类页_should只读展示（有列表、有说明，但没有任何写按钮）', async () => {
+  //
+  // 【为什么搬走了】上一批任务里分类页是**只读**的，所以"只读展示（一个写按钮都没有）"
+  // 那两条断言放在这个文件里（两页共用同一份分类列表）。这一批分类已经做成可编辑，
+  // 那两条断言的前提（不许有写按钮）正好反了过来 —— 与其在这里留一堆
+  // "分类管理"的用例（这个文件已经 400 行），不如整组搬到
+  // test/adminCategories.nuxt.spec.ts：一个文件守一个模块，改一个页面时能直接找到它的护栏。
+  it('分类管理那一页的用例_should在 test/adminCategories.nuxt.spec.ts 里守着', async () => {
+    // 这条留在这里只做一件事：告诉顺着 git blame 找到这个文件的人"用例搬去哪了"。
+    // 【为什么菜单文字也一起改了】分类页从"只读展示"变成了"能增删改"，
+    // 菜单名跟着从「分类」改成「分类管理」，与「标签管理」对称。
     const wrapper = await mountSuspended(AdminPage)
     await flushPromises()
 
-    await wrapper.findAll('.side-nav a').find(a => a.text() === '分类').trigger('click')
-    await flushPromises()
-
-    expect(wrapper.find('.panel-note').text()).toContain('只读')
-    expect(wrapper.findAll('.panel .el-table__row').length).toBe(1)
-    expect(wrapper.text()).toContain('技术笔记')
-    // 【不许出现假的保存入口】后端确实有分类的写接口，但这一批任务不做分类的增删改，
-    // 所以这里连按钮都不该有 —— 摆一个点了没反应的按钮比没有更糟
-    const labels = wrapper.findAll('.panel .el-button').map(b => b.text())
-    expect(labels.filter(t => ['新建', '编辑', '删除', '保存'].some(k => t.includes(k)))).toEqual([])
-  })
-
-  it('从标签管理切到分类_should不需要重新请求分类（两个页面共用同一份分类列表）', async () => {
-    const wrapper = await mountSuspended(AdminPage)
-    await flushPromises()
-    const before = fetchMock.mock.calls.filter(c => pathOf(c[0]) === '/category/list').length
-
-    await gotoTags(wrapper)
-    await wrapper.findAll('.side-nav a').find(a => a.text() === '分类').trigger('click')
-    await flushPromises()
-
-    // 分类列表在进后台时就拉好了，而且文章弹窗的下拉框也用同一份 ——
-    // 两处各拉一份迟早会有一处是旧的
-    expect(fetchMock.mock.calls.filter(c => pathOf(c[0]) === '/category/list').length).toBe(before)
-    expect(wrapper.findAll('.panel .el-table__row').length).toBe(1)
+    expect(wrapper.findAll('.side-nav a').map(a => a.text())).toContain('分类管理')
+    expect(wrapper.findAll('.side-nav a').map(a => a.text())).not.toContain('分类')
   })
 })
