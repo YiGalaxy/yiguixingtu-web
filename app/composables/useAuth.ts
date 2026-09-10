@@ -96,6 +96,17 @@ export const useAuth = () => {
             return { ok: false, rateLimited: true, cooldownLeft: cooldownLeft.value, message: cooldownMessage(cooldownLeft.value) }
         }
 
+        // 【追踪号】登录失败时，提示里带上后端的 X-Trace-Id，用户报给站长就能定位。
+        // 为什么这里要自己记：useAuth 为了少一层封装直接用了 $fetch，
+        // 而 $fetch 正常返回时只给 body（拿不到响应头），所以用 ofetch 的
+        // onResponse / onResponseError 钩子把这次请求的响应头记在闭包里
+        // （useApi 里是同样的写法，两处的理由一样）。
+        let traceId = ''
+        const captureTraceId = (context) => {
+            const id = readTraceId(context?.response?.headers)
+            if (id) traceId = id
+        }
+
         // 关键词：try { ... } 尝试执行；catch { ... } 出错就跳这里兜底。
         // 为什么：发网络请求可能失败（后端没启动、断网）。
         //         包一层 try/catch，失败时页面不崩，而是给友好提示。
@@ -111,6 +122,8 @@ export const useAuth = () => {
                 baseURL: config.public.apiBase,    // 后端地址(8082)
                 method: 'POST',                    // 提交数据
                 body: { username, password },      // 要发送的账号密码
+                onResponse: captureTraceId,        // 正常响应（含业务失败）也能拿到响应头
+                onResponseError: captureTraceId,   // 非 2xx：在 $fetch 抛异常之前被调用
             })
 
             // 关键词：res = 后端返回的结果，一个对象 { code, message, data }。
@@ -132,7 +145,7 @@ export const useAuth = () => {
 
             // 关键词：res.message || '默认文案' = 后端没说原因，就用默认这句话。
             // 为什么：code ≠ 200（如密码错），把后端给的 message 显示给用户。
-            return { ok: false, message: res.message || '用户名或密码错误' }
+            return { ok: false, message: withTraceId(res.message || '用户名或密码错误', traceId) }
 
         } catch (err) {
             // 【被限流（HTTP 429）要和"网络/后端出问题"分开说】
@@ -142,6 +155,10 @@ export const useAuth = () => {
             //   · 其它 → 未知
             // 原来三者统一成「登录失败，请稍后再试」，等于什么都没说；
             // 而"限流"这件事的提示必须具体，因为用户等 10 秒就真的能用。
+            // 追踪号取自钩子里记下的那个，拿不到就再看异常里带的响应头
+            // （断网时两者都没有，提示就原样，不会出现空括号）。
+            const errTrace = traceId || readTraceId(err?.response?.headers)
+
             if (isRateLimited(err)) {
                 startCooldown()
                 // 优先后端 message（它就是「请求过于频繁，请稍后再试」），
@@ -150,12 +167,12 @@ export const useAuth = () => {
                     ok: false,
                     rateLimited: true,
                     cooldownLeft: cooldownLeft.value,
-                    message: pickMessage(readBackendMessage(err), RATE_LIMITED_MESSAGE),
+                    message: withTraceId(pickMessage(readBackendMessage(err), RATE_LIMITED_MESSAGE), errTrace),
                 }
             }
 
             // 为什么：走到这 = 网络/后端出问题了，给个不吓人的提示。
-            return { ok: false, message: '登录失败，请稍后再试' }
+            return { ok: false, message: withTraceId('登录失败，请稍后再试', errTrace) }
         }
     }
 
@@ -163,16 +180,28 @@ export const useAuth = () => {
     // 关键词：data = 一个对象 { username, password, nickname }（注册比登录多个昵称）。
     // 为什么：逻辑和登录一样，只是注册完还没登录、不存 token。
     const register = async (data) => {
+        // 追踪号的处理与 login 完全相同（理由见上面）
+        let traceId = ''
+        const captureTraceId = (context) => {
+            const id = readTraceId(context?.response?.headers)
+            if (id) traceId = id
+        }
+
         try {
             const res = await $fetch('/auth/register', {
                 baseURL: config.public.apiBase,
                 method: 'POST',
                 body: data,                        // 直接把整个数据发给后端
+                onResponse: captureTraceId,
+                onResponseError: captureTraceId,
             })
             if (res.code === 200) return { ok: true }
-            return { ok: false, message: res.message || '注册失败' }
-        } catch {
-            return { ok: false, message: '注册失败，请稍后再试' }
+            return { ok: false, message: withTraceId(res.message || '注册失败', traceId) }
+        } catch (err) {
+            return {
+                ok: false,
+                message: withTraceId('注册失败，请稍后再试', traceId || readTraceId(err?.response?.headers)),
+            }
         }
     }
 

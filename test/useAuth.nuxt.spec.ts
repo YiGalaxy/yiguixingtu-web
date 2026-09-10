@@ -236,6 +236,35 @@ describe('useAuth.login（被限流之后的提示与冷却）', () => {
     expect(tokenRef.value).toBe('new-token')
   })
 
+  it('登录被限流且响应头带追踪号_should 把追踪号一起显示（有号才能查日志）', async () => {
+    // 后端的追踪号由 TraceResponseHeaderFilter 写在自定义响应头 X-Trace-Id 上
+    // （不是 X-B3-TraceId，CORS 里也 addExposedHeader 了，所以浏览器读得到）
+    fetchMock.mockRejectedValue({
+      status: 429,
+      data: { code: 429, message: '请求过于频繁，请稍后再试' },
+      response: { headers: new Headers([[TRACE_ID_HEADER, 'abc123def456']]) },
+    })
+
+    const auth = useAuth()
+    const res = await auth.login('admin', '123456')
+
+    expect(res.message).toContain('请求过于频繁')
+    expect(res.message).toContain('abc123def456')
+    expect(res.message).toContain('追踪号')
+    auth.stopCooldown()
+  })
+
+  it('登录失败但拿不到追踪号_should 不出现"追踪号"三个字（不能拼出空括号）', async () => {
+    // 断网这一类根本没有响应，也就没有响应头 —— 提示必须原样返回
+    fetchMock.mockRejectedValue(new Error('network down'))
+
+    const { login } = useAuth()
+    const res = await login('admin', '123456')
+
+    expect(res.message).toBe('登录失败，请稍后再试')
+    expect(res.message).not.toContain('追踪号')
+  })
+
   it('连点两下时（一次被限流、一次成功）_should 以成功为准，不留下冷却', async () => {
     // 【为什么要写这条】冷却期间上面有守卫拦着，所以"成功"和"冷却中"
     // 正常情况下不会同时出现 —— 除了这个竞态：

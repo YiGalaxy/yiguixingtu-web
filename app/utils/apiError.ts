@@ -103,3 +103,75 @@ export const pickMessage = (candidate, fallback) =>
  * 只能靠反复点击来试探；写上"请 7 秒后再试"，等待就有了预期。
  */
 export const cooldownMessage = (seconds) => `请求过于频繁，请 ${Math.max(1, Math.trunc(seconds))} 秒后再试`
+
+// ============================================================
+// 追踪号（traceId）
+//
+// 【前端为什么要显示它】
+//   后端给每个请求分配一个 traceId，同一次请求的所有日志行都带同一个值，
+//   并且由 TraceResponseHeaderFilter 写进响应头 X-Trace-Id。
+//   用户遇到"操作失败"时只会说"它坏了"，站长拿到追踪号就能在日志里
+//   搜这一个号、看到那次请求的全貌（参数、异常栈、耗时），
+//   而不用靠时间点去猜是哪一条。
+//
+// 【⚠️ 头名字是自定义的 X-Trace-Id，不是 X-B3-TraceId】
+//   后端用的是 Micrometer Tracing + Brave，跨进程传播确实走 B3 那套头
+//   （X-B3-TraceId），但**回给浏览器的**是自定义的 `X-Trace-Id`：
+//   Brave 自带的 TracingFilter 负责写头的 sender 在那个链路里轮不到执行。
+//   CORS 里也配了 addExposedHeader("X-Trace-Id")，否则浏览器读不到它。
+//   写错名字的表现是"永远没有追踪号"，而且不报错 —— 所以这里把名字写成常量。
+//
+// 【为什么只在错误提示里带】成功提示带一串十六进制只会变成噪音。
+// ============================================================
+
+/** 后端回给浏览器的追踪号响应头 */
+export const TRACE_ID_HEADER = 'X-Trace-Id'
+
+/**
+ * 追踪号看起来应该是什么样：一串十六进制（也容忍 - _ .）。
+ * 【为什么要卡形状】这个值会被**直接显示给用户**，
+ * 而且是"响应头里来的外部字符串"。卡一道形状，
+ * 就算哪天头被中间层塞进奇怪的内容，也只会表现为"没有追踪号"，而不是把它印到界面上。
+ */
+const TRACE_ID_PATTERN = /^[A-Za-z0-9._-]{4,64}$/
+
+/**
+ * 从响应头里读追踪号。
+ *
+ * 【为什么要兼容三种形态】调用方拿到的 headers 可能是：
+ *   · Headers 实例（fetch / ofetch 的 response.headers —— 它的 get() 本身不分大小写）
+ *   · 普通对象（测试里手写的假响应、某些中间层的包装）
+ *   · undefined（没有响应：断网、请求被取消）
+ * 只认一种的话，最容易出现的问题不是报错，而是**静默地永远读不到**。
+ *
+ * @returns {string} 读不到或不合法时返回空串（调用方据此决定"不显示追踪号"）
+ */
+export const readTraceId = (headers) => {
+  if (!headers) return ''
+
+  let value = ''
+  if (typeof headers.get === 'function') {
+    value = headers.get(TRACE_ID_HEADER) || ''
+  } else if (typeof headers === 'object') {
+    const lower = TRACE_ID_HEADER.toLowerCase()
+    for (const [key, headerValue] of Object.entries(headers)) {
+      if (key.toLowerCase() === lower && typeof headerValue === 'string') value = headerValue
+    }
+  }
+
+  const trimmed = typeof value === 'string' ? value.trim() : ''
+  return TRACE_ID_PATTERN.test(trimmed) ? trimmed : ''
+}
+
+/**
+ * 把追踪号拼进提示文案。
+ *
+ * 【没有追踪号时必须原样返回】不能拼出「操作失败（追踪号：，报给站长）」这种
+ * 空括号 —— 那比不显示更糟：用户会以为界面坏了，还会照着一句没有内容的话去反馈。
+ * 【为什么连"括号"一起省掉，而不是写「追踪号：无」】同理：
+ * 没有这一项就不提这一项，才不占地方。
+ */
+export const withTraceId = (message, traceId) => {
+  const id = typeof traceId === 'string' ? traceId.trim() : ''
+  return id ? `${message}（追踪号：${id}，报给站长可快速定位）` : message
+}

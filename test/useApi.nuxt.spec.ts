@@ -243,6 +243,10 @@ describe('useApi', () => {
 
     expect(res.ok).toBe(false)
     expect(errorSpy).toHaveBeenCalledWith('操作失败')
+    // 【返回值里【不能】塞这个兜底文案】调用方自己会兜底得更具体：
+    // useUpload 写的是 `res.message || '封面上传失败'`，我们要是回一句"操作失败"，
+    // 用户看到的提示反而变笼统了（这条契约由 useUpload 的用例一起守着）
+    expect(res.message).toBeUndefined()
   })
 
   // ---------------------------------------------------------------
@@ -315,7 +319,10 @@ describe('useApi', () => {
 
     expect(res.ok).toBe(false)
     expect(res.code).toBe(-1)
-    expect(res.message).toBe('网络异常')
+    // 现在返回的 message 与弹出的提示是同一句话（都经 withTraceId 拼装）：
+    // 页面里偶尔会把 res.message 再显示一次（比如封面上传失败），
+    // 两处不一致的话用户会看到两个说法
+    expect(res.message).toBe('网络异常，请稍后再试')
     expect(errorSpy).toHaveBeenCalledWith('网络异常，请稍后再试')
     // 网络异常与登录无关，不能顺手把 token 清了
     tokenRef.value = null
@@ -413,6 +420,121 @@ describe('useApi', () => {
     expect(limited.message).not.toBe(duplicate.message)
     expect(limited.rateLimited).toBe(true)
     expect(duplicate.duplicateSubmit).toBe(true)
+  })
+
+  // ---------------------------------------------------------------
+  // 追踪号（X-Trace-Id）
+  //
+  // 【为什么值得测】后端每个请求都有一个 traceId（同一次请求的所有日志行
+  // 都带同一个值），由 TraceResponseHeaderFilter 写进响应头 X-Trace-Id，
+  // CORS 里也 addExposedHeader 了，所以浏览器读得到。
+  // 把它显示在错误提示里，用户报给站长就能"搜一个号看到这次请求的全貌"。
+  // 两个最容易写错的地方：头名字（是自定义的 X-Trace-Id，不是 X-B3-TraceId）、
+  // 以及"没有这个头时拼出空括号"。
+  // ---------------------------------------------------------------
+
+  /** 造一个带追踪号的响应头（后端真实形状：一串十六进制） */
+  const traceHeaders = (id) => new Headers([[TRACE_ID_HEADER, id]])
+
+  /**
+   * 【怎么模拟 ofetch 的真实行为】
+   *   ofetch 在拿到响应后（无论是 2xx 还是非 2xx）都会调用 options 里的
+   *   onResponse / onResponseError 钩子，并把带 response 的 context 传进去
+   *   （源码里两个钩子各自在 return / throw 之前被调用）。
+   *   这里就照着这个契约把钩子调一次 —— 断言的正是"钩子给了响应头之后，
+   *   提示里有没有追踪号"。
+   */
+  const respondWithTrace = (body, id) => {
+    fetchMock.mockImplementation(async (url, options) => {
+      options.onResponse?.({ response: { headers: traceHeaders(id) } })
+      return body
+    })
+  }
+
+  it('业务失败（HTTP 200 + code≠200）时_should 带上响应头里的追踪号', async () => {
+    respondWithTrace({ code: 400, message: '账号已存在' }, 'abc123def456')
+
+    const { request } = useApi()
+    const res = await request('/auth/register', { method: 'POST' })
+
+    expect(res.traceId).toBe('abc123def456')
+    expect(res.message).toContain('abc123def456')
+    expect(res.message).toContain('追踪号')
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('abc123def456'))
+    // 后端原文不能被追踪号顶掉：用户首先要看懂发生了什么
+    expect(res.message).toContain('账号已存在')
+  })
+
+  it('HTTP 429 时_should 把追踪号一起显示（限流最需要号：服务端有日志可查）', async () => {
+    fetchMock.mockRejectedValue({
+      status: 429,
+      data: { code: 429, message: '请求过于频繁，请稍后再试' },
+      response: { headers: traceHeaders('deadbeef0001') },
+    })
+
+    const { request } = useApi()
+    const res = await request('/auth/login', { method: 'POST' })
+
+    expect(res.traceId).toBe('deadbeef0001')
+    expect(res.message).toContain('deadbeef0001')
+    expect(res.message).toContain('请求过于频繁')
+  })
+
+  it('HTTP 500 时_should 也带上追踪号（这条最需要报给站长）', async () => {
+    fetchMock.mockRejectedValue({
+      status: 500,
+      response: { headers: traceHeaders('cafe00001111') },
+    })
+
+    const { request } = useApi()
+    const res = await request('/article/page')
+
+    expect(res.message).toContain('cafe00001111')
+  })
+
+  it('响应头里没有追踪号时_should 不出现"追踪号"三个字，更不能拼出空括号', async () => {
+    fetchMock.mockResolvedValue({ code: 500, message: '服务器开小差了' })
+
+    const { request } = useApi()
+    const res = await request('/something')
+
+    expect(res.traceId).toBe('')
+    expect(res.message).toBe('服务器开小差了')
+    expect(res.message).not.toContain('追踪号')
+    // 空括号比不显示更糟：用户会以为界面坏了，还会照着一句空话去反馈
+    expect(res.message).not.toContain('（）')
+    expect(errorSpy).toHaveBeenCalledWith('服务器开小差了')
+  })
+
+  it('请求成功时_should 不弹任何提示（追踪号只在错误提示里出现，不当噪音）', async () => {
+    respondWithTrace({ code: 200, data: { total: 1 } }, 'abc123def456')
+
+    const { request } = useApi()
+    const res = await request('/article/page')
+
+    expect(res.ok).toBe(true)
+    expect(errorSpy).not.toHaveBeenCalled()
+  })
+
+  it('readTraceId_should兼容 Headers 实例与普通对象，并拒绝不像追踪号的值', () => {
+    // Headers 实例（fetch / ofetch 的真实形态）
+    expect(readTraceId(traceHeaders('abc123'))).toBe('abc123')
+    // 普通对象：大小写不该影响结果（HTTP 头本来就不分大小写）
+    expect(readTraceId({ 'x-trace-id': 'abc123' })).toBe('abc123')
+    expect(readTraceId({ 'X-Trace-Id': 'abc123' })).toBe('abc123')
+    // 没有响应头 / 空值
+    expect(readTraceId(undefined)).toBe('')
+    expect(readTraceId(new Headers())).toBe('')
+    expect(readTraceId({ 'X-Trace-Id': '   ' })).toBe('')
+    // 不像追踪号的东西一律不显示给用户（这个值会被印在界面上）
+    expect(readTraceId({ 'X-Trace-Id': '有 空格 和中文' })).toBe('')
+    expect(readTraceId({ 'X-Trace-Id': 'x'.repeat(200) })).toBe('')
+  })
+
+  it('withTraceId_should在没有追踪号时原样返回（括号连同内容一起省掉）', () => {
+    expect(withTraceId('操作失败', 'abc123')).toBe('操作失败（追踪号：abc123，报给站长可快速定位）')
+    expect(withTraceId('操作失败', '')).toBe('操作失败')
+    expect(withTraceId('操作失败', undefined)).toBe('操作失败')
   })
 
   // ---------------------------------------------------------------
