@@ -4,7 +4,71 @@ export default defineNuxtConfig({
   devtools: { enabled: true },
   // @nuxt/eslint 会生成 .nuxt/eslint.config.mjs（Nuxt 官方的扁平配置），
   // eslint.config.mjs 再基于它做少量覆盖
-  modules: ['@nuxt/eslint'],
+  //
+  // @element-plus/nuxt 是 Element Plus 官方的 Nuxt 模块，负责【按需引入】，
+  // 它内部做的事和"手工配 unplugin-vue-components + unplugin-auto-import"是同一套，
+  // 只是把三件事一起打包好了（见下方 elementPlus 那一块的长注释）。
+  modules: ['@nuxt/eslint', '@element-plus/nuxt'],
+
+  /**
+   * 【Element Plus 的按需引入配置】
+   *
+   * 改之前：app/plugins/element-plus.ts 里 `app.use(ElementPlus)` 全量注册，
+   * 再 import 一份 element-plus/dist/index.css（整包 CSS）。
+   * 于是 90 多个组件里我们只用了十来种，剩下的全被打进产物。
+   *
+   * 现在：交给我们自己写插件改成交给 @element-plus/nuxt（模块的 configKey 就是
+   * `elementPlus`，所以下面这个对象就是它的配置）。它做三件事：
+   *   ① 把每个 Element Plus 组件注册成 Nuxt 的"全局组件"，但每个组件单独一个文件路径
+   *      （element-plus/es/components/button/index.mjs 这种），
+   *      所以模板里没出现过的组件根本不会进产物；
+   *   ② 扫描编译后的代码里所有 `_resolveComponent("el-xxx")` 与
+   *      `ElMessage` / `ElMessageBox` / `ElNotification` / `ElLoading` 这四个标识符，
+   *      给命中它们的文件自动补一行组件样式的副作用导入；
+   *   ③ 提供一个插件注入 Element Plus 的 ID / Z-Index 注入键
+   *      （不注入的话 SSR 时会刷一堆 ZIndexInjection / IdInjection 警告）。
+   */
+  elementPlus: {
+    /**
+     * 【importStyle: 'css' 在选什么】组件样式的形态。三个取值：
+     *   · 'css'  ——（选这个）每个组件引它编译好的 .css，浏览器直接吃，
+     *               不需要 Sass 编译器，构建也更快
+     *   · 'scss' —— 引组件的 .scss 源码，好处是能用 themeChalk 覆盖主题变量
+     *               （改主色之类），代价是构建要多跑一遍 Sass
+     *   · false  —— 一条样式都不引，样式得自己全量引或者自己写
+     * 我们只想要"用到的组件带自己的样式"，不需要改 Element Plus 的主题变量
+     * （`.panel` 里那套暗色适配走的是 CSS 变量覆盖，跟这里无关），
+     * 所以选 'css'：少一层编译，产物是浏览器能直接解析的 CSS。
+     */
+    importStyle: 'css',
+
+    /**
+     * 【icon: false —— 关掉"把整套图标都注册成全局组件"这件事】
+     *
+     * 这个模块默认会把 @element-plus/icons-vue 里 **293 个图标**全部注册成
+     * 全局组件（名字形如 `ElIconPlus`，好让你在模板里直接写 `<el-icon-plus />`）。
+     *
+     * 我们一个都没用（全站搜不到 el-icon / ElIcon 的用法；Element Plus 组件内部
+     * 自己要用的箭头、叉号是那些组件各自 import 的，跟这个开关无关），
+     * 所以这 293 个注册纯属白搭。实测差别在 Nuxt 生成的组件清单上：
+     * `.nuxt/components.d.ts` 从 **104 423 字节降到 6 157 字节**
+     * （里面再也搜不到 `ElIconXxx` 这类条目）。
+     *
+     * 【⚠️ 说清楚它没能解决什么，免得后人以为它能治那个问题】
+     * 单测里"把 Nuxt 环境搭起来"那一步从 2.9 秒涨到 11 秒，**不是**这 293 个图标造成的
+     * —— 实测把它关掉、甚至把 `components` 传成空数组（一个组件都不注册），
+     * 那一步仍然是 11 秒。真正的开销是这个模块在**配置加载期**就
+     * `import * as AllComponents from 'element-plus'`（要把组件枚举出来才能逐个注册），
+     * 而 nuxt.config 是被 jiti 逐文件转换执行的。那个开销躲不掉，
+     * 处理办法见 vitest.config.ts 里的 `hookTimeout`。
+     *
+     * 【为什么敢关】这不是"少一个功能"，而是"少一套自动注册"：
+     * 哪天真要用图标，`import { Plus } from '@element-plus/icons-vue'` 之后
+     * 写 `<el-icon><Plus /></el-icon>` 照样能用（显式导入永远合法），
+     * 或者把这一行删掉即可 —— 它只是一行配置，不是一个要重写的地方。
+     */
+    icon: false,
+  },
 
   runtimeConfig: {
     /**

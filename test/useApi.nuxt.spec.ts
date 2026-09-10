@@ -70,15 +70,20 @@ mockNuxtImport('useCookie', () => () => tokenRef)
 //
 // 【⚠️ 必须保留原模块，不能整个替换掉 —— 第三个坑】
 // 第一版写的是 `vi.mock('element-plus', () => ({ ElMessage: {...} }))`，
-// 只给了 ElMessage，等于把 default export 也一并抹掉了。
-// 而项目里有 app/plugins/element-plus.ts 这个 Nuxt 插件：
-//     import ElementPlus from 'element-plus'
-//     nuxtApp.vueApp.use(ElementPlus)
-// 插件在 Nuxt 应用初始化时就会执行，ElementPlus 成了 undefined →
+// 只给了 ElMessage，等于把别的导出（包括 default export）也一并抹掉了。
+// 当时的后果是：项目里那个 `app.use(ElementPlus)` 的插件拿到 undefined，
 // vueApp.use(undefined) 抛错 → 测试依旧"全绿"，但 stderr 里多出一行
 //     [NUXT_E1005]   （含义：Error caught during app initialization）
-// 这种"测试通过、初始化其实报错"最容易被忽略，所以用 importOriginal
-// 拿到真实模块，只覆盖需要监视的那一个方法。
+// 这种"测试通过、初始化其实报错"最容易被忽略。
+//
+// 【w7.3 之后那个插件没了，但这条纪律没变】Element Plus 改成按需引入
+// （@element-plus/nuxt，见 nuxt.config.ts），App 里不再 `app.use(ElementPlus)`。
+// 可"别把整个模块替换掉"仍然成立，而且理由更直接：
+//   · app 代码是**显式** import 的（app.vue / index.vue / admin.vue / useApi.ts
+//     都写着 `import { ElMessage } from 'element-plus'`），少给一个导出，
+//     对应文件拿到 undefined，报的是 TypeError 而不是断言失败；
+//   · admin.vue 还显式用着 ElMessageBox，只 mock ElMessage 会让它直接炸。
+// 所以照旧用 importOriginal 拿真实模块，只覆盖需要监视的那一个方法。
 const { errorSpy } = vi.hoisted(() => ({ errorSpy: vi.fn() }))
 vi.mock('element-plus', async (importOriginal) => {
   const actual = await importOriginal()

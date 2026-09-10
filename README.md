@@ -11,7 +11,7 @@
 > 基于 Nuxt 4 + Vue 3 + Element Plus 的个人博客前端
 > 后端为独立仓库 `yiguixingtu`（Spring Boot 4，默认跑在 `localhost:8082`）
 >
-> **466 个测试用例 + ESLint + 生产构建，全部在 CI 里自动跑**（见下文「持续集成」）
+> **470 个测试用例 + ESLint + 生产构建，全部在 CI 里自动跑**（见下文「持续集成」）
 
 ## 项目简介
 
@@ -44,7 +44,7 @@
 | 框架 | Nuxt 4（`^4.5.2`） |
 | 视图 | Vue 3（`^3.5.42`） |
 | 路由 | vue-router 5 |
-| UI 组件库 | Element Plus 2.14 |
+| UI 组件库 | Element Plus 2.14（**按需引入**：`@element-plus/nuxt`，只把用到的组件与其样式打进产物） |
 | Markdown 编辑器 | md-editor-v3 |
 | 语言 | TypeScript |
 | 包管理 | npm |
@@ -80,8 +80,11 @@ yiguixingtu-web
 │   │   └── apiError.ts              # 两种 429（限流 / 重复提交）的判断与文案、追踪号 X-Trace-Id、重试状态码白名单
 │   ├── middleware
 │   │   └── admin.ts                 # 后台路由守卫（未登录 → 弹登录框 + 回首页）
-│   └── plugins
-│       └── element-plus.ts          # Element Plus 注册
+│   └── plugins                      # 【现在没有插件了】
+│                                    # 原来这里有一个 element-plus.ts（app.use(ElementPlus)
+│                                    # 全量注册 + 整包 CSS），w7.3 之后改由
+│                                    # @element-plus/nuxt 模块按需引入，见下文「Element Plus
+│                                    # 为什么要按需引入」
 ├── server
 │   ├── routes/media/[...file].get.ts # 仅开发环境生效：把 /media/** 指向 static-media/
 │   ├── routes/sitemap.xml.get.ts     # GET /sitemap.xml：运行时生成（分页取全部已发布文章）
@@ -204,7 +207,7 @@ npm run lint:fix     # 自动修掉能修的部分
 | 步骤 | 命令 | 为什么单独一步 |
 |------|------|---------------|
 | 代码检查 | `npm run lint` | 串成一条命令的话，Actions 页面只会显示一句 exit 1，看不出是哪一步挂的 |
-| 运行测试 | `npm run test` | 466 个用例；**不需要后端与数据库**，CI 里不用起任何服务 |
+| 运行测试 | `npm run test` | 470 个用例；**不需要后端与数据库**，CI 里不用起任何服务 |
 | 生产构建 | `npm run build` | 保证"测试过了但build 不过"这种情况不会漏到线上 |
 
 用 `npm ci` 而不是 `npm install`：它严格按 `package-lock.json` 安装，
@@ -281,6 +284,7 @@ docker run -d --name yiguixingtu-web \
 | 8 | `curl -s https://你的域名/sitemap.xml` 返回 `200 + application/xml`，且**文章条数对得上**（不是只有首页那一条 —— 只有首页通常意味着后端地址配错、取数降级了） |
 | 9 | `curl -s https://你的域名/archive` 能看到按年月分好组的文章（**在 HTML 里**，不是靠 JS 补的），导航里也能点到「归档」 |
 | 10 | `curl -s https://你的域名/feed.xml` 返回 `200 + application/rss+xml`，里面有**真实文章的标题与链接**（只有站点信息、没有 `<item>` 说明后端地址配错、取数降级了）；再用一个 RSS 阅读器实际订阅一次，确认能拉到条目 |
+| 11 | **按需引入的样式真的进了产物**（w7.3 之后新增的一条）：`curl -s https://你的域名/ \| grep -o '<link rel="stylesheet"[^>]*>'` 有输出，且把它指向的那个 `/_nuxt/*.css` 取下来能搜到 `.el-message`（错误提示 / 二次确认框全靠它）；后台表格的样式在 `/_nuxt/admin.*.css` 或后台页内联的 `<style>` 里，能搜到 `.el-table`、`.el-dialog`、`.el-input`。**同时反向确认**：`grep -c el-carousel` 应该是 `0`（不是 0 说明按需引入被改回了全量，体积白降）。这一条之所以必须人工看：样式丢了不会报错、不会让任何用例变红，只会让线上所有提示框变成没有样式的裸文本 |
 
 
 **测试环境**：Vitest 5 + `@nuxt/test-utils` 4，跑在 **nuxt 环境**而不是裸的 jsdom。
@@ -290,7 +294,7 @@ docker run -d --name yiguixingtu-web \
 > 这些在裸 node / jsdom 里根本不存在。用 nuxt 环境测的是"代码在 Nuxt 里的真实行为"，
 > 而不是把所有依赖都 mock 掉自己骗自己。
 
-**当前 25 个测试文件、466 个用例：**
+**当前 26 个测试文件、470 个用例：**
 
 | 测试文件 | 用例数 | 覆盖 |
 |---------|:---:|------|
@@ -318,6 +322,7 @@ docker run -d --name yiguixingtu-web \
 | `test/seo.nuxt.spec.ts` | 21 | 全站 SEO 元信息。**纯函数层**（16 条）：首页/文章页/后台页三种页面的 title、description、canonical、四条 og 的拼装；**没有封面时整条 `og:image` 都不出现**（不是空值）、有封面时把 `/uploads/x.png` 拼成绝对地址、封面本来就是绝对地址时原样保留；标题/描述为空时回落站点默认值（不能出现空 `title`）；站点地址的归一化（去掉尾斜杠、空值/`www.x.com` 这种缺协议的值一律回落到默认域名，否则会产出被搜索引擎忽略的相对 canonical）；后台页带 `noindex, nofollow`、普通页面不带；每页都带 `lang="zh-CN"`；两条 link（canonical + **RSS 自动发现**）逐条断言，且**文章页也有**自动发现（订阅器是拿用户当前打开的地址去发现订阅源的）。**组件层**（5 条）：首页挂载后 head 里**真的有** title / description / canonical / og / RSS 自动发现 link（读 `document.head`）、带筛选参数的地址 canonical 仍指向干净的 `/`、**首屏渲染就已经带着文章列表**（改成 SSR 的核心诉求）；详情页的 `og:type=article`、标题跟着文章走、封面拼成绝对地址、canonical 指向文章自己；后台页带 noindex |
 | `test/feed.nuxt.spec.ts` | 28 | `/feed.xml`（RSS 2.0）的纯函数。**转义**：标题/摘要里的 `&` `<` `>` `"` `'` 全部转义、`&` 必须最先替换（不出现 `&amp;lt;` 这种双重转义）、标题里带 `<script>` 时整份 feed 仍然良构且不出现可执行标签；**结构**：XML 声明 + `<rss version="2.0" xmlns:atom>` + channel 的站点信息 + `rel="self"`、`lastBuildDate` 取最新那篇的时间（不是 `now()`，否则每次抓取都变）；**条目顺序与数量完全照搬后端**（不排、不截断）、每条有 title/link/guid/pubDate/description、`guid` 与 `link` 同值且 `isPermaLink="true"`、没有 id 的文章丢掉（不拼 `/article/undefined`）；**pubDate 是 RFC 822**（`Thu, 10 Sep 2026 05:03:19 +0800`）：星期与日期对得上（四个日期逐个核对星期）、只有日期时补 `00:00:00`、**不存在的日期**（2 月 30 日 / 13 月 / 25 点）当成拿不到而不是让它滚到下一天、拿不到就整条不写（绝不用"当前时间"兜底）；**description 放摘要而不是 Markdown 源码**（断言 `#` 与 `**` 不出现在 XML 里 —— 这是那条取舍的护栏）、summary 为空时整条不写、没有标题时用"文章 {id}"兜底；**降级**：空列表仍是一份合法 feed（站点信息齐全、没有 `<item>`、没有 `lastBuildDate`、body 不为空）、列表不是数组/混进 null 兜成空数组、站点地址非法时回落默认域名；**三处同源**：换一个站点地址后 canonical / sitemap / feed 一起变、页面上的自动发现地址与 feed 的 `rel="self"` 是同一个；最后一组是**良构检查器自身的对照组**（喂未转义的 `&`、裸 `<`、标签不配对，断言检查器真的会报错 —— 否则一个永远返回 null 的检查器会让"XML 合法"永远为真） |
 | `test/sitemap.nuxt.spec.ts` | 38 | `sitemap.xml` 与 `robots.txt` 的纯函数。**XML 转义**：五个特殊字符都要转义、`&` 必须最先替换（否则双重转义）、标题里的 `&`/`<` 不会让 sitemap 非法、`loc` 里的 `&`/`'` 会被转义；**分页取全部文章**：total=0 只请求一次、**恰好 50 条只请求一次**、51 条翻两页（最后一页不满）、120 条翻三页；`total` 明显不对时靠"空页"停下、后端永远返回满页时在**页数上限**停下（防死循环）并标记 `truncated`；**降级**：接口失败/抛异常/返回结构不对都不抛异常，保留已取到的部分、返回的仍是**合法且含首页**的 XML；按 id 去重、没有 id 的记录丢掉（不拼 `/article/undefined`）；`lastmod` 只用日期、拿不到就整条不写；**归档页也在静态页里**（它是导航里点得到的独立入口，漏掉不会有任何报错，只是爬虫得先发现链接）；robots.txt 的 `Disallow: /admin` 与绝对地址 `Sitemap:`、站点地址归一化与 canonical 同源 |
+| `test/elementPlusOnDemand.nuxt.spec.ts` | 4 | Element Plus **按需引入的护栏**（w7.3）。这一批改动有个讨厌的特点：**坏掉时不报错** —— 组件没注册，页面照样能跑，只是那个按钮变成一个没样式的空标签；样式没被注入，组件测试断言的一直是文字与 DOM、从不读 CSS，照样全绿；有人把全量引入改回去，功能和样式立刻全对，只有产物体积悄悄长回去。所以守三件事：① **DOM 侧**：后台页渲染出的 `.el-table` / `.el-table__header-wrapper` / `.el-pagination__total` / `.el-input__wrapper` / `.el-button` 确实存在，并配一条**反向断言**（DOM 里不许出现裸的 `<el-table>` 标签 —— 组件没注册时 Vue 不报错，而是把它当未知元素原样渲染）；② **体积侧**：`app/**` 里不许再出现 `element-plus/dist/index.css` 或 `app.use(ElementPlus)`，且那个全量注册的插件文件本身必须不存在（留着它迟早被谁"顺手"接回去）；③ **样式侧**：不许从 `element-plus` **显式 import 某个组件**（`import { ElTable } from 'element-plus'`）—— 详见下文「为什么显式 import 一个组件会把它的样式弄丢」，这一条还配了一个**对照组**：拿假源码喂同一个扫描器，证明它真的抓得住 `ElButton`、抓得住别名 `ElButton as Btn`，同时不会误报 `ElMessage` / `import type` / 别的库 |
 
 **为什么先测这几个**：
 - `useApi` 是全部请求的唯一出口，页面自己不做错误处理，全靠它返回的 `ok` / `code`。
@@ -396,6 +401,11 @@ docker run -d --name yiguixingtu-web \
   "不翻页"和"翻页"的结果一模一样**，等文章多起来才会发现第 51 篇之后再没被收录。
   降级那几条守的是"接口挂了也不能 500、不能空 body"——
   爬虫收到 500 反复重试、收到空 body 当非法，比"少收录几篇"严重得多。
+- `elementPlusOnDemand.nuxt.spec.ts` 守的是**"这堆改动坏掉时不会有人发现"这件事**：
+  按需引入的三条失败路径（组件没注册 / 样式没被注入 / 有人把它改回全量引入）
+  **一条都不报错**，而且**组件测试天生看不见**（它断言的是文字与 DOM，从来不读 CSS）。
+  所以这里从 DOM、源码、写法三个方向把它钉住，其中两条都配了对照组 ——
+  这个项目上过一次当：一条"从来没有被触发过"的断言，会让"一切正常"永远为真。
 - 追踪号那几条守的是**"提示里到底有没有那串号"**：头名字写错（比如写成
   `X-B3-TraceId`）、或者只盯着 catch 分支而漏掉 HTTP 200 的业务失败，
   两种写法都不会报错，只会让用户永远看不到追踪号 ——
@@ -561,6 +571,110 @@ curl -s http://127.0.0.1:3111/ | grep -o '<title>[^<]*</title>'
 摘要、分类、日期、浏览量都能在 `curl` 的输出里看到），分类按钮同理。
 后端**不在跑**时（`NUXT_API_BASE_SERVER` 指向一个死端口），
 上面前四项一个不少，文章区渲染成「还没有发布任何文章」—— 接口失败不影响 meta 与整页渲染。
+
+**Element Plus 为什么要按需引入（`nuxt.config.ts` 的 `elementPlus` 配置块）**
+
+改之前是**全量注册**：`app/plugins/element-plus.ts` 里
+
+```ts
+import ElementPlus from 'element-plus'
+import 'element-plus/dist/index.css'
+export default defineNuxtPlugin((nuxtApp) => { nuxtApp.vueApp.use(ElementPlus) })
+```
+
+两行 import 各自把一整包东西带进产物：115 个组件全注册、340 KB 的 theme-chalk 全量样式
+（里面连 `.el-carousel`、`.el-calendar`、`.el-cascader` 这些我们根本没用的组件样式都在）。
+而我们实际只用得到十来种。
+
+**改前改后（都是我自己在这台机器上 `npm run build` 跑出来的，`FileInfo` 统计
+`.output/public/_nuxt` 下的 `.js` / `.css`，gzip 用 `GZipStream(CompressionLevel.Optimal)` 现算）：**
+
+| `.output/public/_nuxt` | 改前（全量注册） | 改后（按需引入） | 变化 |
+|---|---|---|---|
+| **JS** | 3 025 646 字节 / gzip 1 059 251（131 个文件） | **2 483 252 字节 / gzip 894 879**（132 个文件） | −542 394（**−17.9%**）/ gzip −164 372（−15.5%） |
+| **CSS** | 521 014 字节 / gzip 80 623（5 个文件） | **299 419 字节 / gzip 52 051**（6 个文件） | −221 595（**−42.5%**）/ gzip −28 572（−35.4%） |
+| 其中最大的那个 Element Plus chunk | 904 115 字节 | **578 635 字节** | −325 480（−36.0%） |
+| `npm run build` 汇总行 | `Σ Total size: 12.9 MB (3.63 MB gzip)` | **`Σ Total size: 10.9 MB (2.95 MB gzip)`** | −2.0 MB / gzip −0.68 MB |
+
+> CSS **文件数**从 5 变成 6 不是变糟：样式从"一个全局大文件"变成"每个路由带自己用到的那些"
+> （`admin.*.css` 151 772 + `entry.*.css` 60 488 + …），所以单个页面的 CSS 比以前小得多。
+
+**为什么选官方的 `@element-plus/nuxt`，而不是计划里写的手工 unplugin**
+
+计划（`TECH_ROADMAP.md` §18 的 w7.3）写的是"手工配 `unplugin-vue-components` +
+`unplugin-auto-import` + `ElementPlusResolver`"。我两个都装上真跑了一遍，
+**手工那套会静默丢掉 `ElMessage` / `ElMessageBox` 的样式**，所以最后选了官方模块：
+
+| | 官方模块 `@element-plus/nuxt` | 手工 `unplugin-vue-components` + `unplugin-auto-import` |
+|---|---|---|
+| 模板里的组件（`<el-table>`）样式 | 自动注入 | 自动注入（两边一样） |
+| **显式 `import { ElMessage } from 'element-plus'` 的样式** | **自动注入**（实测 CSS 里 `.el-message` 出现 55 次、`.el-message-box` 44 次） | ⚠️ **不会注入**（实测 `.el-message` **0 次**，`.el-message-box` 那 3 次还是我们自己写的全局样式里提到的） |
+| 依赖 | 1 个 devDependency | 2 个 devDependency |
+| Nuxt 测试环境搭建 | 11 秒（模块在**配置加载期** import 整个 element-plus） | 3.1 秒（与改前的 2.9 秒持平） |
+| 与计划文本 | 不一致（更省事） | 与计划一致 |
+
+- **为什么"手工那套丢样式"是致命的**：本项目有 4 个文件是**显式** import `ElMessage` 的
+  （`app.vue`、`useApi.ts`、`index.vue`、`admin.vue`，另外 `admin.vue` 还用着 `ElMessageBox`）。
+  解析器只会对"模板里用到、但没被 import 的组件"动手，所以这四个文件拿到的**只有 JS 没有 CSS**
+  —— 表现是**所有错误提示与二次确认框都是没有样式的裸文本**。它不会报错、不会让任何一条用例变红，
+  只有真去点一下才知道。
+- **官方模块为什么能顾到这种情况**：它对样式的判断有两条路 ——
+  ① 扫编译产物里的 `_resolveComponent("el-xxx")`；② 扫源码里
+  `ElLoading` / `ElMessage` / `ElMessageBox` / `ElNotification` **这四个标识符**。
+  我们是显式 import 的，正好落在②上，所以样式照样进得来。
+  （这也是 README 里"显式 import 依然合法、别为了自动导入删掉它"那条纪律的来源。）
+- **官方模块的代价，说清楚**：它在**配置加载期**就 `import * as AllComponents from 'element-plus'`
+  （要把组件名枚举出来才能逐个注册），而 `nuxt.config.ts` 是被 jiti 逐文件转换执行的 ——
+  单测里"把 Nuxt 环境搭起来"那一步从 2.9 秒涨到 11 秒。后果不是"慢一点"，
+  而是 25 个测试文件里 **10 个连一条用例都没跑到**就报 `Hook timed out in 10000ms`
+  （看起来像"238 passed / 228 skipped"，其实那 10 个文件一个都没测）。
+  处理办法是把 `vitest.config.ts` 里的 `hookTimeout` 显式提到 60 秒 ——
+  改的是"给环境搭建留的时间"，不是放宽任何断言；实测整套仍然是
+  **26 个文件 / 470 个用例全绿**，总耗时 29.7 秒（与改前同一量级，多出来的搭建时间被并行吸收了）。
+- **顺带关掉了图标的全量注册**：`icon: false`。模块默认会把 `@element-plus/icons-vue` 的
+  **293 个图标**也注册成全局组件，我们一个都不用；实测 `.nuxt/components.d.ts`
+  从 104 423 字节降到 6 157 字节。**但要讲清楚它没能解决什么**：
+  那 11 秒不是它造成的（把组件全关掉也还是 11 秒），别指望它治那个问题。
+
+**⚠️ 一条容易踩、而且完全不报错的坑：显式 import 一个"组件"会让它的样式不被注入**
+
+`ElMessage` 这类"函数式 API"显式 import 是安全的（落在上面那条②上），
+但**组件**不行。用 `@vue/compiler-sfc` 实测同一个模板 `<el-button>` 编译出来的东西：
+
+| 写法 | 编译结果 | 官方模块那条①还抓得到吗 |
+|---|---|---|
+| 不 import，模板里直接写 | `_resolveComponent("el-button")` | ✅ 抓得到，样式会注入 |
+| `import { ElButton } from 'element-plus'` 后再写 | `_createBlock($setup["ElButton"], …)` | ❌ 抓不到，**样式不会注入** |
+
+原因是有这个绑定了之后 Vue 编译器就**不再走运行时解析**，直接引用那个绑定。
+所以以后要用某个组件的 JS 导出时，要么模板里直接写，要么自己补一行
+`import 'element-plus/es/components/button/style/css'`。这条由
+`test/elementPlusOnDemand.nuxt.spec.ts` 的源码扫描守着。
+
+**怎么验证"样式真的在"（按需引入最容易出的事，实测过）**
+
+```bash
+npm run build
+NUXT_API_BASE_SERVER=http://localhost:8082 PORT=3111 node .output/server/index.mjs
+curl -s http://127.0.0.1:3111/ | grep -o '<link rel="stylesheet"[^>]*>'
+curl -s http://127.0.0.1:3111/_nuxt/_plugin-vue_export-helper.Z4w5QPG5.css | grep -o '\.el-message--success{[^}]*}' | head -1
+# 后台页要带一个 token 才过得了路由守卫（中间件只检查 token 存在）
+curl -s -b "token=x" http://127.0.0.1:3111/admin | grep -o '\.el-table__header-wrapper{[^}]*}' | head -1
+```
+
+实测（后端在跑，**没有重启过它**）：
+
+| 检查 | 结果 |
+|---|---|
+| 首页 head | `<link rel="stylesheet" href="/_nuxt/entry.CgWqr3Mj.css" crossorigin>` + `<link rel="stylesheet" href="/_nuxt/_plugin-vue_export-helper.Z4w5QPG5.css" crossorigin>` |
+| 那个组件 CSS 文件里有什么 | `.el-message--success{--el-message-bg-color:var(--el-color-success-light-9);--el-message-border-color:var(--el-color-success-light-8);…}` —— **消息提示的样式真的在** |
+| `/admin`（带 token）SSR 出来的 HTML | `<style>` 块里直接内联着组件样式：`.el-table__header-wrapper{width:100%}`、`.el-pagination{--el-pagination-font-size:14px;…}`，`.el-table` 384 处 / `.el-dialog` 11 处 / `.el-input` 86 处 / `.el-select` 112 处 / `.el-message-box` 44 处 / `.el-upload` 157 处 / `.el-switch` 75 处 |
+| **反向**：没用到的组件样式在不在 | `.el-carousel` / `.el-calendar` / `.el-cascader` / `.el-transfer` / `.el-color-picker` / `.el-tree` / `.el-timeline` / `.el-steps` / `.el-splitter` / `.el-watermark` —— **全部 0 处**（改前它们在 23~98 处之间），说明这不是"换了个文件放"，是真的按需 |
+| 没用到的组件代码 | 产物里搜 `ElCarousel` / `ElCascader` / `ElTransfer` / `ElColorPicker` / `ElTimeline` / `ElCalendar` 全部 0 次 |
+
+> 为什么不写成单测：Vitest 默认把 CSS 当空模块，组件测试**读不到任何样式** ——
+> 这正是"按需引入把样式弄丢"能瞒过整个测试套件的原因。
+> 所以样式这件事只有"构建 + curl"能证明，上面这几条同时写进了「上线前的检查」。
 
 **应用外壳（`app.vue`）**
 
@@ -1493,8 +1607,8 @@ location /media/ {
 
 **工程**
 
-- **端到端（Playwright）测试还没有**：目前是组合式函数单测 + 九个页面组件测试
-  （首页、首页内容真实性、**归档页**、文章详情页的标签、文章详情页的评论区、后台概览、后台文章弹窗的标签、后台标签管理、**后台分类管理**、后台评论审核；组件测试覆盖了"页面把逻辑接上去了没有"，
+- **端到端（Playwright）测试还没有**：目前是组合式函数单测 + 十一个"挂载整个页面/外壳"的组件测试
+  （首页、首页内容真实性、**归档页**、文章详情页的标签、文章详情页的评论区、后台概览、后台文章弹窗的标签、后台标签管理、**后台分类管理**、后台评论审核、**Element Plus 按需引入的护栏**；组件测试覆盖了"页面把逻辑接上去了没有"，
   但跨页面跳转、真实后端联调还测不到）
 - **`static-media/` 里的两个大文件仍然存在 git 仓库里**（约 13.7 MB，留在仓库里
   是为了"clone 下来就能复现同一份素材"）。如果以后素材变多、仓库变大，
@@ -1518,12 +1632,23 @@ location /media/ {
   另外仍然**没有**用 `GET /admin/category/list`：后端写明了它和公开的 `GET /category/list`
   是同一份带缓存的列表（写操作推进缓存版本号，读到的就是最新的），
   所以后台复用了已有的 `categories`，没有第二个 ref（联调实测过：新建完立刻查公开接口就能看到）
-- Element Plus 是全量引入（`app/plugins/element-plus.ts`），没有按需加载
-- 用了 Element Plus 的 `el-dialog` 但**没有注入 z-index / id provider**，
-  服务端渲染时控制台会刷一大堆 `ZIndexInjection` / `IdInjection` 警告
-  （不影响功能，但把真正的报错淹掉了，该修）——
-  和下面那条已修的 `el-link` 警告是同一类问题，修法也一样：找出新 API 换掉，
-  再用断言把旧写法钉死
+- ✅ 曾经的「Element Plus 全量引入」已经修好了（w7.3）：`app/plugins/element-plus.ts`
+  （`app.use(ElementPlus)` + 整包 `dist/index.css`）已经删掉，改由官方模块
+  `@element-plus/nuxt` 按需引入。实测 JS 3 025 646 → **2 483 252** 字节、
+  CSS 521 014 → **299 419** 字节（详见上文「Element Plus 为什么要按需引入」）。
+  它由 `test/elementPlusOnDemand.nuxt.spec.ts` 的 4 条用例与人肉的上线核对清单一起守着 ——
+  这条改动坏掉时**不报错**（组件没注册页面照样跑、样式丢了用例照样绿）
+- 用了 Element Plus 的 `el-dialog`，此前**没有注入 z-index / id provider**，
+  服务端渲染时控制台会刷 `ZIndexInjection` / `IdInjection` 警告
+  （不影响功能，但把真正的报错淹掉了）。
+  **w7.3 之后这一条的前提变了**：官方的 `@element-plus/nuxt` 自带一个注入插件
+  （模块源码里的 `resolveInjection`，默认 `{ prefix: 1024, current: 0 }` 与 `{ current: 0 }`），
+  按设计这两个键现在是有 provider 的。
+  ⚠️ 但**本轮没有造出能复现那段警告的场景**：改前 / 改后各挂载一次后台页
+  与标签弹窗（`test/admin.nuxt.spec.ts`、`test/adminTags.nuxt.spec.ts`），
+  `ZIndexInjection` / `IdInjection` 的条数都是 **0 / 0** —— 说明它在单测这个环境里
+  本来就复现不出来（那些警告是 SSR 期的，而生产构建里 Vue 的警告全被关掉了）。
+  所以这条暂时记成"**已由模块负责，但未专项复核**"，不要据此认为它一定没了
 
 > ✅ 曾经的「`el-link :underline` 布尔写法触发 `ElementPlusError`」已经修好了：
 > Element Plus 2.14 起 `underline` 的**布尔值**形态废弃，`<el-link :underline="false">`
