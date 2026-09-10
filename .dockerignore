@@ -41,6 +41,14 @@ vitest.config.ts
 eslint.config.mjs
 .github/
 
+# ---------- 大文件（背景视频 / 背景音乐，约 13.7 MiB） ----------
+# 【为什么不给镜像】它们不参与构建（不在 public/ 里），线上由宿主机 Nginx 从
+# /var/www/media/ 直接读磁盘提供，镜像里根本没有它们的用武之地。
+# 不排除的话，每次 docker build 都要先把这十几 MB 发给 Docker 守护进程；
+# 万一哪天有人改 Dockerfile 时覆盖了 .output 的拷贝范围，还会顺手把
+# 十几 MB 静态资源塞进镜像层。见 static-media/README.md。
+static-media/
+
 # ---------- 其它 ----------
 .DS_Store
 .fleet

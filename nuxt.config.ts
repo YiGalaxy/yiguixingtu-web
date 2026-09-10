@@ -25,6 +25,23 @@ export default defineNuxtConfig({
        * 覆盖方式：环境变量 NUXT_PUBLIC_API_BASE
        */
       apiBase: 'http://localhost:8082',
+
+      /**
+       * 【大文件（背景视频 / 背景音乐）的地址前缀】
+       *
+       * 这两个文件不在 public/ 里，也就是不参与构建（见 static-media/README.md）：
+       * 线上由 Nginx 的 `location /media/` 直接从磁盘提供，dev 由 Nitro 的一个
+       * 仅开发环境生效的路由提供（server/routes/media/[...file].get.ts）。
+       * 两边路径都是 /media，所以这里默认值就是它。
+       *
+       * 【为什么要做成可配置的】文件从"服务器本地磁盘"换成对象存储 / CDN 时，
+       * 只需要改这个前缀（NUXT_PUBLIC_MEDIA_BASE=https://cdn.example.com/media），
+       * 代码一行都不用动 —— 因为页面里的地址统一由 app/utils/media.ts 的
+       * mediaUrl() 拼出来，没有第二处硬编码。
+       *
+       * 覆盖方式：环境变量 NUXT_PUBLIC_MEDIA_BASE
+       */
+      mediaBase: '/media',
     },
   },
 })

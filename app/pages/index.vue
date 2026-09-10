@@ -52,11 +52,13 @@ v-for="c in categories" :key="c.id" class="cat"
              后端根本没这个接口）。 -->
       </div>
 
-      <!-- 音乐卡片：播放的是站点自带的那个真实音频文件（public/bg-music.mp3）。
+      <!-- 音乐卡片：播放的是站点自带的那个真实音频文件（static-media/bg-music.mp3）。
            改之前这里是个"假播放列表"：三个曲名（雨落星轨 / 夜航 / 星际漫游）
            与上一首 / 下一首按钮都是写死的，而实际上只有这一个音频文件，
            点下一首只是把 cur 加一、曲名换个字，音乐从头开始放同一段。
-           现在只保留真实存在的东西：一个音轨、一个播放键。 -->
+           现在只保留真实存在的东西：一个音轨、一个播放键。
+           【地址不写死】src 由 mediaUrl() 拼出来：这个文件不在 public/ 里（不进构建产物），
+           线上由 Nginx 的 /media/ 提供、dev 由 Nitro 的开发路由提供，见 app/utils/media.ts。 -->
       <div id="music" class="music glass">
         <div class="mu-badge">BACKGROUND MUSIC</div>
         <div class="mu-main">
@@ -71,7 +73,7 @@ v-for="c in categories" :key="c.id" class="cat"
         <div class="mu-ctl">
           <button class="play" @click="playPause">{{ playing ? '❚❚' : '▶' }}</button>
         </div>
-        <audio ref="audioRef" src="/bg-music.mp3" @timeupdate="onTime" @ended="onEnded"/>
+        <audio ref="audioRef" :src="bgMusicSrc" @timeupdate="onTime" @ended="onEnded"/>
       </div>
     </section>
 
@@ -157,13 +159,18 @@ v-for="(a, i) in articles" :key="a.id" href="#" class="af glass"
 import { ElMessage } from 'element-plus'
 
 // ================================================================
-//  背景音乐（只有一个音源：public/bg-music.mp3）
+//  背景音乐（只有一个音源：static-media/bg-music.mp3）
 //
 //  【为什么不做"播放列表"】改了之前这里有个 tracks 数组与上一首/下一首按钮，
 //  但三首曲名是编的、音频只有一个文件 —— 点下一首只是把下标加一，
 //  曲名换个字，声音从头再放同一段。这种"看起来像功能、其实什么都没做"的东西
 //  比没有更糟，所以只保留真实存在的部分。
+//
+//  【音频地址为什么是算出来的】这个文件不参与构建（不在 public/ 里），
+//  线上被 Nginx 接管、dev 被 Nitro 的开发路由接管，同一个 /media 前缀两边都成立。
+//  在 setup 里算一次就够了：模板里每次渲染都重算没有意义（跟着上面视频同理）。
 // ================================================================
+const bgMusicSrc = mediaUrl(MEDIA_FILES.backgroundMusic)
 const playing = ref(false)
 const prog = ref(0)
 const audioRef = ref()

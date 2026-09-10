@@ -147,7 +147,10 @@ describe('首页 · 内容真实性', () => {
 
     const audio = wrapper.findAll('audio')
     expect(audio.length).toBe(1)
-    expect(audio[0].attributes('src')).toBe('/bg-music.mp3')
+    // 地址是 /media/... 而不是 /bg-music.mp3：这个文件已经不在 public/ 里
+    // （不参与构建），线上由 Nginx、dev 由 Nitro 的开发路由提供，
+    // 前缀由 app/utils/media.ts 的 mediaUrl() 统一拼出来
+    expect(audio[0].attributes('src')).toBe('/media/bg-music.mp3')
   })
 
   it('音乐卡片_should没有上一首/下一首（只有一个音轨，那两个按钮点了也是原地打转）', async () => {

@@ -1,7 +1,10 @@
 <template>
   <div class="shell">
+    <!-- 背景视频：地址由 mediaUrl() 拼出来（前缀可配），页面里不写死 /bg-star.mp4。
+         这个文件不在 public/ 里 —— 线上由 Nginx 的 /media/ 提供、dev 由 Nitro 的
+         开发路由提供，理由见 app/utils/media.ts 与 static-media/README.md。 -->
     <video ref="bgVideo" class="bg-video" autoplay muted loop playsinline preload="auto">
-      <source src="/bg-star.mp4" type="video/mp4" >
+      <source :src="bgVideoSrc" type="video/mp4" >
     </video>
     <div class="bg-overlay"/>
 
@@ -107,6 +110,12 @@ const avatarText = computed(() =>
 
 const bgVideo = ref()
 const musicOn = ref(false)
+
+// 【背景视频的地址】在 setup 里算一次，模板里直接用。
+// 为什么不把 mediaUrl(...) 直接写进模板：模板里调用会在**每次渲染时**重新执行
+// （useRuntimeConfig 也就会被反复读），而它是个常量，没必要参与响应式。
+// 文件名来自 MEDIA_FILES 常量表，前缀来自运行时配置，这里是唯一的拼接点。
+const bgVideoSrc = mediaUrl(MEDIA_FILES.backgroundVideo)
 
 // ---------- 背景视频性能优化 ----------
 // 页面切到后台（切标签页 / 最小化窗口）时暂停视频，避免白白占用 CPU 和显卡

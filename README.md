@@ -11,7 +11,7 @@
 > 基于 Nuxt 4 + Vue 3 + Element Plus 的个人博客前端
 > 后端为独立仓库 `yiguixingtu`（Spring Boot 4，默认跑在 `localhost:8082`）
 >
-> **132 个测试用例 + ESLint + 生产构建，全部在 CI 里自动跑**（见下文「持续集成」）
+> **167 个测试用例 + ESLint + 生产构建，全部在 CI 里自动跑**（见下文「持续集成」）
 
 ## 项目简介
 
@@ -22,7 +22,8 @@
 - **后台**：登录后进入 `/admin`，可管理用户（分页 / 启用禁用 / 改角色 / 重置密码 / 删除）
   与文章（Markdown 编辑器 / 草稿与发布 / 下架 / 删除），概览页显示全站汇总数字
 
-站点采用深色星空视觉，带背景视频与音乐播放器。
+站点采用深色星空视觉，带背景视频与音乐播放器（这两个大文件**不进构建产物**，
+由服务器上的 Nginx 从 `/var/www/media/` 提供，见下文「背景视频与音乐为什么不放在 `public/` 里」）。
 
 ## 技术栈
 
@@ -57,12 +58,18 @@ yiguixingtu-web
 │   │   ├── useAuth.ts               # 登录 / 注册 / 当前用户
 │   │   ├── useAuthUi.ts             # 登录弹窗开关状态
 │   │   └── useReveal.ts             # 滚动入场动画
+│   ├── utils
+│   │   └── media.ts                 # 大文件（视频 / 音乐）的地址约定 mediaUrl()
 │   ├── middleware
 │   │   └── admin.ts                 # 后台路由守卫（未登录 → 弹登录框 + 回首页）
 │   └── plugins
 │       └── element-plus.ts          # Element Plus 注册
-├── public                           # 静态资源（背景视频/音乐、封面图、favicon、robots.txt）
-├── nuxt.config.ts                   # Nuxt 配置（含后端 API 地址）
+├── server
+│   ├── routes/media/[...file].get.ts # 仅开发环境生效：把 /media/** 指向 static-media/
+│   └── utils/mediaFile.ts            # 文件名 → 磁盘路径（穿越防护）+ Range 解析（纯函数）
+├── public                           # 参与构建的小静态资源（封面图、favicon、robots.txt）
+├── static-media                     # 【不参与构建】背景视频 / 音乐，部署时上传到 /var/www/media/
+├── nuxt.config.ts                   # Nuxt 配置（后端 API 地址、媒体前缀）
 └── .env.example                     # 环境变量示例
 ```
 
@@ -94,11 +101,13 @@ cp .env.example .env
 ```properties
 NUXT_PUBLIC_API_BASE=http://localhost:8082
 NUXT_API_BASE_SERVER=http://localhost:8082
+NUXT_PUBLIC_MEDIA_BASE=/media
 ```
 
 > Nuxt 的 `runtimeConfig` 按名字自动读取环境变量
 > （`NUXT_PUBLIC_API_BASE` → `runtimeConfig.public.apiBase`，
-> `NUXT_API_BASE_SERVER` → `runtimeConfig.apiBaseServer`），
+> `NUXT_API_BASE_SERVER` → `runtimeConfig.apiBaseServer`，
+> `NUXT_PUBLIC_MEDIA_BASE` → `runtimeConfig.public.mediaBase`），
 > 所以改地址**不需要动代码**。
 
 #### 为什么是两个地址，不是一个
@@ -172,7 +181,7 @@ npm run lint:fix     # 自动修掉能修的部分
 | 步骤 | 命令 | 为什么单独一步 |
 |------|------|---------------|
 | 代码检查 | `npm run lint` | 串成一条命令的话，Actions 页面只会显示一句 exit 1，看不出是哪一步挂的 |
-| 运行测试 | `npm run test` | 132 个用例；**不需要后端与数据库**，CI 里不用起任何服务 |
+| 运行测试 | `npm run test` | 167 个用例；**不需要后端与数据库**，CI 里不用起任何服务 |
 | 生产构建 | `npm run build` | 保证"测试过了但build 不过"这种情况不会漏到线上 |
 
 用 `npm ci` 而不是 `npm install`：它严格按 `package-lock.json` 安装，
@@ -230,6 +239,11 @@ docker run -d --name yiguixingtu-web \
 **镜像里没有 nginx**：Nuxt 的构建产物 `.output/server/index.mjs` 本身就是
 一个 Node 服务，同时负责渲染页面和提供静态资源，对外统一由宿主机的 Nginx 反代。
 
+**镜像里也没有背景视频与音乐**：这两个大文件在仓库的 `static-media/` 里
+（同时被 `.dockerignore` 排除），部署时单独上传到宿主机 `/var/www/media/`，
+由 Nginx 的 `location /media/` 提供 —— 换一次背景视频不需要重新构建镜像。
+细节见上文「背景视频与音乐为什么不放在 `public/` 里」。
+
 ### 上线前的检查
 
 | # | 检查项 |
@@ -238,6 +252,7 @@ docker run -d --name yiguixingtu-web \
 | 2 | 浏览器打开站点，F12 里没有跨域报错 |
 | 3 | 文章详情页"查看源代码"能看到正文（说明 SSR 生效，对 SEO 很重要） |
 | 4 | 后端地址用的是服务名/内网地址，不是 `localhost`（容器里的 `localhost` 指容器自己） |
+| 5 | **`static-media/` 里的文件已经传到服务器 `/var/www/media/`**，浏览器直接打开 `https://你的域名/media/bg-music.mp3` 能播放（能播就说明 Nginx 的 `location /media/` 生效、且没被 `location /` 抢走） |
 
 
 **测试环境**：Vitest 5 + `@nuxt/test-utils` 4，跑在 **nuxt 环境**而不是裸的 jsdom。
@@ -247,7 +262,7 @@ docker run -d --name yiguixingtu-web \
 > 这些在裸 node / jsdom 里根本不存在。用 nuxt 环境测的是"代码在 Nuxt 里的真实行为"，
 > 而不是把所有依赖都 mock 掉自己骗自己。
 
-**当前 10 个测试文件、132 个用例：**
+**当前 11 个测试文件、167 个用例：**
 
 | 测试文件 | 用例数 | 覆盖 |
 |---------|:---:|------|
@@ -259,7 +274,8 @@ docker run -d --name yiguixingtu-web \
 | `test/index.nuxt.spec.ts` | 15 | 挂载整个首页：分类按钮渲染与高亮、点分类后**请求参数 + 地址栏 + 标题**三处同步、筛选变化回到第 1 页、**带 `?keyword=&categoryId=` 的地址打开等于刷新**（输入框回填、首屏请求就带条件）、输入防抖（299ms 不发请求）、分类接口失败/返回非数组时**不崩只是不显示筛选条**；以及个人卡片的三个数字来自 `GET /article/stats`（列表里两篇浏览量合计只有 8，卡片显示 28 才说明不是当前页求和）、统计接口失败显示「—」而不是 0 |
 | `test/useSiteStats.nuxt.spec.ts` | 17 | 站点统计：请求路径与参数、三个字段的**归一化**（`data` 为 null / 缺字段 / 字符串 / 负数一律收成能显示的数量，不能出现 NaN）、**失败降级**（业务 code≠200 / HTTP 500 / 请求层直接抛异常都不抛给页面，数字保持 0 并立起 failed）、成功后再次失败**保留旧数字**、失败后重试能恢复 |
 | `test/admin.nuxt.spec.ts` | 8 | 挂载整个后台：进入 `/admin` 就**主动**请求统计接口（不用先点「概览」菜单）、概览四张卡片显示真实数字、文章数标明"已发布"口径且不再有写死的「标签 0」、切到概览会再拉一次、在用户管理里筛选**不影响**概览的用户数、统计接口失败/抛异常时显示「—」且页面其余部分照常 |
-| `test/homeContent.nuxt.spec.ts` | 11 | 首页**内容真实性**：正常有数据与"后端什么都没有"两种情况下面页都不出现任何假字符串（访客A / 1 人正在看 / 三个编出来的曲名 / CLOUD MUSIC / RSS / GitHub），假的留言浮窗与在线人数连节点与样式一起删掉、音乐卡片只指向真实存在的 `/bg-music.mp3` 且没有上一首/下一首、`#music` 锚点与播放/暂停/播完切回功能照常、真内容（文章列表、分类、卡片数字、时钟面板）没被误删 |
+| `test/homeContent.nuxt.spec.ts` | 11 | 首页**内容真实性**：正常有数据与"后端什么都没有"两种情况下面页都不出现任何假字符串（访客A / 1 人正在看 / 三个编出来的曲名 / CLOUD MUSIC / RSS / GitHub），假的留言浮窗与在线人数连节点与样式一起删掉、音乐卡片只指向真实存在的 `/media/bg-music.mp3` 且没有上一首/下一首、`#music` 锚点与播放/暂停/播完切回功能照常、真内容（文章列表、分类、卡片数字、时钟面板）没被误删 |
+| `test/media.nuxt.spec.ts` | 35 | 媒体地址与 dev 媒体路由：`mediaUrl()` 要拼出 `/media/xxx`、**可以**被运行时配置覆盖（换 CDN）、空值回到默认前缀、非法文件名（斜杠 / 反斜杠 / `%2e%2e%2f` / 隐藏文件 / 空名字）一律拒绝；`resolveMediaFile()` 的**路径穿越防护**（上跳、子目录、换扩展名、空字节共 12 种变形都拒绝，且解析结果必须落在媒体目录内）；`parseRangeHeader()` 的边界（`bytes=100-`、`bytes=-500`、终点越界截断、起点越界回 416、多区间与畸形头当作没有 Range） |
 
 **为什么先测这几个**：
 - `useApi` 是全部请求的唯一出口，页面自己不做错误处理，全靠它返回的 `ok` / `code`。
@@ -287,6 +303,12 @@ docker run -d --name yiguixingtu-web \
   （"让首页看起来热闹一点"这个诱惑一直都在），所以用断言把
   "页面上不出现这些字符串"钉死；它同时断言真内容还在，
   免得哪天有人为了清理假数据把真功能一起删了。
+- `media.nuxt.spec.ts` 守的是**媒体地址这一条约定**（`/media/<文件名>`）：
+  前端负责拼地址、服务端（dev 路由）负责按地址找文件，两边必须一致。
+  更要紧的是**路径穿越**：`../` 这类输入在正常使用中永远不会出现，
+  也就永远不会被人发现 —— 所以用 12 种变形（斜杠、反斜杠、URL 编码、
+  隐藏文件、换扩展名、空字节）把"必须拒绝"钉死，连同 Range 请求的边界
+  （写错一个字节会让视频偶尔卡一下，肉眼几乎查不出来）。
 
 > 组件测试用 `mountSuspended(组件, { route: '/?keyword=nuxt' })` 造"刷新页面"的场景；
 > 断言地址栏时不能只 `await flushPromises()`——`router.replace()` 还要过一遍导航守卫
@@ -412,7 +434,8 @@ docker run -d --name yiguixingtu-web \
 `open.msg` / `pos.msg` 与对应的 CSS 都清掉了）。留着"只是没启用"的代码，
 下次有人看见就会以为它是个待接的功能。
 
-音乐卡片保留下来，但只保留真实存在的部分：**一个音源**（`public/bg-music.mp3`）、
+音乐卡片保留下来，但只保留真实存在的部分：**一个音源**（`static-media/bg-music.mp3`，
+页面上引用为 `/media/bg-music.mp3`）、
 **一个播放键**、进度条，标题写「背景音乐」而不编一个曲名。
 它也仍然是导航栏「音乐」指向的 `#music` 锚点，所以不能整块删掉。
 （同一张卡片上方那三个统计数字在接口失败时显示「—」而不是 0，见上一节。）
@@ -420,6 +443,68 @@ docker run -d --name yiguixingtu-web \
 首页**公告跑马灯**是唯一保留的写死文案：它是站点自己的宣传语（和页脚、
 个人简介同一类），不是伪装成接口数据的东西，所以在接后端公告模块之前先维持原样。
 这些"删掉的东西不会再回来"由 `test/homeContent.nuxt.spec.ts` 的 11 个用例守着。
+
+### 背景视频与音乐为什么不放在 `public/` 里
+
+`bg-star.mp4`（背景视频）与 `bg-music.mp3`（背景音乐）现在放在仓库根目录的
+**`static-media/`**，**不参与构建**；线上由服务器上的 Nginx 从 `/var/www/media/`
+直接读磁盘提供。前端代码里的地址统一是 `/media/xxx`。
+
+**为什么不留在 `public/`**：Nuxt 会把 `public/` 下的每个文件原样拷进 `.output/public`，
+于是这两条音视频（合计 13.7 MB）被算作"前端产物"：
+
+| | 挪出前 | 挪出后 |
+|---|---|---|
+| `.output/public` | 17.24 MB | **3.51 MB** |
+| `.output`（整体） | 29.28 MB | **15.56 MB** |
+
+体积只是表象，真正的理由有三条：
+
+- **发布节奏被绑架**：改一行 CSS 也要重新构建、重新上传十几 MB，而这两个文件和代码毫无关系
+- **它们本来就不该经过 Node**：视频要支持 Range 请求（拖动进度条），
+  让 Nginx 直接读磁盘比让 Node 进程读文件再转发省事得多，也省掉一次内存拷贝
+- **部署形态不一样**：前端容器是"构建产物"，媒体是"用户上传的数据"——
+  混在一起之后，每次换背景视频都要重新构建镜像
+
+**dev 与 prod 的 URL 必须一致**：地址由 `app/utils/media.ts` 的 `mediaUrl()` 拼一次，
+默认前缀 `/media`，可以用 `NUXT_PUBLIC_MEDIA_BASE` 覆盖（哪天挪到 OSS / CDN 只改配置）。
+页面里**不写死** `/bg-star.mp4` 这样的绝对地址 —— 否则就会出现
+"本地能播（因为 dev 有同路径的兜底）、线上 404"这种最难查的差异。
+
+**本地开发怎么还能播**：Nitro 里有一个**仅开发环境生效**的路由
+（`server/routes/media/[...file].get.ts`）从 `static-media/` 读文件并流式返回，
+所以 `npm run dev` 下 `/media/bg-music.mp3` 一样能取到（`curl -r 0-9` 能拿到
+`ID3` 开头的前 10 字节）。
+
+- **为什么它要显式判断环境**：生产构建之后，这段代码会被编译成"直接 404"
+  （`test` 之外没有任何路径能读到磁盘）。这样万一 Nginx 的 `location /media/`
+  配错、请求被转发进 Node，也只是媒体 404 —— 而不是让应用容器悄悄变成一个
+  可以从磁盘读文件的服务器
+- **安全**：文件名 → 磁盘路径的解析在 `server/utils/mediaFile.ts`（纯函数，有单测）：
+  只接受纯文件名、拒绝 `..` 与隐藏文件、扩展名白名单（`.mp4` / `.mp3`），
+  最后再校验"解析结果必须仍在该目录里"；不合法一律回 404（不告诉对方"你的穿越被识别了"）
+- **Range**：支持 `bytes=start-end` / `bytes=100-` / `bytes=-500`，
+  正常回 206 + `Content-Range`，起点越界回 416
+
+**部署**：`static-media/` 里的文件要**手动（或由脚本）上传到服务器**，
+`git push` 和 `npm run build` 都不会送它们过去：
+
+```bash
+sudo mkdir -p /var/www/media
+sudo cp static-media/bg-star.mp4 static-media/bg-music.mp3 /var/www/media/
+```
+
+Nginx 里加上（**必须放在反代到 Nuxt 的 `location /` 之前**）：
+
+```nginx
+location /media/ {
+    alias /var/www/media/;
+    add_header Cache-Control "public, max-age=604800";
+    access_log off;
+}
+```
+
+细节（含"为什么 `public/` 里剩下的图不要挪过来"）见 `static-media/README.md`。
 
 ## 依赖的后端接口
 
@@ -465,7 +550,8 @@ docker run -d --name yiguixingtu-web \
 > ✅ 曾经的**首页三处硬编码假数据**（访客A / 访客B 两条假留言、「1 人正在看」、
 > 三个编出来的曲名）已经全部删掉了：连面板、按钮、样式和只被它们用到的变量一起清掉，
 > 没有留 `v-if="false"` 那种"藏起来"的写法。音乐卡片改成只播放真实存在的
-> `public/bg-music.mp3`（一个音源、一个播放键、不写曲名）。
+> `static-media/bg-music.mp3`（一个音源、一个播放键、不写曲名；
+> 它不参与构建，线上由 Nginx 的 `/media/` 提供）。
 > 另外 GitHub / 邮箱 / RSS 三个"没有地址的入口"也一并删掉了。
 > 这条现在由 `test/homeContent.nuxt.spec.ts` 的 11 个用例守着 ——
 > 假内容被删掉之后没有任何工具拦着它被重新加回来。
@@ -491,6 +577,12 @@ docker run -d --name yiguixingtu-web \
 - **端到端（Playwright）测试还没有**：目前是组合式函数单测 + 三个页面组件测试
   （首页、首页内容真实性、后台概览；组件测试覆盖了"页面把逻辑接上去了没有"，
   但跨页面跳转、真实后端联调还测不到）
+- **`static-media/` 里的两个大文件仍然存在 git 仓库里**（约 13.7 MB，留在仓库里
+  是为了"clone 下来就能复现同一份素材"）。如果以后素材变多、仓库变大，
+  可以考虑 Git LFS 或干脆只留一份下载说明
+- **媒体文件要手动上传到服务器**：`git push` 与 `npm run build` 都不会把它们送到
+  `/var/www/media/`，目前只有文档（`static-media/README.md` + 上线检查表第 5 条）
+  在提醒这件事，还没有脚本或 CI 步骤去核对
 - **仓库还没有 GitHub 远程地址**，CI 工作流已就位但尚未真正跑过一次
 - `app/pages/admin.vue` 单文件 **1001 行**，用户表格 / 文章表格 / 编辑器弹窗都挤在一个文件里
 - Element Plus 是全量引入（`app/plugins/element-plus.ts`），没有按需加载
