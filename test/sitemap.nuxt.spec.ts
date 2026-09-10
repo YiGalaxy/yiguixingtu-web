@@ -203,6 +203,16 @@ describe('sitemap · 文章记录', () => {
     expect(xml).not.toContain('/admin')
   })
 
+  it('归档页_should也在静态页里（它是导航里点得到的独立入口）', () => {
+    // 【为什么单列一条】归档页的内容同样来自后端，但它不由"文章 id"决定，
+    // 所以走的是 STATIC_PAGES 那一份定义。漏掉它不会有任何报错 ——
+    // 表现只是"爬虫得先发现导航里的那个链接才知道有这一页"，
+    // 而站点地图存在的意义正是"不用等链接被发现"。
+    const xml = buildSitemapXml({ siteUrl: SITE, articles: [] })
+
+    expect(xml).toContain(`<loc>${SITE}/archive</loc>`)
+  })
+
   it('站点地址带结尾斜杠时_should不会拼出双斜杠', () => {
     const xml = buildSitemapXml({ siteUrl: `${SITE}/`, articles: [article(5)] })
 

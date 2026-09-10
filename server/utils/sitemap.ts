@@ -42,6 +42,10 @@ export const SITEMAP_CONTENT_TYPE = 'application/xml; charset=utf-8'
 /** 站点里**不由后端数据决定**的固定页面 */
 export const STATIC_PAGES = Object.freeze([
   { path: '/', changefreq: 'daily', priority: '1.0' },
+  // 归档页：它的内容同样是"全部文章"，但它是一个**独立入口**（导航里点得到），
+  // 不写进 sitemap 的话，爬虫只能靠导航里的那个链接发现它 ——
+  // 而归档页正是"一次拿到全部内链"的地方，把它自己排除在外没有道理
+  { path: '/archive', changefreq: 'daily', priority: '0.9' },
 ])
 // 【为什么没有 /admin】它带 noindex（见 app/pages/admin.vue），
 // 写进 sitemap 等于一边说"别收录"、一边主动把地址递给爬虫，自相矛盾。

@@ -15,6 +15,13 @@
       </NuxtLink>
       <nav class="nav-center">
         <NuxtLink to="/" class="nv">首页</NuxtLink>
+        <!-- 归档：按年月浏览全部文章的第二个入口。
+             首页是信息流（擅长"看最近有什么"），归档擅长"找去年 3 月那篇"——
+             没有这个入口的话，找旧文只能一页页翻首页。
+             做成【顶层导航】而不是塞进「文章」下拉框里：下拉框里的三项（技术/读书/随笔）
+             现在点下去还是"该页面开发中"，把唯一一个真能用的入口混在里面，
+             用户根本不会去点它。 -->
+        <NuxtLink to="/archive" class="nv">归档</NuxtLink>
         <div class="nv dd">
           <button class="nv-btn">文章 <span class="caret">▾</span></button>
           <div class="dd-menu">
