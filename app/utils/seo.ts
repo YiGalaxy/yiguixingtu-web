@@ -59,6 +59,24 @@ export const SITE_DESCRIPTION
 /** 页面标题与站点名之间的分隔符（中文语境里用间隔点比竖线干净） */
 export const TITLE_SEPARATOR = ' · '
 
+/**
+ * RSS 订阅的地址、MIME 类型与标题。
+ *
+ * 【为什么这三个常量放在这里，而不是写在 server/utils/feed.ts 里】
+ *   同一个约定有两个使用方：服务端的 `/feed.xml` 路由（用它拼 <atom:link rel="self">）
+ *   和每个页面的 head（用它渲染自动发现的 `<link rel="alternate">`）。
+ *   各写一份的话，哪天有人把路由改成 /rss.xml，页面上的自动发现就会指向一个 404 ——
+ *   而这个 404 只在"订阅器去抓"的时候才暴露，浏览器里完全看不出来。
+ *   放在这里之后两边引用的是同一个常量（服务端也 import 得到，它是纯常量、无副作用）。
+ */
+export const FEED_PATH = '/feed.xml'
+
+/** RSS 的 MIME：`application/rss+xml`（不是 application/xml，订阅器按它识别） */
+export const FEED_MIME = 'application/rss+xml'
+
+/** 自动发现标签上的标题：订阅器在"发现多个订阅源"时用它给用户看 */
+export const FEED_TITLE = `${SITE_NAME} 的 RSS 订阅`
+
 /** 页面语言：写进 <html lang>，屏幕阅读器与搜索引擎都读它 */
 export const HTML_LANG = 'zh-CN'
 
@@ -181,6 +199,17 @@ export const buildSeoHead = ({
     // 语言写在 html 标签上，全站都该有；放在这里就等于"每个调用方都会设"
     htmlAttrs: { lang: HTML_LANG },
     meta,
-    link: [{ rel: 'canonical', href: url }],
+    link: [
+      { rel: 'canonical', href: url },
+      // 【RSS 自动发现：每个页面都要有，所以放在这一层而不是某个页面里】
+      //   订阅器（Feedbro / Inoreader / 浏览器扩展等）打开任意一个站内页面时，
+      //   靠这条 link 才知道"这个站有订阅源、地址在哪"。
+      //   只在首页加的话，用户从一篇分享出去的文章进来就发现不了订阅源 ——
+      //   而"从一篇文章认识一个博客"恰恰是最常见的情形。
+      // 【href 为什么用绝对地址】惯例上写 `/feed.xml` 也可以（相对地址浏览器会解析），
+      //   但有些抓取工具只认绝对地址，而且绝对地址与 canonical / sitemap 用的是
+      //   同一个 absoluteUrl()，三者不可能指向不同的域名。
+      { rel: 'alternate', type: FEED_MIME, title: FEED_TITLE, href: absoluteUrl(FEED_PATH, siteUrl) },
+    ],
   }
 }

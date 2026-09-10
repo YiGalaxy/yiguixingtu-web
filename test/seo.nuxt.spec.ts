@@ -90,7 +90,19 @@ describe('SEO · 纯函数拼装规则', () => {
     expect(head.title).toBe(SITE_TITLE)
     expect(head.meta).toContainEqual({ name: 'description', content: SITE_DESCRIPTION })
     expect(props).toEqual(['og:title', 'og:description', 'og:type', 'og:url'])
-    expect(head.link).toEqual([{ rel: 'canonical', href: 'https://www.yigalaxy.xin/' }])
+    // link 有两类：canonical（正式地址）与 alternate（RSS 自动发现）。
+    // 【为什么逐条断言而不是只查 canonical】多出来的那条 link 很容易被顺手加错
+    // （rel 写成 feed、type 漏掉、href 用了相对地址），而页面上完全看不出来 ——
+    // 只有订阅器去抓的时候才会发现"这个站没有可订阅的源"
+    expect(head.link).toEqual([
+      { rel: 'canonical', href: 'https://www.yigalaxy.xin/' },
+      {
+        rel: 'alternate',
+        type: 'application/rss+xml',
+        title: `${SITE_NAME} 的 RSS 订阅`,
+        href: 'https://www.yigalaxy.xin/feed.xml',
+      },
+    ])
     // og:url 与 canonical 必须是同一个地址：两者不一致等于自己声明了两个正式地址
     expect(ogOfFrom(head, 'og:url')).toBe('https://www.yigalaxy.xin/')
   })
@@ -109,6 +121,18 @@ describe('SEO · 纯函数拼装规则', () => {
     expect(ogOfFrom(head, 'og:title')).toBe(head.title)
     expect(ogOfFrom(head, 'og:type')).toBe('article')
     expect(head.link[0].href).toBe('https://www.yigalaxy.xin/article/12')
+  })
+
+  it('每条页面_should都带着 RSS 自动发现的 link（不只是首页）', () => {
+    // 【为什么每个页面都要有】订阅器（以及浏览器的订阅扩展）是拿"用户当前打开的
+    // 那个地址"去发现订阅源的 —— 用户最常打开的不是首页，而是分享出去的文章页。
+    // 只在首页加的话，从一篇文章认识这个博客的人根本发现不了订阅入口。
+    const head = buildSeoHead({ siteUrl: 'https://www.yigalaxy.xin', path: '/article/12', title: '一篇文章' })
+    const alternate = head.link.filter(l => l.rel === 'alternate')
+
+    expect(alternate).toHaveLength(1)
+    expect(alternate[0].href).toBe('https://www.yigalaxy.xin/feed.xml')
+    expect(alternate[0].type).toBe('application/rss+xml')
   })
 
   it('没有封面时_should整条 og:image 都不出现（不是空值）', () => {
@@ -233,6 +257,9 @@ describe('SEO · 首页真的接到了 head 上', () => {
     expect(document.head.querySelector('meta[property="og:image"]')).toBeNull()
     // lang 写在 html 标签上
     expect(document.documentElement.getAttribute('lang')).toBe('zh-CN')
+    // RSS 自动发现：页面的 head 里真的有这条 link（订阅器靠它找到 /feed.xml）
+    expect(document.head.querySelector('link[rel="alternate"][type="application/rss+xml"]')?.getAttribute('href'))
+      .toBe('https://www.yigalaxy.xin/feed.xml')
   })
 
   it('带筛选参数的地址_should canonical 仍然指向不带参数的首页', async () => {

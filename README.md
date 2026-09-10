@@ -11,7 +11,7 @@
 > 基于 Nuxt 4 + Vue 3 + Element Plus 的个人博客前端
 > 后端为独立仓库 `yiguixingtu`（Spring Boot 4，默认跑在 `localhost:8082`）
 >
-> **419 个测试用例 + ESLint + 生产构建，全部在 CI 里自动跑**（见下文「持续集成」）
+> **448 个测试用例 + ESLint + 生产构建，全部在 CI 里自动跑**（见下文「持续集成」）
 
 ## 项目简介
 
@@ -31,8 +31,10 @@
 由服务器上的 Nginx 从 `/var/www/media/` 提供，见下文「背景视频与音乐为什么不放在 `public/` 里」）。
 
 **全站有完整的 SEO 元信息**：每页的 `title` / `description` / `og:*` / `canonical`、
-`<html lang="zh-CN">`，后台页带 `noindex`；另有 `/sitemap.xml` 与 `/robots.txt`
-（见下文「首页为什么要服务端渲染」与「全站 SEO 元信息」）。
+`<html lang="zh-CN">`，后台页带 `noindex`；每页还带一条
+`<link rel="alternate" type="application/rss+xml">`（订阅器靠它自动发现订阅源）；
+另有 `/sitemap.xml`、`/robots.txt` 与 **`/feed.xml`（RSS 2.0 订阅源）**
+（见下文「首页为什么要服务端渲染」「全站 SEO 元信息」与「RSS 订阅」）。
 
 ## 技术栈
 
@@ -82,8 +84,10 @@ yiguixingtu-web
 ├── server
 │   ├── routes/media/[...file].get.ts # 仅开发环境生效：把 /media/** 指向 static-media/
 │   ├── routes/sitemap.xml.get.ts     # GET /sitemap.xml：运行时生成（分页取全部已发布文章）
+│   ├── routes/feed.xml.get.ts        # GET /feed.xml：运行时生成 RSS 2.0（最近 20 篇）
 │   ├── routes/robots.txt.get.ts      # GET /robots.txt：允许抓取 + 指向 sitemap + 挡掉后台
 │   ├── utils/sitemap.ts              # XML / robots 的生成与"翻页取全部文章"（纯函数）
+│   ├── utils/feed.ts                 # RSS 的生成：转义、RFC 822 时间、失败降级（纯函数）
 │   └── utils/mediaFile.ts            # 文件名 → 磁盘路径（穿越防护）+ Range 解析（纯函数）
 ├── public                           # 参与构建的小静态资源（封面图、favicon）
 ├── static-media                     # 【不参与构建】背景视频 / 音乐，部署时上传到 /var/www/media/
@@ -199,7 +203,7 @@ npm run lint:fix     # 自动修掉能修的部分
 | 步骤 | 命令 | 为什么单独一步 |
 |------|------|---------------|
 | 代码检查 | `npm run lint` | 串成一条命令的话，Actions 页面只会显示一句 exit 1，看不出是哪一步挂的 |
-| 运行测试 | `npm run test` | 419 个用例；**不需要后端与数据库**，CI 里不用起任何服务 |
+| 运行测试 | `npm run test` | 448 个用例；**不需要后端与数据库**，CI 里不用起任何服务 |
 | 生产构建 | `npm run build` | 保证"测试过了但build 不过"这种情况不会漏到线上 |
 
 用 `npm ci` 而不是 `npm install`：它严格按 `package-lock.json` 安装，
@@ -275,6 +279,7 @@ docker run -d --name yiguixingtu-web \
 | 7 | `curl -s https://你的域名/robots.txt` 能拿到内容（**不是 404**）：它是 Nitro 的运行时路由，必须由反代转发给 Node；同时确认里面的 `Sitemap:` 是真实域名 |
 | 8 | `curl -s https://你的域名/sitemap.xml` 返回 `200 + application/xml`，且**文章条数对得上**（不是只有首页那一条 —— 只有首页通常意味着后端地址配错、取数降级了） |
 | 9 | `curl -s https://你的域名/archive` 能看到按年月分好组的文章（**在 HTML 里**，不是靠 JS 补的），导航里也能点到「归档」 |
+| 10 | `curl -s https://你的域名/feed.xml` 返回 `200 + application/rss+xml`，里面有**真实文章的标题与链接**（只有站点信息、没有 `<item>` 说明后端地址配错、取数降级了）；再用一个 RSS 阅读器实际订阅一次，确认能拉到条目 |
 
 
 **测试环境**：Vitest 5 + `@nuxt/test-utils` 4，跑在 **nuxt 环境**而不是裸的 jsdom。
@@ -284,7 +289,7 @@ docker run -d --name yiguixingtu-web \
 > 这些在裸 node / jsdom 里根本不存在。用 nuxt 环境测的是"代码在 Nuxt 里的真实行为"，
 > 而不是把所有依赖都 mock 掉自己骗自己。
 
-**当前 23 个测试文件、419 个用例：**
+**当前 24 个测试文件、448 个用例：**
 
 | 测试文件 | 用例数 | 覆盖 |
 |---------|:---:|------|
@@ -308,7 +313,8 @@ docker run -d --name yiguixingtu-web \
 | `test/loginRateLimit.nuxt.spec.ts` | 7 | **挂载整个应用外壳**测登录被限流时界面到底什么样：提示是"太频繁"而不是"网络异常"、登录按钮真的 `disabled` 且按钮上写着还有多少秒、冷却期间连点**不再发请求**、**按回车提交也被拦**（回车绕得过 disabled）、倒计时结束后按钮自己活过来、成功与密码错误都不进入冷却 |
 | `test/useRememberedLogin.nuxt.spec.ts` | 16 | 「记住用户名」：构造出来的 cookie **只含 `username`**（白名单断言，写不出 password）、用户名为空时不写 cookie；读回填兼容对象 / JSON 字符串 / 纯字符串三种形态；**老 cookie（带明文密码）在挂载时被主动改写成只含用户名**（对象与字符串两种形态都测）、新格式不做无意义写入；**挂载整个外壳**验证：浏览器里那条带密码的 cookie 被清掉、输入框只回填用户名而**密码框是空的**、勾选后登录写入的 cookie 里不含密码、没勾则删掉 cookie |
 | `test/linkUnderline.nuxt.spec.ts` | 4 | `el-link` 的 `underline` **不再传废弃的布尔值**：外壳里两个链接（登录弹窗的「去注册」、注册弹窗的「已有账号？去登录」）拿到的 prop 都是字符串 `'never'`、**渲染它们时一条 `ElementPlusError` 都不打印**（改之前会打 2~3 条）、类名与改之前一致（`never` 既不带 `is-underline` 也不带 `is-hover-underline`）；并配了一条**对照组**：直接给 `ElLink` 传 `underline: false` 时确实会打印那段警告 —— 否则一个从未被触发过的 `console.warn` 间谍会让"没有警告"永远为真 |
-| `test/seo.nuxt.spec.ts` | 20 | 全站 SEO 元信息。**纯函数层**（15 条）：首页/文章页/后台页三种页面的 title、description、canonical、四条 og 的拼装；**没有封面时整条 `og:image` 都不出现**（不是空值）、有封面时把 `/uploads/x.png` 拼成绝对地址、封面本来就是绝对地址时原样保留；标题/描述为空时回落站点默认值（不能出现空 `title`）；站点地址的归一化（去掉尾斜杠、空值/`www.x.com` 这种缺协议的值一律回落到默认域名，否则会产出被搜索引擎忽略的相对 canonical）；后台页带 `noindex, nofollow`、普通页面不带；每页都带 `lang="zh-CN"`。**组件层**（5 条）：首页挂载后 head 里**真的有** title / description / canonical / og（读 `document.head`）、带筛选参数的地址 canonical 仍指向干净的 `/`、**首屏渲染就已经带着文章列表**（改成 SSR 的核心诉求）；详情页的 `og:type=article`、标题跟着文章走、封面拼成绝对地址、canonical 指向文章自己；后台页带 noindex |
+| `test/seo.nuxt.spec.ts` | 21 | 全站 SEO 元信息。**纯函数层**（16 条）：首页/文章页/后台页三种页面的 title、description、canonical、四条 og 的拼装；**没有封面时整条 `og:image` 都不出现**（不是空值）、有封面时把 `/uploads/x.png` 拼成绝对地址、封面本来就是绝对地址时原样保留；标题/描述为空时回落站点默认值（不能出现空 `title`）；站点地址的归一化（去掉尾斜杠、空值/`www.x.com` 这种缺协议的值一律回落到默认域名，否则会产出被搜索引擎忽略的相对 canonical）；后台页带 `noindex, nofollow`、普通页面不带；每页都带 `lang="zh-CN"`；两条 link（canonical + **RSS 自动发现**）逐条断言，且**文章页也有**自动发现（订阅器是拿用户当前打开的地址去发现订阅源的）。**组件层**（5 条）：首页挂载后 head 里**真的有** title / description / canonical / og / RSS 自动发现 link（读 `document.head`）、带筛选参数的地址 canonical 仍指向干净的 `/`、**首屏渲染就已经带着文章列表**（改成 SSR 的核心诉求）；详情页的 `og:type=article`、标题跟着文章走、封面拼成绝对地址、canonical 指向文章自己；后台页带 noindex |
+| `test/feed.nuxt.spec.ts` | 28 | `/feed.xml`（RSS 2.0）的纯函数。**转义**：标题/摘要里的 `&` `<` `>` `"` `'` 全部转义、`&` 必须最先替换（不出现 `&amp;lt;` 这种双重转义）、标题里带 `<script>` 时整份 feed 仍然良构且不出现可执行标签；**结构**：XML 声明 + `<rss version="2.0" xmlns:atom>` + channel 的站点信息 + `rel="self"`、`lastBuildDate` 取最新那篇的时间（不是 `now()`，否则每次抓取都变）；**条目顺序与数量完全照搬后端**（不排、不截断）、每条有 title/link/guid/pubDate/description、`guid` 与 `link` 同值且 `isPermaLink="true"`、没有 id 的文章丢掉（不拼 `/article/undefined`）；**pubDate 是 RFC 822**（`Thu, 10 Sep 2026 05:03:19 +0800`）：星期与日期对得上（四个日期逐个核对星期）、只有日期时补 `00:00:00`、**不存在的日期**（2 月 30 日 / 13 月 / 25 点）当成拿不到而不是让它滚到下一天、拿不到就整条不写（绝不用"当前时间"兜底）；**description 放摘要而不是 Markdown 源码**（断言 `#` 与 `**` 不出现在 XML 里 —— 这是那条取舍的护栏）、summary 为空时整条不写、没有标题时用"文章 {id}"兜底；**降级**：空列表仍是一份合法 feed（站点信息齐全、没有 `<item>`、没有 `lastBuildDate`、body 不为空）、列表不是数组/混进 null 兜成空数组、站点地址非法时回落默认域名；**三处同源**：换一个站点地址后 canonical / sitemap / feed 一起变、页面上的自动发现地址与 feed 的 `rel="self"` 是同一个；最后一组是**良构检查器自身的对照组**（喂未转义的 `&`、裸 `<`、标签不配对，断言检查器真的会报错 —— 否则一个永远返回 null 的检查器会让"XML 合法"永远为真） |
 | `test/sitemap.nuxt.spec.ts` | 38 | `sitemap.xml` 与 `robots.txt` 的纯函数。**XML 转义**：五个特殊字符都要转义、`&` 必须最先替换（否则双重转义）、标题里的 `&`/`<` 不会让 sitemap 非法、`loc` 里的 `&`/`'` 会被转义；**分页取全部文章**：total=0 只请求一次、**恰好 50 条只请求一次**、51 条翻两页（最后一页不满）、120 条翻三页；`total` 明显不对时靠"空页"停下、后端永远返回满页时在**页数上限**停下（防死循环）并标记 `truncated`；**降级**：接口失败/抛异常/返回结构不对都不抛异常，保留已取到的部分、返回的仍是**合法且含首页**的 XML；按 id 去重、没有 id 的记录丢掉（不拼 `/article/undefined`）；`lastmod` 只用日期、拿不到就整条不写；**归档页也在静态页里**（它是导航里点得到的独立入口，漏掉不会有任何报错，只是爬虫得先发现链接）；robots.txt 的 `Disallow: /admin` 与绝对地址 `Sitemap:`、站点地址归一化与 canonical 同源 |
 
 **为什么先测这几个**：
@@ -445,6 +451,9 @@ docker run -d --name yiguixingtu-web \
   响应头里没有这个头时提示保持原样（细节见下文「错误提示为什么要带追踪号」）
 - **每页都有 SEO 元信息**（title / description / og / canonical / `lang="zh-CN"`），
   后台页额外带 `noindex`，避免内部工具被搜到
+- **每页都带 RSS 自动发现的 link**（`<link rel="alternate" type="application/rss+xml">`，
+  指向 `/feed.xml`）：订阅器与浏览器扩展靠它发现订阅源，
+  所以它是**每个页面**都有的，不只是首页（细节见下文「RSS 订阅」）
 - **受 429 限流时前端不会自动重试**：Nuxt 的 `$fetch`（ofetch）默认会对 GET 重试一次，
   而它的默认重试集合里包含 429 —— 也就是"后端正在限流，前端再打一次"，
   正好和限流的目的相反（细节见下文「为什么关掉 `$fetch` 对 429 的自动重试」）
@@ -884,7 +893,13 @@ curl -s http://127.0.0.1:3111/ | grep -o '<title>[^<]*</title>'
 | 侧边「后台留言」浮窗（访客A / 访客B 两条留言） | 写死的数组，不是评论 | 后端没有评论模块，前端拿不到任何评论数据，只能删 |
 | 左下角「1 人正在看」 | 写死的字符串 | 后端没有在线人数接口；这个数字永远不会变，连"当前访客自己"都不一定算得准 |
 | 音乐卡片的三个曲名与上一首/下一首按钮 | 曲名是编的，音频只有一个文件 | 没有播放列表接口；点下一首只是把下标加一、曲名换个字，声音重新放同一段 |
-| GitHub / 邮箱 / RSS 三个按钮 | 背后没有任何地址，点了没反应 | 没有真实链接；本站也没有 RSS 输出（后端没有这个接口） |
+| GitHub / 邮箱 / RSS 三个按钮 | 背后没有任何地址，点了没反应 | 当时没有真实链接，后端也还没有 RSS 接口 |
+
+> 顺带说明：**现在已经有真的订阅源了**（`/feed.xml`，见下文「RSS 订阅（feed.xml）」），
+> 但也没有把那排按钮加回首页 —— 订阅入口的正确做法是每个页面的
+> `<link rel="alternate" type="application/rss+xml">`（订阅器与浏览器扩展靠它自动发现），
+> 而不是首页上一个需要用户手动点的按钮。这两件事别混：按钮早就删了，
+> 自动发现的 link 是这一批新加的。
 
 处理方式不是 `v-if="false"` 藏起来，而是连**面板、按钮、样式、以及只被它们用到的
 变量**一起删掉（`tracks` / `cur` / `prev` / `next` / `resetAudio` / `msgs` /
@@ -1021,15 +1036,80 @@ npm run build
 NUXT_API_BASE_SERVER=http://后端地址 PORT=3111 node .output/server/index.mjs
 curl -s http://127.0.0.1:3111/robots.txt
 curl -s http://127.0.0.1:3111/sitemap.xml
+curl -s http://127.0.0.1:3111/feed.xml
 ```
 
 实测结果：robots.txt 里有 `Allow: /`、`Disallow: /admin` 与
 `Sitemap: https://www.yigalaxy.xin/sitemap.xml`；sitemap 返回
-`200 + application/xml; charset=utf-8`，内容是首页 + 后端当时真实的
-两篇文章（`/article/117`、`/article/116`，各带 `<lastmod>`）。
+`200 + application/xml; charset=utf-8`，内容是首页 + 归档页 + 后端当时真实的
+两篇文章（`/article/117`、`/article/116`，各带 `<lastmod>`）；
+feed.xml 返回 `200 + application/rss+xml; charset=utf-8`，里面有那两篇的
+真实标题与链接（片段见下文「RSS 订阅」那一节的联调表）。
 把 `NUXT_PUBLIC_SITE_URL` 覆盖成 `https://test.example.com/` 之后，
-canonical、sitemap 的 `<loc>`、robots 的 `Sitemap:` 三处**一起**变成
+canonical、`<link rel="alternate">`、sitemap 的 `<loc>`、robots 的 `Sitemap:`、
+feed 的 `<link>` 与 `rel="self"` —— **五处一起**变成
 `https://test.example.com`（结尾斜杠也被归一化掉了）。
+
+### RSS 订阅（`server/routes/feed.xml.get.ts` + `server/utils/feed.ts`）
+
+`/feed.xml` 是一份 **RSS 2.0** 订阅源：最近 20 篇已发布文章，
+订阅器（Feedly / Inoreader / 各种 RSS 阅读器与浏览器扩展）可以直接订阅。
+它和 sitemap / robots 是同一套路：**Nitro 运行时路由** + 纯函数生成 + 失败降级，
+原因也一样（构建阶段连不上后端；发新文章后不能要求重新构建镜像）。
+
+**description 里放什么 —— 这一节最要紧的取舍**
+
+后端 `GET /article/rss` 给两个字段：`content`（**Markdown 源码**）与 `summary`（纯文本摘要）。
+三条路：
+
+| 方案 | 结果 | 为什么没选 / 选了 |
+|---|---|---|
+| `<description>` 直接塞 `content` | 订阅器里显示 `# 标题`、`**加粗**`、`- 列表` 这些**原文标记** | ❌ 最差的一种：用户看到的是"没渲染的源码" |
+| 服务端把 Markdown 转成 HTML 再塞进去 | 订阅器里能直接读到排版好的正文（全文 feed） | ⚠️ 更好看，但本仓库唯一的 Markdown 渲染依赖是 **md-editor-v3**，它导出的是 `MdEditor` / `MdPreview` 这类**浏览器端 Vue 组件**（实测 `import('md-editor-v3')` 拿到的就是这些组件，没有可以直接调用的 markdown→HTML 函数）。在 Nitro 的路由里用它只能"起一个 Vue SSR 把组件渲染一遍"，还要带上它的一堆 codemirror 依赖 —— 为一个 XML 接口的 20 条摘要付这个代价不值得，而且它随时可能因为组件内部用了 `document` 而在 feed 这条**没人看**的链路上崩掉。（node_modules 里确实有 `markdown-it`，但它只是 md-editor-v3 的**传递依赖**，直接 import 属于"依赖别人的依赖"） |
+| `<description>` 放后端算好的 `summary` | 订阅器里是一段**纯文本摘要** + 指向站点的链接 | ✅ **选的是这条**：契约里本来就给了摘要字段，不用前端再解析；而且它天然安全 —— 往 XML 里塞"服务端渲染出来的 HTML"还要处理 CDATA 与实体两层转义，多一层就多一处能出错的地方 |
+
+代价说清楚：**这是个摘要式 feed，不是全文 feed**，读者要看全文得点进站点。
+对个人博客不算问题（很多站就是这么做的），但它确实是一个取舍，已记进「已知待办」。
+
+**XML 里所有文本都必须转义**（最容易漏的一条）：标题里一个 `&`
+（比如"备忘 & 待办"）就会让整份 feed **非法**，而订阅器对非法 feed 的处理是
+**整份丢弃** —— 不是"少一条"，是一条都读不到，症状是"订阅了但永远收不到新文章"，
+而站长在浏览器里打开 `/feed.xml` 看着完全正常（浏览器对 XML 的容错比订阅器宽得多）。
+转义用的是 sitemap 那份 `escapeXml()`：同一条规则只维护一处。
+
+**为什么用摘要式之外，还有几个刻意的决定**：
+
+- **前端一次都不排序、也不截断**：后端已经是"最近 20 篇、时间倒序"。
+  再排一次或再切一刀，等于把同一条规则维护成两份（和归档页是同一条纪律）
+- **`<pubDate>` 必须是 RFC 822 格式**（`Thu, 10 Sep 2026 05:03:19 +0800`）：
+  格式错了订阅器会当成"没有时间"，于是所有文章的顺序变成"抓到的顺序"，
+  而 feed 本身看起来完全正常。后端的 `LocalDateTime` **没有时区**，
+  所以按容器所在的 `Asia/Shanghai`（+0800）解释，并把它写成一个显式常量 ——
+  哪天后端换时区，这里是唯一要改的地方
+  - 顺带把"日期不存在"也拦下来：`2026-02-30` 交给 `Date` 会**静默滚到 3 月 2 日**，
+    feed 里就出现了一个凭空捏造的时间。所以滚动后要跟输入比对一次，不一致就不写
+  - 拿不到合法时间时**整条 `<pubDate>` 都不写**，绝不用"当前时间"兜底 ——
+    编一个时间会让订阅器的"新文章提醒"与排序全乱
+- **`<lastBuildDate>` 取最新那篇的时间，而不是请求时的 `now()`**：
+  语义上它就是"内容最后一次变化的时间"；用 `now()` 则每次抓取都产生一行新内容，
+  对订阅器没有任何好处，测试也没法断言
+- **降级绝不 500、绝不空 body**：订阅器把 500 / 空 body 当成"这个源坏了"，
+  有些会直接标成失效、恢复后也不会自动回来（要用户手动重新订阅）。
+  接口挂了 / 一篇文章都没有时，返回的是一份**结构完整、只是没有 `<item>`** 的合法 feed
+- **页面 head 里加自动发现的 link**（在 `buildSeoHead` 里统一加，所以**每个页面都有**，
+  不只是首页）：订阅器是拿"用户当前打开的那个地址"去发现订阅源的，
+  而从一篇文章认识一个博客是最常见的情形。href 写成**绝对地址**，
+  与 canonical / sitemap 用的是同一个 `absoluteUrl()`，不可能指向不同域名
+
+**联调实测（后端跑在 `http://localhost:8082`，全程没有重启过它）**：
+
+| 步骤 | 请求 | 结果 |
+|---|---|---|
+| ① 真实接口 | `GET /article/rss` | `{"code":200,…,"data":[{"id":117,"title":"测试","summary":"你好，这是一个文章测试","content":"你好，这是一个文章测试","createTime":"2026-09-10T05:03:19"},{"id":116,"title":"你好，亿轨星途",…,"content":"# 你好，亿轨星途\n\n这是我的**第一篇**文章，用 Markdown 写的。…"}]}` —— **`content` 确实是 Markdown 源码**（第二篇带着 `#` 与 `**`） |
+| ② 生产构建 + 真实 SSR | `npm run build` → `NUXT_API_BASE_SERVER=http://localhost:8082 PORT=3111 node .output/server/index.mjs` → `curl -s -D- http://127.0.0.1:3111/feed.xml` | `200` + `Content-Type: application/rss+xml; charset=utf-8` + `Cache-Control: public, max-age=300`；body 里是 `<rss version="2.0" xmlns:atom="…">`、`<title>亿轨星途</title>`、`<link>https://www.yigalaxy.xin/</link>`、`<atom:link href="https://www.yigalaxy.xin/feed.xml" rel="self" type="application/rss+xml"/>`、`<lastBuildDate>Thu, 10 Sep 2026 05:03:19 +0800</lastBuildDate>`，以及两条真实 item：`<title>测试</title><link>…/article/117</link><guid isPermaLink="true">…</guid><pubDate>Thu, 10 Sep 2026 05:03:19 +0800</pubDate><description>你好，这是一个文章测试</description>`、`<title>你好，亿轨星途</title>…<pubDate>Thu, 10 Sep 2026 04:49:43 +0800</pubDate>` —— **标题与链接都是库里真实的那两篇** |
+| ③ 页面自动发现 | `curl -s http://127.0.0.1:3111/article/117 \| grep alternate` | `<link rel="alternate" type="application/rss+xml" title="亿轨星途 的 RSS 订阅" href="https://www.yigalaxy.xin/feed.xml">` —— 文章页（不只是首页）也有 |
+| ④ 降级：把后端指到一个死端口 | 另起一个实例（`NUXT_API_BASE_SERVER=http://127.0.0.1:9 PORT=3112`）后 `curl -s -D- http://127.0.0.1:3112/feed.xml` | 仍然是 **`200` + `application/rss+xml`**，body 是一份**合法但只有站点信息**的 feed（`<title>`/`<link>`/`<description>`/`<language>`/`rel="self"` 都在，**没有任何 `<item>`**、也没有 `lastBuildDate`）—— 不是 500、不是空 body |
+| ⑤ 域名同源：`NUXT_PUBLIC_SITE_URL=https://test.example.com/` | `curl` 首页 head / `/sitemap.xml` / `/robots.txt` / `/feed.xml` | 五处一起变：`<link rel="canonical" href="https://test.example.com/archive">`、`<link rel="alternate" … href="https://test.example.com/feed.xml">`、sitemap 的 `<loc>https://test.example.com/archive</loc>`、robots 的 `Sitemap: https://test.example.com/sitemap.xml`、feed 的 `<link>https://test.example.com/</link>` 与 `href="https://test.example.com/feed.xml" rel="self"` |
 
 ### 接口被限流为什么有两种提示（`app/utils/apiError.ts`）
 
@@ -1207,14 +1287,15 @@ location /media/ {
 
 ## 依赖的后端接口
 
-前端共调用后端 **36 个接口中的 31 个**（没用的 5 个：
-`GET /article/rss` 与 `GET/POST/PUT/DELETE /admin/category` —— 后者的界面还没接，
+前端共调用后端 **36 个接口中的 32 个**（没用的 4 个：
+`GET/POST/PUT/DELETE /admin/category` —— 后者的界面还没接，
 见下文「已知待办」里的「分类」一节）：
 
 | 页面 | 调用的接口 |
 |------|-----------|
 | 首页 | `GET /article/page`（支持 `keyword` / `categoryId` / `tagId` 三条件叠加）、`GET /article/stats`、`GET /category/list`、`GET /tag/list` |
 | 归档 | `GET /article/archive`（公开、走缓存；月份与月内文章都已排好序，前端不再排） |
+| RSS 订阅源（`/feed.xml`） | `GET /article/rss`（公开、走缓存；服务端直接请求，不经过浏览器） |
 | 文章详情 | `GET /article/{id}`（响应里带 `tags`）、`GET /comment/list`、`POST /comment`（**有限流**） |
 | 登录 / 注册 | `POST /auth/login`、`POST /auth/register`、`GET /auth/me`、`POST /auth/logout` |
 | 后台 · 概览 | `GET /article/stats`、`GET /user/page` |
@@ -1315,7 +1396,7 @@ location /media/ {
 > `lang="zh-CN"`，后台页带 `noindex`。
 > 改之前的具体后果是：**详情页能被搜到、首页不能**（详情页一直是 SSR 的），
 > 分享出去的链接没有卡片；而且只有详情页有 title，别的页面在浏览器标签上
-> 都是同一个名字。这条由 `test/seo.nuxt.spec.ts` 的 20 个用例守着，
+> 都是同一个名字。这条由 `test/seo.nuxt.spec.ts` 的 21 个用例守着，
 > 并由 `npm run build` 之后 `curl` 首页 HTML 实测过（片段见上文「怎么验收」）。
 
 **SEO 与收录**
@@ -1326,7 +1407,13 @@ location /media/ {
   - 补一句：**`/archive` 现在把全部已发布文章的内链放在同一个页面里**
     （每一条都是真实的 `<a href="/article/{id}">`），所以"更早的文章要靠别处带进来"
     这件事已经好了一大截 —— 它和 sitemap 一起，构成"不依赖前端加载更多"的发现路径
-- **没有 RSS / Atom 输出**（后端也没有这个接口），订阅只能靠收藏页面
+- **RSS 是摘要式的，不是全文 feed**（`<description>` 放的是后端的 `summary`）：
+  想读全文要点进站点。原因与"以后怎么改成全文"见下文「RSS 订阅（feed.xml）」——
+  一句话版：本仓库唯一的 Markdown 渲染依赖 md-editor-v3 是浏览器端的 Vue 组件，
+  Nitro 里没有可以直接调用的 markdown→HTML 函数
+- **feed 里没有分类 / 标签**（`<category>` 元素没写）：后端 `GET /article/rss`
+  返回的字段里没有它们（只有 id / title / summary / content / createTime）。
+  要加的话是后端先补字段，前端再顺带写进 item
 - **文章详情页的 `description` 用文章摘要**：作者没写摘要时回落到站点描述，
   所以"没写摘要的文章"在搜索结果里长得都一样 —— 这属于内容侧的习惯问题
 - **sitemap 每次请求都要翻页取一遍全部文章**：文章很多时（上千篇）会是一串
