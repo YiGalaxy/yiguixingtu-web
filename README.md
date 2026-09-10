@@ -244,11 +244,12 @@ docker run -d --name yiguixingtu-web \
 > 这些在裸 node / jsdom 里根本不存在。用 nuxt 环境测的是"代码在 Nuxt 里的真实行为"，
 > 而不是把所有依赖都 mock 掉自己骗自己。
 
-**当前 3 个测试文件、39 个用例：**
+**当前 4 个测试文件、45 个用例：**
 
 | 测试文件 | 用例数 | 覆盖 |
 |---------|:---:|------|
 | `test/useApi.nuxt.spec.ts` | 17 | 请求封装的**四条失败分支**（业务 code≠200 / 401 / 403 / 网络异常）、token 是否带上、baseURL 与参数透传、`resolveApiBase` 服务端与浏览器两种地址 |
+| `test/useAuth.nuxt.spec.ts` | 6 | 登出链路：**会调用后端** `POST /auth/logout`、带上当前 token、清空 `token` 与 `user`、接口失败也照样清本地、不再跳到不存在的 `/login` |
 | `test/useAuthUi.nuxt.spec.ts` | 6 | 登录/注册弹窗开关的**互斥**、`closeAll`、跨组件共享同一份状态 |
 | `test/useUpload.nuxt.spec.ts` | 16 | 图片上传：扩展名白名单（含大写、无扩展名、脚本文件）、大小边界（正好等于上限 / 超一字节）、空文件；以及请求拼装——**字段名必须是 `file`**、**不能手动设 Content-Type**（设了会丢 boundary）、401 不抛异常 |
 
@@ -316,7 +317,7 @@ docker run -d --name yiguixingtu-web \
 
 ## 依赖的后端接口
 
-前端共调用后端 **19 个接口中的 18 个**：
+前端共调用后端 **19 个接口中的 19 个**：
 
 | 页面 | 调用的接口 |
 |------|-----------|
@@ -327,7 +328,7 @@ docker run -d --name yiguixingtu-web \
 | 后台 · 文章管理 | `GET /admin/article/page`、`GET /admin/article/{id}`、`POST /admin/article`、`PUT /admin/article/{id}`、`PUT /admin/article/{id}/status`、`DELETE /admin/article/{id}` |
 | 后台 · 封面上传 | `POST /upload` |
 
-> 唯一没被调用的 `POST /auth/logout` —— 原因见下方「已知待办」。
+> 19 个接口全部用上了。`POST /auth/logout`（登出）最近刚补上，见下方「已知待办」里的说明。
 
 ## 已知待办
 
@@ -335,9 +336,15 @@ docker run -d --name yiguixingtu-web \
 
 **认证与状态**
 
-- **退出登录没有调用后端**，也没有清空本地用户状态（所以顶栏的昵称还在，要刷新才消失）。
-  后端 `POST /auth/logout` 目前也是空实现，两边都要补
 - **「记住密码」把明文密码存在 Cookie 里** —— 应该只记用户名，或改成"记住登录状态"标记
+- 刷新页面后靠 `GET /auth/me` 恢复登录态（`useState('user')` 刷新会丢），
+  这一步是必要的；但 `/auth/me` 会额外查一次库，后端把它去掉更好
+
+> ✅ 曾经的「退出登录没有调用后端」已经修好了：现在 `useAuth().logout()` 会先调
+> `POST /auth/logout`（后端按 `jti` 把当前 token 拉黑，**旧 token 立刻失效**），
+> 再清空 `token` 与 `user`，最后才跳回首页。接口失败也照样清本地 ——
+> 用户点退出就是想离开，不能因为网络抖动把他困住。
+> 同时删掉了原来指向不存在页面 `/login` 的死代码。
 
 **数据不真实**
 

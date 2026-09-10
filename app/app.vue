@@ -94,7 +94,7 @@
 
 <script setup>
 import { ElMessage } from 'element-plus'
-const { login, register, token, user } = useAuth()
+const { login, register, logout, token, user } = useAuth()
 const { loginVisible, registerVisible, openLogin, openRegister } = useAuthUi()
 const { request } = useApi()
 
@@ -117,7 +117,15 @@ const onVisibilityChange = () => {
 }
 onBeforeUnmount(() => document.removeEventListener('visibilitychange', onVisibilityChange))
 const toggleMusic = () => { musicOn.value = !musicOn.value; if (bgVideo.value) bgVideo.value.muted = !musicOn.value }
-const onLogout = () => { token.value = null; ElMessage.success('已退出'); navigateTo('/') }
+const onLogout = async () => {
+  // 【这次修了什么】原来只清本地 token，完全没调后端 ——
+  // 于是服务端签出去的那个 token 依然有效到自然过期（默认 24 小时）。
+  // 现在交给 useAuth().logout()：它先去调 POST /auth/logout 把当前 token 拉黑，
+  // 再清 token 与 user。接口失败也照样清（用户想退出就该让他退掉）。
+  await logout()
+  ElMessage.success('已退出')
+  navigateTo('/')
+}
 const onDev = () => ElMessage.info('该页面开发中')
 
 const form = reactive({ username: '', password: '' })

@@ -89,11 +89,43 @@ export const useAuth = () => {
     }
 
     // ----------【5】退出登录 ----------
-    // 关键词：token.value = null 清空通行证；navigateTo('...') 跳转到某页面。
-    // 为什么：退出 = 扔掉通行证 + 回登录页。
-    const logout = () => {
+    // 【这次修了什么】原来是两行：
+    //     token.value = null
+    //     navigateTo('/login')      ← 死代码：项目里根本没有 /login 页面
+    //   而且完全【没有调用后端】——于是后端签出去的那个 token 依然有效直到自然过期
+    //   （默认 24 小时）。前端把 cookie 删了看着像"退出了"，
+    //   但要是这个 token 已经被人截获，拿到的人还能继续用。
+    //   后端为此加了 Redis 黑名单（POST /auth/logout 会把当前 token 拉黑），
+    //   前端必须真的去调它，否则那个功能等于白做。
+    //
+    // 【为什么失败也要清本地状态】
+    //   用户点"退出"是想离开。如果因为网络抖动导致接口失败就不给退，
+    //   反而是把人困在里面。所以这里的顺序是：
+    //     先尽力通知后端（失败只忽略），再无条件清掉本地登录态。
+    //   代价是"后端那次没成功的话，token 在服务端仍有效到过期"——
+    //   这个风险比"点了退出退不掉"小得多，而且日志里能查到。
+    const logout = async () => {
+        // 【没有 token 就不用调后端】没什么可拉黑的，省一次无用请求。
+        // 注意不能因此报错：用户可能本来就没登录（或者 cookie 已过期），
+        // 他点"退出"依然应该得到一个成功的结果。
+        if (token.value) {
+            try {
+                await $fetch('/auth/logout', {
+                    baseURL: config.public.apiBase,
+                    method: 'POST',
+                    // 带上当前 token：后端要靠它解析出 jti 才能精确拉黑这一个 token
+                    headers: { Authorization: `Bearer ${token.value}` },
+                })
+            } catch {
+                // 刻意忽略：见上面"为什么失败也要清本地状态"
+            }
+        }
+
         token.value = null              // 清空 token（= 注销）
-        navigateTo('/login')            // 跳回登录页
+        user.value = null               // 【必须一起清】否则顶栏还显示着昵称，
+                                        // 看起来像没退成功；而且 isAdmin 之类的判断
+                                        // 会继续拿着旧角色走
+        return { ok: true }
     }
 
     // ----------【6】出口：把这个文件的功能交出去 ----------
