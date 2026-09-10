@@ -71,7 +71,12 @@
           <el-form-item label="密码"><el-input v-model="form.password" type="password" show-password placeholder="请输入密码" size="large" @keyup.enter="onLogin" /></el-form-item>
         </el-form>
         <div class="auth-row">
-          <el-checkbox v-model="rememberPassword">记住密码</el-checkbox>
+          <!-- 【原来是「记住密码」，现在是「记住用户名」】
+               改前的实现把**明文密码**写进了 rememberMe 这个 cookie（安全审查的 🔴）。
+               后端没有任何"用记住的密码自动登录"的接口，所以存这个密码
+               除了给自己留一个泄露点（XSS 读得到、随请求发给代理与日志）之外，
+               什么功能都没实现。现在只记住用户名，密码不落任何客户端存储。 -->
+          <el-checkbox v-model="remember">记住用户名</el-checkbox>
           <el-link type="primary" :underline="false" @click="switchToRegister">去注册</el-link>
         </div>
         <!-- 登录按钮：被限流之后 disabled + 显示倒计时。
@@ -150,13 +155,22 @@ const onDev = () => ElMessage.info('该页面开发中')
 
 const form = reactive({ username: '', password: '' })
 const regForm = reactive({ username: '', nickname: '', password: '' })
-const rememberPassword = ref(false)
 const loading = ref(false)
 const regLoading = ref(false)
-const remember = useCookie('rememberMe')
+
+// 「记住用户名」：逻辑全在 useRememberedLogin 里（只记用户名、清理老 cookie、
+// 为什么不许存密码 —— 见那个文件的头注释）。这里只负责接线：
+//   remember —— 勾选框（v-model）
+//   rememberedUsername —— 挂载时回填输入框用
+const { remember, username: rememberedUsername, restore: restoreRemembered, save: saveRemembered, clear: clearRemembered } = useRememberedLogin()
+
 onMounted(async () => {
-  // 记住密码回填
-  if (remember.value?.username) { form.username = remember.value.username; form.password = remember.value.password; rememberPassword.value = true }
+  // 回填「记住的用户名」，并【顺手清理老版本留下的 cookie】：
+  // 只改代码是不够的 —— 老用户浏览器里那个带着明文密码的 rememberMe
+  // 不会自己消失，restore() 会在发现老格式时立刻把它改写成只含用户名的值。
+  // 注意这里【不再回填密码】：密码不回填、不存储，用户每次自己输。
+  restoreRemembered()
+  if (rememberedUsername.value) form.username = rememberedUsername.value
 
   // 刷新页面后 useState('user') 会变回 null，但 cookie 里的 token 还在。
   // 用 /auth/me 把用户信息补回来，顶部才能正确显示昵称和角色。
@@ -184,8 +198,10 @@ const onLogin = async () => {
   const res = await login(form.username, form.password)
   loading.value = false
   if (res.ok) {
-    if (rememberPassword.value) remember.value = { username: form.username, password: form.password }
-    else remember.value = null
+    // 勾了就只存用户名（save() 构造出来的值里除了 username 没有别的字段），
+    // 没勾就把 cookie 彻底删掉 —— 不能"留着旧值只是不用它"
+    if (remember.value) saveRemembered(form.username)
+    else clearRemembered()
     ElMessage.success('登录成功'); loginVisible.value = false; navigateTo('/')
   } else { ElMessage.error(res.message) }
 }
