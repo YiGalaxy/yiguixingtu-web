@@ -629,6 +629,14 @@ export default defineNuxtPlugin((nuxtApp) => { nuxtApp.vueApp.use(ElementPlus) }
 | Nuxt 测试环境搭建 | 11 秒（模块在**配置加载期** import 整个 element-plus） | 3.1 秒（与改前的 2.9 秒持平） |
 | 与计划文本 | 不一致（更省事） | 与计划一致 |
 
+> **对照实验留下的四个类型声明文件已经清掉了（`auto-imports.d.ts` / `components.d.ts`）**：
+> `unplugin-auto-import` 与 `unplugin-vue-components` 会各自在**仓库根**和 **`app/`** 各生成一份
+> d.ts（w7.3 那次真装上对比时两处都留下过，一共四个），它们是给编辑器看的**派生产物**，
+> 而本项目最终没走那条路 —— 实测把四个路径删干净之后跑 `npx nuxi prepare`
+> 与 `npm run build`，**一个都没有重新出现**（那两个包也已经从 `package.json` / `node_modules` 里卸掉了）。
+> 四个路径都已经加进 `.gitignore`（用的是不带斜杠的文件名，一次覆盖任意层级的两处），
+> 免得哪天有人再试一遍手工方案时被 `git add -A` 顺手提交进来。
+
 - **为什么"手工那套丢样式"是致命的**：本项目有一批文件是**显式** import `ElMessage` / `ElMessageBox` 的
   （`app.vue`、`useApi.ts`、`index.vue`，以及后台那几个面板 —— w7.4 拆组件之前它们都在 `admin.vue` 里）。
   解析器只会对"模板里用到、但没被 import 的组件"动手，所以这些文件拿到的**只有 JS 没有 CSS**

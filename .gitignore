@@ -6,6 +6,23 @@
 .cache
 dist
 
+# unplugin 生成给编辑器看的类型声明（派生产物，不是源码）
+# 【谁写它们】只有 unplugin-auto-import / unplugin-vue-components 会生成这两个文件。
+#   本项目最终**没有**采用那套方案（w7.3 选型时真装上对比过，见 README
+#   「Element Plus 为什么要按需引入」），所以当前配置**不会**生成它们 ——
+#   实测：把四个路径都删干净之后跑 `npx nuxi prepare` 与 `npm run build`，
+#   `auto-imports.d.ts` / `components.d.ts`（根目录与 app/ 各一对）**一个都没有重新出现**。
+# 【那为什么还要写这两行】w7.3 那次对照实验确实在【仓库根】和【app/】各留下过一对
+#   （同一对文件同时出现在两处，正是"dts 输出路径被解析了两次"的残留），
+#   而那四个路径当时 `git check-ignore` 全部返回"未忽略" —— 一句 `git add -A`
+#   就会把实验残留一起提交进去。它们每次 dev/build 都会被重写，提交进去只会带来
+#   "改了配置却忘了重新生成、于是类型和实现不一致"的噪音；这套工程 CI 只跑
+#   lint + test + build、**不跑 typecheck**，编辑体验靠本地生成就够了。
+# 【为什么只写两行】gitignore 里不带斜杠的名字匹配**任意层级**，所以这两行同时覆盖
+#   仓库根与 app/ 两处，不需要写四条路径。
+auto-imports.d.ts
+components.d.ts
+
 # Node dependencies
 node_modules
 
