@@ -96,7 +96,7 @@ v-for="t in tags" :key="t.id" class="tagp"
         <div class="mu-ctl">
           <button class="play" @click="playPause">{{ playing ? '❚❚' : '▶' }}</button>
         </div>
-        <audio ref="audioRef" :src="bgMusicSrc" @timeupdate="onTime" @ended="onEnded"/>
+        <audio ref="audioRef" :src="bgMusicSrc" @timeupdate="onTime" @ended="onEnded" @play="onPlay" @pause="onPause"/>
       </div>
     </section>
 
@@ -206,27 +206,64 @@ import { ElMessage } from 'element-plus'
 //  在 setup 里算一次就够了：模板里每次渲染都重算没有意义（跟着上面视频同理）。
 // ================================================================
 const bgMusicSrc = mediaUrl(MEDIA_FILES.backgroundMusic)
-const playing = ref(false)
-const prog = ref(0)
-const audioRef = ref()
 
-const playPause = () => {
-  if (!audioRef.value) return
-  // 这里用 if / else 而不是三元表达式：两个分支都是为了产生副作用（暂停/播放），
-  // 不是为了算出一个值。写成 `a ? b() : c()` 会让人以为在读某个结果，
-  // lint 也会报 no-unused-expressions
-  if (playing.value) audioRef.value.pause()
-  else audioRef.value.play()
-  playing.value = !playing.value
-}
+/**
+ * 【这张卡片不再自己管状态，而是共用 `useBackgroundMusic()` 那一份】（2026-09-11 改）
+ * 改之前这里有三个自己的 ref（playing / prog / audioRef），于是：
+ *   · 页脚的开关改了之后，这张卡片上的按钮**不会跟着变**（反过来也一样）——
+ *     用户看到的就是"点了没反应"，而两处都觉得自己是对的
+ *   · 卡片一卸载（切到别的页面），播放状态就丢了
+ * 现在 `enabled`（想不想听，持久化）/ `playing`（真的在响）/ `progress` 都在共享状态里，
+ * 页脚开关、⚙ 设置面板、这张卡片看到的是同一个事实。
+ */
+const { enabled: musicEnabled, playing, progress: prog, toggle: playPause, report } = useBackgroundMusic()
+
+/**
+ * 【谁真正去 play/pause】`<audio>` 元素在本组件里，所以由本组件**照着 `enabled` 执行**。
+ *
+ * 【为什么用 watch 而不是"点按钮时直接 play"】开关可能在**别处**被改
+ * （页脚的开关、⚙ 设置面板），那时候按钮根本没被点过 —— 用 watch 才能三处一致。
+ *
+ * 【为什么 play() 之后还要乐观地把 playing 置为 true】`await el.play()` 在真实浏览器里
+ * 可能被自动播放策略拒绝（那时会走 catch，状态回到 false，是诚实的结果）；
+ * 而测试环境（jsdom）根本没有实现媒体播放，事件永远不会触发 ——
+ * 只靠事件驱动的话，"点了之后按钮应该变成暂停图标"这条就永远测不出来。
+ * 所以这里以**意图**为准先置位，再由真实事件（play / pause / ended）纠正。
+ */
+watch(musicEnabled, async (on) => {
+  const el = audioRef.value
+  if (!el) return
+  if (!on) {
+    el.pause()
+    report({ playing: false })
+    return
+  }
+  try {
+    await el.play()
+    report({ playing: true })
+  } catch {
+    report({ playing: false })
+  }
+})
+
+const audioRef = ref()
 
 // timeupdate 是 <audio> 的原生事件，播放过程中大约每 250ms 触发一次；
 // duration 在读元数据之前是 NaN，所以要判断一下再算百分比
-const onTime = () => { if (audioRef.value?.duration) prog.value = (audioRef.value.currentTime / audioRef.value.duration) * 100 }
+const onTime = () => {
+  if (audioRef.value?.duration) {
+    report({ progress: (audioRef.value.currentTime / audioRef.value.duration) * 100 })
+  }
+}
 
 // 放完之后把按钮切回「播放」。再点播放时浏览器会从头开始放
 // （HTML 规范里 play() 对已结束的媒体会先回到起始位置），所以不需要手动 currentTime = 0
-const onEnded = () => { playing.value = false }
+const onEnded = () => { report({ playing: false, progress: 0 }) }
+
+// 真实事件回写：浏览器可能在别的地方把音频暂停了（比如系统媒体控制、来电），
+// 那时界面必须跟着变，而不是继续显示"正在播放"
+const onPlay = () => { report({ playing: true }) }
+const onPause = () => { report({ playing: false }) }
 
 // ================================================================
 //  文章列表：从后端真实拉取

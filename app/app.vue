@@ -88,9 +88,9 @@
       <div class="foot-brand">
         <span class="foot-mark">✦</span> 亿轨星途
       </div>
-      <button class="music-toggle" :class="{ on: musicOn }" :aria-label="musicOn ? '关闭背景音乐' : '播放背景音乐'" @click="toggleMusic">
+      <button class="music-toggle" :class="{ on: musicEnabled }" :aria-label="musicEnabled ? '关闭背景音乐' : '播放背景音乐'" @click="toggleMusic">
         <span class="glyph">♫</span>
-        <span class="music-label">{{ musicOn ? '关闭背景音乐' : '播放背景音乐' }}</span>
+        <span class="music-label">{{ musicEnabled ? '关闭背景音乐' : '播放背景音乐' }}</span>
       </button>
     </footer>
 
@@ -167,7 +167,31 @@ const avatarText = computed(() =>
 )
 
 const bgVideo = ref()
-const musicOn = ref(false)
+
+/**
+ * 【背景音乐的状态来自共享组合式函数】（2026-09-11 改）
+ *
+ * 改之前这里是一个本地 `ref(false)`，而且它的作用是把**背景视频取消静音**：
+ *     const toggleMusic = () => { musicOn.value = !musicOn.value
+ *                                 bgVideo.value.muted = !musicOn.value }
+ * 两个问题：
+ *   ① 它管的根本不是"背景音乐"。本站的背景音乐是 `static-media/bg-music.mp3`
+ *      （首页那张音乐卡片在放它），而背景视频是**装饰性的、按设计一直静音** ——
+ *      给它取消静音只会让视频自己的音轨盖在音乐上
+ *   ② 状态是**局部的**，所以页脚这个开关和首页卡片上的按钮**互不知道对方**：
+ *      页脚显示"关闭背景音乐"时，卡片可能正显示着暂停图标，用户看到的就是"点了没反应"
+ *
+ * 现在状态统一放在 `useBackgroundMusic()` 里（`enabled` = 用户想不想听，持久化到 localStorage），
+ * 页脚的开关、⚙ 设置面板里的开关、首页音乐卡片的按钮都用这一份。
+ * 【谁真正放音】`<audio>` 元素在首页的音乐卡片里（F3 之后音乐页也会有），
+ * 它照着 `enabled` 去 play/pause，并把真实状态写回 `playing`。
+ *   也就是说：`enabled` 是"想听"，`playing` 是"真的在响"——浏览器有自动播放限制，
+ *   没有用户手势时 `play()` 会被拒绝，这两件事就必须分开，不能合成一个变量。
+ */
+const music = useBackgroundMusic()
+const { enabled: musicEnabled, toggle: toggleMusic } = music
+// 偏好读一次就够（服务端读不到 localStorage，所以只能在客户端做）
+onMounted(() => music.loadPreference())
 
 // 【背景视频的地址】在 setup 里算一次，模板里直接用。
 // 为什么不把 mediaUrl(...) 直接写进模板：模板里调用会在**每次渲染时**重新执行
@@ -183,7 +207,6 @@ const onVisibilityChange = () => {
   else bgVideo.value.play().catch(() => {})
 }
 onBeforeUnmount(() => document.removeEventListener('visibilitychange', onVisibilityChange))
-const toggleMusic = () => { musicOn.value = !musicOn.value; if (bgVideo.value) bgVideo.value.muted = !musicOn.value }
 const onLogout = async () => {
   // 【这次修了什么】原来只清本地 token，完全没调后端 ——
   // 于是服务端签出去的那个 token 依然有效到自然过期（默认 24 小时）。
