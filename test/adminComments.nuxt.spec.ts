@@ -550,4 +550,109 @@ describe('后台 · 评论管理', () => {
     // 空白的"文章"列会让人以为是页面没加载出来
     expect(rows(wrapper)[0].text()).toContain('文章已删除')
   })
+
+  // ---------------------------------------------------------------
+  // 七、超长评论的「详情」
+  // ---------------------------------------------------------------
+
+  /**
+   * 一条**长**评论：超过组件里那个 40 字的阈值。
+   * 特意让它的**结尾**与开头完全不同，并且断言弹窗里含结尾 ——
+   * 否则"弹窗里显示了完整内容"这条断言，光靠开头几个字是证明不了的。
+   */
+  const LONG_TEXT = `这是一条很长的评论，用来验证长评论能不能看全。${'内容' .repeat(30)}结尾这几个字只在完整内容里才有`
+  const LONG = { ...PENDING, content: LONG_TEXT }
+
+  it('超长评论_should出现「详情」入口，点开后弹窗里是【完整】内容而不是被截断的一行', async () => {
+    mockBackend({ '/admin/comment/page': body({ records: [LONG], total: 1 }) })
+
+    const wrapper = await mountSuspended(AdminPage)
+    await flushPromises()
+    await gotoComments(wrapper)
+
+    // ① 有入口
+    const detailBtn = buttonIn(rows(wrapper)[0], '详情')
+    expect(detailBtn).toBeTruthy()
+
+    // ② 点开后弹窗里是**完整**内容（含只有完整文本才有的结尾）
+    await detailBtn.trigger('click')
+    await flushPromises()
+    /**
+     * 【⚠️ 为什么这里用 wrapper.find，而不是像下拉菜单那样去 document 找】
+     *   同样是"浮层"，两者的挂载位置**不一样**：
+     *     · `el-select` 的下拉面板会 teleport 到 body（所以上面 pickStatus 必须去 document 找）
+     *     · `el-dialog` 的 `append-to-body` **默认是 false**，它就渲染在组件树里 ——
+     *       于是它在 wrapper 里，`document.querySelector` 一个都找不到
+     *   实测踩过：第一版按"浮层都在 body"去 document 找，拿到的是 null，
+     *   而弹窗其实好好地开着（就在 wrapper 里）。记下来免得下次又找错地方。
+     */
+    const content = wrapper.find('.cm-detail-modal .dd-content')
+    expect(content.exists()).toBe(true)
+    expect(content.text()).toContain('结尾这几个字只在完整内容里才有')
+    expect(content.text().length).toBe(LONG_TEXT.length)
+
+    // ③ 判断"要不要通过"需要的上下文也在（邮箱 / IP / 文章 / 状态 / 时间）
+    const meta = wrapper.find('.cm-detail-modal .dd-meta').text()
+    for (const field of ['昵称', '状态', '时间', '邮箱', 'IP', '文章']) {
+      expect(meta, `详情里应当有「${field}」`).toContain(field)
+    }
+    expect(meta).toContain(LONG.email)
+  })
+
+  it('短评论_should【不】给「详情」入口（每行都挂一个按钮只是噪音，还会把内容列挤窄）', async () => {
+    const wrapper = await mountSuspended(AdminPage)
+    await flushPromises()
+    await gotoComments(wrapper)
+
+    // PENDING 那条是"联调用的一条评论"（8 个字），在表格里一眼看得完
+    expect(buttonIn(rows(wrapper)[0], '详情')).toBeUndefined()
+  })
+
+  it('详情里点「通过」_should走同一个审核接口，并【在成功之后】关掉弹窗', async () => {
+    mockBackend({ '/admin/comment/page': body({ records: [LONG], total: 1 }) })
+    const success = vi.spyOn(ElMessage, 'success').mockImplementation(() => {})
+
+    const wrapper = await mountSuspended(AdminPage)
+    await flushPromises()
+    await gotoComments(wrapper)
+
+    await buttonIn(rows(wrapper)[0], '详情').trigger('click')
+    await flushPromises()
+
+    // 弹窗里的按钮：el-dialog 默认不 teleport 到 body，所以在 wrapper 里找（见上一条用例的说明）
+    const approve = wrapper.findAll('.cm-detail-modal .el-button')
+      .find(b => b.text() === '通过')
+    expect(approve).toBeTruthy()
+    await approve.trigger('click')
+    await flushPromises()
+
+    // ① 发出去的请求与表格里那个「通过」完全一样（同一套逻辑，没有第二份实现）
+    const put = callTo('PUT', '/admin/comment/2/status')
+    expect(put).toBeTruthy()
+    expect(put[1].params).toEqual({ status: 1 })
+    // ② 处理完了弹窗内容应当消失（detailRow 是快照，留着它用户会对着已处理的评论继续点）
+    expect(wrapper.find('.cm-detail-modal .dd-content').exists()).toBe(false)
+    success.mockRestore()
+  })
+
+  it('详情里审核失败_should【不】关弹窗（用户正在读的那段长评论要留在眼前好重试）', async () => {
+    mockBackend({
+      '/admin/comment/page': body({ records: [LONG], total: 1 }),
+      '/admin/comment/2/status': { code: 429, message: '请求过于频繁，请稍后再试' },
+    })
+
+    const wrapper = await mountSuspended(AdminPage)
+    await flushPromises()
+    await gotoComments(wrapper)
+
+    await buttonIn(rows(wrapper)[0], '详情').trigger('click')
+    await flushPromises()
+    const approve = wrapper.findAll('.cm-detail-modal .el-button')
+      .find(b => b.text() === '通过')
+    await approve.trigger('click')
+    await flushPromises()
+
+    // 失败时弹窗内容留在原地（关掉的话用户得重新找到那一行再点一次「详情」，白跑一趟）
+    expect(wrapper.find('.cm-detail-modal .dd-content').exists()).toBe(true)
+  })
 })

@@ -53,7 +53,15 @@
         <template #default="{ row }">
           <!-- 【安全关键】{{ }} 插值，不是 v-html：评论内容虽然已被后端转义过，
                但后台同样没有理由把它当 HTML 解析 —— 万无一失的写法只有一种 -->
+          <!-- 【超长评论为什么还要给一个「详情」】（2026-09-11 按用户反馈加）
+               这一列只有 220px，长评论被 CSS 截断成一行，鼠标悬停才有一个 tooltip。
+               而管理员的真实工作是"判断这条评论该不该通过"，长评论恰恰最需要看全 ——
+               靠悬停读一段一屏长的文字非常难受。所以超过阈值就给一个弹窗。 -->
           <span class="cm-cell">{{ row.content }}</span>
+          <el-button
+            v-if="isLongComment(row.content)"
+            link type="primary" size="small" class="cm-detail"
+            @click="openDetail(row)">详情</el-button>
         </template>
       </el-table-column>
       <el-table-column prop="articleTitle" label="文章" min-width="130" show-overflow-tooltip>
@@ -121,6 +129,45 @@
       </el-table-column>
     </el-table>
 
+    <!-- 评论详情：长评论看全貌的地方（短评论不提供入口，见 isLongComment 的说明）。
+         【为什么内容用 {{ }} 而不是 v-html】和表格里那条理由完全一样 ——
+         评论内容是用户输入，后台没有任何理由把它当 HTML 解析。
+         【为什么带上邮箱 / IP / 文章这些元信息】判断"这条是不是同一个人在刷评论"
+         靠的正是它们，而表格里那几列在窄屏下会被横向滚动藏起来；
+         把上下文和全文放在一起，管理员不用来回滚。 -->
+    <el-dialog v-model="detailVisible" title="评论详情" width="560px" class="cm-detail-modal">
+      <div v-if="detailRow" class="dd-body">
+        <div class="dd-meta">
+          <span><b>昵称</b>{{ detailRow.nickname }}</span>
+          <span><b>状态</b>{{ statusLabel(detailRow.status) }}</span>
+          <span><b>时间</b>{{ formatDateTime(detailRow.createTime) }}</span>
+          <span><b>邮箱</b>{{ detailRow.email || '—' }}</span>
+          <span><b>IP</b>{{ detailRow.ip || '—' }}</span>
+          <span><b>文章</b>{{ detailRow.articleTitle || '（文章已删除）' }}</span>
+        </div>
+        <!-- pre-wrap：评论里的换行是作者真正的排版意图，压成一行会读不懂 -->
+        <div class="dd-content">{{ detailRow.content }}</div>
+      </div>
+      <template #footer>
+        <!-- 【为什么详情里也放「通过 / 拒绝」】看完全文接着就要做决定 ——
+             让用户关掉弹窗、再去表格里找那一行点按钮，是白跑一趟。
+             这两个动作和表格里那两个按钮走的是**同一个方法**（moderateComment），
+             所以状态参数、刷新逻辑、角标更新全都一致，不存在两套行为。
+             ⚠️ 这里**没有**"退回待审核"：后端只认 1(通过) / 2(拒绝)，
+             发 status=0 会被拒（`状态只能是 1(通过) 或 2(拒绝)`）——
+             不给一个点了必然报错的按钮。 -->
+        <el-button @click="detailVisible = false">关闭</el-button>
+        <el-button
+          v-if="detailRow && detailRow.status !== commentStatus.APPROVED"
+          type="success"
+          @click="moderateFromDetail(commentStatus.APPROVED)">通过</el-button>
+        <el-button
+          v-if="detailRow && detailRow.status !== commentStatus.REJECTED"
+          type="warning"
+          @click="moderateFromDetail(commentStatus.REJECTED)">拒绝</el-button>
+      </template>
+    </el-dialog>
+
     <div class="pager">
       <el-pagination
         background
@@ -164,6 +211,36 @@ const { request } = useApi()
  * 这种最难发现的错位。
  */
 const commentStatus = COMMENT_STATUS
+
+/**
+ * 超过这个长度才给「详情」入口。
+ *
+ * 【为什么按长度决定给不给】短评论（"联调用的一条评论"）在表格里一眼就看得完，
+ * 每行都挂一个「详情」按钮只是噪音，还会把"内容"这一列挤窄。
+ * 【40 是怎么定的】表格里那一列的可视宽度大约能放下 20 个汉字（宽屏更多），
+ * 40 个字是"两行以上、悬停 tooltip 也开始不好读"的量级 —— 到这个长度，
+ * 悬停看 tooltip 已经不如点开一个正经的弹窗舒服了。
+ * 【代价说清楚】这是个**显示层**的阈值，不影响任何数据：短评论的内容在 DOM 里**依然是完整的**，
+ * 只是不提供"详情"入口 —— 所以即使以后有人把它调大，也不会"看不到内容"。
+ */
+const DETAIL_THRESHOLD = 40
+
+/** 该不该给这一条「详情」入口（content 可能为 null/非字符串，先兜一道） */
+const isLongComment = (text) => typeof text === 'string' && text.length > DETAIL_THRESHOLD
+
+/**
+ * 详情弹窗里"正在看的那一条"。
+ * 【为什么用一个 row 对象 + computed 的 v-model，而不是一个 boolean + 一个 row】
+ *   两份状态一定会不同步：关掉弹窗忘了清 row，下次打开的就是**上一条**的内容 ——
+ *   而那种错法看起来"弹窗是好的"，只是内容不对，非常难发现。
+ *   这里用"row 为 null 就是关着"这一个事实派生可见性，从根上不可能不同步。
+ */
+const detailRow = ref(null)
+const detailVisible = computed({
+  get: () => detailRow.value !== null,
+  set: (visible) => { if (!visible) detailRow.value = null },
+})
+const openDetail = (row) => { detailRow.value = row }
 
 /**
  * 「全部」的哨兵值：**只存在于界面上**，永远不会发给后端。
@@ -257,13 +334,39 @@ const moderateComment = async (row, status) => {
   if (res.ok) {
     ElMessage.success(status === commentStatus.APPROVED ? '已通过' : '已拒绝')
     refreshComments()
-    return
+    // 返回"这件事了结了"，给详情弹窗用（见 moderateFromDetail）
+    return true
   }
   // 404 = 这条评论已经被别人删掉了（比如另一个管理员，或另一个标签页）
   if (res.code === 404) {
     ElMessage.warning('这条评论已经不在了，列表已刷新')
     refreshComments()
+    // 评论已经不存在了，同样算"了结"：留着详情弹窗只会让用户对一条消失的评论继续点
+    return true
   }
+  // 其它失败（限流 / 500 / 网络）：没有刷新列表，让详情弹窗留在原地好让用户重试
+  return false
+}
+
+/**
+ * 详情弹窗里的「通过 / 拒绝」。
+ *
+ * 【为什么还要过一手，而不是在弹窗里直接调 moderateComment】
+ *   审核逻辑本身不写第二套（状态参数、刷新、角标更新全都复用同一个方法），
+ *   这里只解决"弹窗什么时候关"这一件事：
+ *   ① **只有确实处理成功了才关**。失败（比如被限流、后端 500）时弹窗要留着 ——
+ *      用户正在读的那段长评论还在眼前，可以直接再点一次；关掉的话他得重新找到那一行、
+ *      再点一次「详情」，白跑一趟
+ *   ② 关掉是因为 `detailRow` 是一条**快照**：处理完还留着它，用户对着一条已处理的评论
+ *      继续点，只会撞上没意义的报错
+ *   `moderateComment` 因此返回一个布尔值表示"这次操作已经了结"（成功，或 404 这种自愈场景），
+ *   而不是把"要不要关弹窗"的判断散在两处。
+ */
+const moderateFromDetail = async (status) => {
+  const row = detailRow.value
+  if (!row) return
+  const settled = await moderateComment(row, status)
+  if (settled) detailRow.value = null
 }
 
 /**
@@ -330,4 +433,30 @@ onMounted(refreshComments)
    ⚠️ 这条类名是必须定义的：`test/styleContract.spec.ts` 会检查"模板里用到的静态类都有定义"，
    我第一版就是只写了 class 没写规则，被它当场拦下来了。 */
 .cm-danger { color: var(--el-color-danger); }
+
+/* 「详情」入口：跟在被截断的内容后面，做成链接式按钮（不要第二个实心按钮，
+   否则又回到"这一列按钮太挤"的老问题上） */
+.cm-detail { margin-left: 6px; vertical-align: baseline; }
+
+/* ===== 评论详情弹窗的内容 =====
+   弹窗容器本身的样式（背景、圆角）写在 admin.vue 的全局块里（见那里的 .cm-detail-modal），
+   因为 el-dialog 会被 teleport 到 body；
+   而下面这几条是**弹窗内容**的样式，这些元素是由本组件渲染的（scope 属性照样打在它们身上），
+   所以写在 scoped 块里是有效的。 */
+.dd-body { display: flex; flex-direction: column; gap: 12px; }
+/* 元信息两列排：窄屏下自动变成一列（这里用 auto-fit，不用写媒体查询） */
+.dd-meta {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 6px 16px; font-size: 13px; color: var(--muted);
+}
+.dd-meta b { display: inline-block; min-width: 38px; margin-right: 6px; color: var(--ink); font-weight: 600; }
+/* 正文：pre-wrap 保住作者原本的换行（评论里的换行是真实的排版意图，
+   压成一行会读不懂）；max-height + 滚动是为了超长评论不把弹窗顶出屏幕 */
+.dd-content {
+  white-space: pre-wrap; word-break: break-word;
+  max-height: 46vh; overflow-y: auto;
+  padding: 12px 14px; border-radius: 10px;
+  background: rgba(0,0,0,.18); border: 1px solid var(--line);
+  color: var(--ink); font-size: 14px; line-height: 1.7;
+}
 </style>

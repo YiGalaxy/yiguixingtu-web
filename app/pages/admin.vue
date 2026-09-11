@@ -629,6 +629,21 @@ onMounted(async () => {
 /* 底部改成 flex，这样「正文用 Markdown 写」的提示能靠左、按钮靠右 */
 .art-edit-modal .el-dialog__footer { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
 
+/* ==================== 评论详情弹窗（CommentsPanel 里的那个） ====================
+   【为什么这几条写在全局块里】与上面文章弹窗同一个原因：el-dialog 会被 teleport 到 body，
+   物理上已经不在 .admin 里面了 —— 写进 CommentsPanel 的 scoped 块对**弹窗容器本身**不生效
+   （弹窗内容那部分生效，那些元素是该组件渲染的，scope 属性打在它们身上）。
+   这里只负责"容器长什么样"，正文与元信息的排版在 CommentsPanel 的 scoped 块里。 */
+.el-dialog.cm-detail-modal {
+  background: #16264a !important;
+  border: 1px solid rgba(150,190,240,.18) !important;
+  border-radius: 18px;
+}
+.cm-detail-modal .el-dialog__title { color: var(--ink) !important; }
+.cm-detail-modal .el-dialog__body { color: var(--ink) !important; padding-top: 8px; }
+/* 底部的两个按钮靠右（「关闭」在最左，通过/拒绝跟在后面） */
+.cm-detail-modal .el-dialog__footer { display: flex; justify-content: flex-end; gap: 10px; }
+
 /* ==================== 弹窗高度自适应 ====================
    【为什么必须做这件事】
    原来的弹窗内容是写死高度的（表单 5 行 + 编辑器 460px ≈ 840px）。
