@@ -608,21 +608,33 @@ onMounted(async () => {
 .admin .panel .el-table .el-button + .el-button { margin-left: 8px; }
 .admin .panel .el-table .el-button--small { padding: 5px 10px; }
 
-/* 固定列兜底：只在【真的会溢出】的窄窗口下才给固定列加底色。
-   为什么：桌面宽度下表格已经装得下，固定列根本没压住任何内容，
-           这时再给它加底色，反而会凭空多出一个色块，和毛玻璃面板格格不入。
-   何时需要：实测窗口 < 900px 时，容器会小于 798px 的列宽合计，表格开始横向滚动，
-           「操作」列就会压住「创建时间」—— 这时必须挡住下层文字。
-   注意【不能写死纯色】：面板是半透明叠在背景视频上的，底色每帧都在变，
-           写死颜色必然对不上。用「半透明底 + 背景模糊」，它跟着背景一起变，永远吻合。 */
-@media (max-width: 900px) {
-  .admin .panel .el-table-fixed-column--left,
-  .admin .panel .el-table-fixed-column--right {
-    background: rgba(18,30,56,.78) !important;
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-  }
+/* 固定列（「操作」那一列）的兜底底色：**无条件生效**。
+   【为什么它必须无条件 —— 用户报的"IP 和操作挤在一起"就是这么来的】
+   原来这条规则被包在 `@media (max-width: 900px)` 里，前提是"桌面宽度下表格装得下、
+   固定列没压住任何东西"。而**这个前提会随列数变化而失效**：评论表加了「邮箱」
+   与「IP」两列之后（min-width 150 + 120），列宽合计从 798px 涨到 1162px ——
+   于是 900~1460px 这一大段宽度里表格**已经在横向滚动**、「操作」列**正在压住「IP」列**，
+   而媒体查询还没生效 ⇒ 表现就是用户看到的"字叠字"。
+   【为什么不是"把断点改大一点"】那只是把同一个坑挪个位置：下次再加一列又会失效。
+   "表格装得下"这个前提本身就是错的 —— 它取决于**数据列有多少**，不取决于屏幕有多大。
+   【为什么不写纯色】面板是半透明叠在背景视频上的，底色每帧都在变，写死颜色必然对不上。
+   用「半透明底 + 背景模糊」它跟着背景一起变；宽屏下它只是让那一列略微压暗一层，
+   换来的是"任何宽度下都不会有文字透过固定列叠上来"。 */
+.admin .panel .el-table-fixed-column--left,
+.admin .panel .el-table-fixed-column--right {
+  background: rgba(18,30,56,.78) !important;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
+
+/* 表格的横向滚动条改成**常显**（el-scrollbar 默认藏在悬停之后）。
+   【为什么必须改】后台这些表格的列宽合计基本都大于容器（评论表 1162px、文章表更长），
+   也就是"横向能滚"是常态。而滚动条默认不显示 ⇒ 用户看不见右边还有内容，
+   只会把"列挤在一起/字叠字"当成布局坏了 —— 这正是用户报上来的现象。
+   常显之后，"右边还有东西、可以拉"变成一眼可见的事实（手机上尤其要紧）。 */
+.admin .panel .el-scrollbar__bar.is-horizontal { height: 8px; opacity: 1 !important; }
+.admin .panel .el-scrollbar__bar.is-horizontal .el-scrollbar__thumb { background-color: rgba(150,190,240,.45); }
+.admin .panel .el-scrollbar__bar.is-horizontal .el-scrollbar__thumb:hover { background-color: rgba(150,190,240,.7); }
 
 /* 窄屏：工具条里的每个控件独占一行（表格那边靠媒体查询已经改成横向滚动） */
 @media (max-width: 820px) {
