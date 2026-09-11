@@ -102,6 +102,7 @@
         <input
           class="mp-range"
           type="range"
+          :style="{ '--mp-played': played + '%' }"
           min="0"
           :max="duration > 0 ? duration : 1"
           step="0.1"
@@ -520,6 +521,20 @@ const onSeekCommit = () => {
   draggingSeek.value = false
 }
 
+/**
+ * 进度条上「已播放」那一截的百分比 —— 绑给 CSS 变量，见 `.mp-range` 的样式注释。
+ *
+ * 【为什么绑 seekValue 而不是 currentTime】拖动时界面读的就是 `seekValue`
+ * （理由见上面那段）。进度条的颜色必须跟着手指一起走，否则会出现
+ * "滑块已经拖到 2/3 了、左边那一截还停在原处"这种割裂感。
+ *
+ * ⚠️ 【为什么得自己算这个值 —— 这就是用户报的那个 bug 的根因】
+ *   原生 `<input type="range">` 在 Chrome / Edge / Safari 下**没有"已播放部分"
+ *   这个元素**（只有 Firefox 提供 `::-moz-range-progress`）。不自己画的话，
+ *   滑块左右两边是同一个颜色：拖得动、但看不出播到哪儿了。
+ */
+const played = computed(() => playedPercent(seekValue.value, duration.value))
+
 const onVolumeInput = (event) => {
   const value = Number(event?.target?.value)
   if (!Number.isFinite(value)) return
@@ -613,7 +628,26 @@ useSeoMetaFor(() => ({
 .mp-play:hover { filter: brightness(1.08); }
 .mp-seek { flex: 1; display: flex; align-items: center; gap: 12px; min-width: 220px; }
 .mp-time { min-width: 44px; text-align: center; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
-.mp-range { flex: 1; height: 6px; border-radius: 999px; background: rgba(255, 255, 255, .12); appearance: none; -webkit-appearance: none; outline: none; }
+/* 进度条轨道：左侧（**已播放**）金→青渐变，右侧（未播放）是原来的浅灰。
+   【为什么要自己画"已播放"这一截】原生 `<input type="range">` 在 Chrome / Edge /
+     Safari 下**没有"已播放部分"这个元素**（只有 Firefox 有 `::-moz-range-progress`），
+     不画的话滑块左右两边一模一样 —— 拖得动，但看不出播到哪儿了（用户报的就是这个）。
+   【怎么画的】在轨道底色上按进度**硬切**一条渐变：`--mp-played` 由 music.vue
+     按当前进度写进来（值的算法见 app/utils/playerProgress.ts）。
+     渐变里同一位置给两个颜色 = 硬边（没有过渡），这正是进度条要的分界线。
+   【⚠️ 那个 var() 的兜底值 0% 不能省】万一样式变量没绑上，整条 background 会失效，
+     轨道直接变成透明 —— 连"未播放"的底色都没了。给个 0% 兜底，最差也是"全灰轨道"。 */
+.mp-range { flex: 1; height: 6px; border-radius: 999px; appearance: none; -webkit-appearance: none; outline: none;
+  background: linear-gradient(90deg,
+    var(--accent) 0,
+    var(--cyan) var(--mp-played, 0%),
+    rgba(255, 255, 255, .12) var(--mp-played, 0%),
+    rgba(255, 255, 255, .12) 100%); }
+/* Firefox：它有原生的"已播放"伪元素，用它比渐变更准（也不必读 --mp-played）。
+   ⚠️ 这两条要成对写：只写 progress、不写 track 的话，轨道会**露出上面那条渐变**，
+   于是"已播放"被画两遍、颜色叠得更深。 */
+.mp-range::-moz-range-track { height: 6px; border-radius: 999px; background: rgba(255, 255, 255, .12); }
+.mp-range::-moz-range-progress { height: 6px; border-radius: 999px; background: linear-gradient(90deg, var(--accent), var(--cyan)); }
 /* 滑块的圆点：Chrome/Safari 走 -webkit- 伪元素，Firefox 走 -moz- 那条 */
 .mp-range::-webkit-slider-thumb {
   -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%;

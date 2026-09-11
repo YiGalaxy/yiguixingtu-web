@@ -496,6 +496,33 @@ describe('音乐页 · 封面与控制条', () => {
     expect(audio.muted).toBe(false)
     expect(audio.volume).toBeCloseTo(0.6)
   })
+
+  it('⚠️ 进度条「已播放」那一截要有颜色：轨道上的 --mp-played 跟着播放进度走', async () => {
+    // 【钉的是用户报的那个 bug】"已经播放部分的进度条没有颜色"。
+    //   根因：原生 `<input type="range">` 在 Chrome / Edge / Safari 下**没有"已播放"
+    //   这个元素**（只有 Firefox 提供 `::-moz-range-progress`），所以只能在轨道底色上
+    //   按进度**硬切**一条渐变 —— 而那个分界点就是这里绑的 `--mp-played`。
+    //   它没绑上、或者绑成了 NaN / undefined，表现恰恰就是"滑块左右一个颜色"。
+    //   ⚠️ 断言的是**内联样式里那个 CSS 变量**：happy-dom 不做布局、也不求值渐变，
+    //   真正的视觉观感只能人工确认（和"唱片转不转"是同一条限制，如实写在这里）。
+    const wrapper = await mountPlayer()
+    await defineDuration(wrapper, 120)
+
+    // 用 aria-label 定位，不靠"第几个 input" —— 控制条上还有一个音量滑块
+    const range = () => wrapper.find('input[aria-label="播放进度"]')
+
+    // 还没开始播：0%（不是 NaN、也不是 100% —— 时长未知时若给 100，整条轨道都会是"已播放"色）
+    expect(range().attributes('style')).toMatch(/--mp-played:\s*0%/)
+
+    await playTo(wrapper, 30)
+    expect(range().attributes('style')).toMatch(/--mp-played:\s*25%/)
+
+    await playTo(wrapper, 90)
+    expect(range().attributes('style')).toMatch(/--mp-played:\s*75%/)
+
+    await playTo(wrapper, 120)
+    expect(range().attributes('style')).toMatch(/--mp-played:\s*100%/)
+  })
 })
 
 describe('外壳里的播放器 · 状态回写', () => {
