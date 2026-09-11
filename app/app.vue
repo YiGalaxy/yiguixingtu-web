@@ -265,6 +265,24 @@ body { margin: 0; background: var(--bg); color: var(--ink); font-family: "PingFa
 .bg-video { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: -10; pointer-events: none; filter: brightness(1.35); transform: translateZ(0); will-change: transform; }
 .bg-overlay { position: fixed; inset: 0; z-index: -9; pointer-events: none; background: rgba(6,12,26,.12); backdrop-filter: blur(0); }
 
+/* ===== 共享的"玻璃面板"底 =====
+   【为什么放在这里（全局）而不是各页面自己的 scoped 样式里】
+   这个类被首页、归档页、后台面板一起用。原来它**只在 index.vue 里以 scoped 形式定义**，
+   而 scoped 样式只对本组件的模板生效 —— 于是【归档页写了 class="glass"，却没有任何规则命中】：
+   那些月份卡片和三个状态块没有背景、没有边框，文字直接压在背景视频上，
+   看起来就是"和背景糊在一起"。用户报的原话正是这个。
+   放到全局之后：任何页面都能用，而且只有一份定义，不会再出现"用了却没定义"。
+
+   【为什么不用 scoped】
+   全局定义才可能被别的页面用到；scoped 定义天然只服务一个文件，
+   一旦被别处引用就是一个静默的空样式（不报错、不警告）。
+
+   【各页面里已有的同名副本怎么办】
+   index.vue 里那份 scoped 副本与这里**取值完全一致**，留着不冲突（作用域更具体，先命中它），
+   admin.vue 里那份 `.admin .glass` 同理。本次不动它们，避免改了外观却没验证。
+   新页面一律直接用这个全局类。 */
+.glass { background: rgba(36,54,92,.34); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border: 1px solid rgba(180,210,245,.14); box-shadow: inset 0 1px 0 rgba(255,255,255,.08); }
+
 .site-nav { position: sticky; top: 0; z-index: 200; display: flex; align-items: center; justify-content: space-between; height: 64px; padding: 0 32px; background: rgba(14,24,48,.62); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-bottom: 1px solid rgba(150,190,240,.10); box-shadow: inset 0 1px 0 rgba(255,255,255,.06); }
 .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; }
 .brand-mark { width: 32px; height: 32px; border-radius: 10px; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, var(--accent-strong), var(--accent)); color: #0a1224; font-size: 15px; font-weight: 800; box-shadow: 0 4px 16px rgba(242,193,78,.45); animation: markPulse 4s ease-in-out infinite; }

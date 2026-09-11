@@ -49,7 +49,9 @@ v-for="t in tags" :key="t.id" class="tagp"
       <div id="profile" class="profile glass">
         <div class="pf-head">
           <div class="pf-avatar"><img src="/cover-1.png" alt="avatar" ></div>
-          <div class="pf-info">
+          <!-- 同上：这里原来写的是 class="pf-info"，全项目也没有这条规则，
+               只是包裹用的 div，去掉类名渲染结果完全相同。 -->
+          <div>
             <div class="pf-name">亿轨星途</div>
             <div class="pf-sub">在代码与星轨之间，慢慢画自己的图。</div>
           </div>
@@ -78,7 +80,13 @@ v-for="t in tags" :key="t.id" class="tagp"
         <div class="mu-badge">BACKGROUND MUSIC</div>
         <div class="mu-main">
           <div class="mu-cover"><img src="/cover-1.png" alt="背景音乐封面" ></div>
-          <div class="mu-info">
+          <!-- 【原来这里是 class="mu-info"，但全项目没有任何 .mu-info 规则】
+               同类缺陷在归档页造成了真问题（写了 class="glass" 却没有任何规则命中，
+               卡片没有背景、文字糊在背景视频上）。这里虽然只是个纯包裹用的 div
+               （去掉类名渲染结果完全相同，一个没有规则的类对视觉零影响），
+               但"看起来像有样式、其实没有"的类留着就是隐患，所以直接去掉类名。
+               这条由 test/styleContract.nuxt.spec.ts 守着。 -->
+          <div>
             <!-- 不写曲名：本站没有这些曲目，编一个"雨落星轨"出来只是好看 -->
             <div class="mu-title">背景音乐</div>
             <div class="mu-art">站点自带音轨</div>

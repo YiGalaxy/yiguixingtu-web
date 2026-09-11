@@ -197,34 +197,63 @@ useSeoMetaFor(() => ({
 .ar-head h1 { font-size: 28px; font-weight: 800; margin: 0 0 8px; }
 .ar-sub { margin: 0; color: var(--muted); font-size: 14px; }
 
-/* 空的 / 出错时的占位块：和首页 .w-empty 一样的"安静"风格，只多一层玻璃底 */
-.ar-state { border-radius: 20px; padding: 60px 24px; text-align: center; color: var(--muted); font-size: 14px; }
+/* 空的 / 出错时的占位块：和首页 .w-empty 一样的"安静"风格，只多一层玻璃底
+   （玻璃底来自【全局】的 .glass，见 app.vue —— 原来归档页写了 class="glass"
+    却没有任何规则命中，于是这些块没有背景，文字直接压在背景视频上） */
+.ar-state { border-radius: 16px; padding: 60px 24px; text-align: center; color: var(--muted); font-size: 14px; }
 .ar-link { color: var(--accent); margin-left: 6px; text-decoration: none; }
 .ar-link:hover { text-decoration: underline; }
 
 .ar-months { display: flex; flex-direction: column; gap: 18px; }
-.ar-month { border-radius: 20px; padding: 20px 24px 8px; }
+
+/* 【这一块是"表格"的外框】（2026-09-11 按用户反馈重做）
+   原来每个月的卡片只有 border-radius + padding，加上当时的 .glass 根本没生效，
+   整页看起来就是"一片字漂在背景上、看不出哪一行属于哪个月"。
+   现在把每个月当成一张小表格：
+     · 卡片本身用全局 .glass 的玻璃底 + 边框（外框）
+     · 表头（年月 + 篇数）有一条实线底边，并带一点底色，和行区分开
+     · 行与行之间用虚线分隔，所以每一行都被"框"住了
+     · 「日」做成小徽章，扫读时一眼能对上是哪一天
+   overflow: hidden 是为了让表头的底色与圆角对齐，不溢出卡片边界。 */
+.ar-month { border-radius: 16px; padding: 0; overflow: hidden; }
 
 /* 月份标题做成"左侧时间轴 + 右侧篇数"两栏：一眼能看出这一段是几月、有多少篇 */
-.am-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 0 0 12px; }
-.am-date { font-size: 19px; font-weight: 800; color: var(--ink); }
+.am-head {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+  margin: 0; padding: 13px 20px 11px;
+  background: rgba(255,255,255,.035);
+  border-bottom: 1px solid rgba(180,210,245,.18);
+}
+.am-date { font-size: 17px; font-weight: 800; color: var(--ink); }
 .am-count { font-size: 12px; color: var(--accent); font-weight: 700; }
 
 .am-list { list-style: none; margin: 0; padding: 0; }
+/* 行分隔线画在 <li> 上（不是 <a> 上）：这样虚线是【整行宽】的，
+   不会因为 <a> 自己有 padding 而缩进、看起来像没对齐 */
+.am-list li + li { border-top: 1px dashed rgba(150,190,240,.13); }
 .am-item {
-  display: flex; align-items: baseline; gap: 14px;
-  padding: 9px 10px; border-radius: 10px;
+  display: flex; align-items: center; gap: 12px;
+  padding: 9px 20px;
   color: var(--muted); text-decoration: none;
   transition: color .2s, background .2s;
 }
-.am-item:hover { color: var(--ink); background: rgba(255,255,255,.05); }
-/* 「日」固定宽度右对齐：这样不同月份的文章标题左边缘是对齐的，
-   扫读的时候视线不会一行一行地跳 */
-.am-day { width: 26px; flex-shrink: 0; text-align: right; color: var(--accent); font-weight: 700; font-size: 13px; }
+.am-item:hover { color: var(--ink); background: rgba(255,255,255,.06); }
+/* 「日」做成小徽章：固定宽度 + 居中，不同月份的文章标题左边缘依然是对齐的，
+   扫读时视线不会一行一行地跳；加底色的原因是让每一行有个"锚点"，
+   否则一整列日期看起来还是散着的字 */
+.am-day {
+  flex-shrink: 0; width: 30px; height: 24px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 7px;
+  background: rgba(242,193,78,.12); border: 1px solid rgba(242,193,78,.26);
+  color: var(--accent); font-weight: 700; font-size: 12px;
+}
 .am-title { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 @media (max-width: 640px) {
   .archive { padding: 24px 16px; }
   .am-title { white-space: normal; }
+  .am-head { padding: 12px 14px 10px; }
+  .am-item { padding: 9px 14px; }
 }
 </style>
