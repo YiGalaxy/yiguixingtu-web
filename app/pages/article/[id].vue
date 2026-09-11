@@ -477,7 +477,14 @@ const fmtTime = (t) => (t ? String(t).replace('T', ' ').slice(0, 16) : '')
 
 <style scoped>
 .art-page { min-height: 70vh; }
-.art-wrap { max-width: 860px; margin: 0 auto; padding: 32px 24px 64px; }
+/* 阅读栏宽度。
+   【为什么从 860 提到 960】站长反馈"文章详情页有点小、不那么好看" —— 860px 是
+   早期按"一行 40 来个字最舒服"定的，但本项目正文用的是 16px 中文 + 1.9 行高，
+   860px 下每行不到 35 个字、两侧空白显得很空。960px 在 1440 及以上的屏上
+   观感明显更"撑得开"，而在窄屏上本来就走下面的媒体查询，不受影响。
+   ⚠️ 再宽就要开始伤可读性了（一行超过 ~45 个中文字，眼睛回行会找不准行）——
+   所以这个数字不是越大越好，960 是"看起来大气"与"读起来不累"之间的取值。 */
+.art-wrap { max-width: 960px; margin: 0 auto; padding: 32px 24px 64px; }
 
 .back {
   display: inline-block; margin-bottom: 18px; color: var(--muted);
@@ -507,7 +514,7 @@ const fmtTime = (t) => (t ? String(t).replace('T', ' ').slice(0, 16) : '')
   background: rgba(13,22,43,.96);
   border: 1px solid rgba(180,210,245,.14);
   border-radius: 22px;
-  padding: 40px 44px 48px;
+  padding: 44px 52px 52px;
   box-shadow: inset 0 1px 0 rgba(255,255,255,.06), 0 24px 60px rgba(0,0,0,.35);
 }
 .doc-head { margin-bottom: 28px; padding-bottom: 24px; border-bottom: 1px solid rgba(150,190,240,.12); }
@@ -635,7 +642,11 @@ const fmtTime = (t) => (t ? String(t).replace('T', ' ').slice(0, 16) : '')
   --md-scrollbar-bg-color: rgba(255,255,255,.04);
   --md-scrollbar-thumb-color: rgba(150,190,240,.28);
 }
-:deep(.md-editor-preview) { background: transparent; font-size: 15px; line-height: 1.85; }
+/* 正文排版。
+   【为什么正文是 16px / 1.9】站长反馈"详情页有点小"。正文是这一页的主角，
+   15px 在 960px 的栏宽里显得单薄；16px 是中文长文阅读的常见下限，
+   行高跟着提到 1.9（中文没有西文的词间空白，行距太小会糊成一片）。 */
+:deep(.md-editor-preview) { background: transparent; font-size: 16px; line-height: 1.9; }
 :deep(.md-editor-preview h1),
 :deep(.md-editor-preview h2),
 :deep(.md-editor-preview h3) { color: var(--ink); }
