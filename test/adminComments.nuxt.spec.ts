@@ -2,6 +2,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mockNuxtImport, mountSuspended } from '@nuxt/test-utils/runtime'
 import { flushPromises, enableAutoUnmount } from '@vue/test-utils'
 import { ElMessage, ElMessageBox } from 'element-plus'
+// 【为什么这里要读源码文件】有一条断言必须看源码才成立 ——
+//   "操作列不折行"这件事 jsdom 量不出来（它没有布局引擎，见那条用例里的说明），
+//   所以只能守"结构上的约定"（flex + nowrap 与列宽下限）。
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import AdminPage from '~/pages/admin.vue'
 
 // =====================================================================
@@ -81,8 +86,48 @@ const gotoComments = async (wrapper) => {
 /** 表格里当前渲染出来的评论行 */
 const rows = (wrapper) => wrapper.findAll('.panel .el-table__row')
 
-/** 某行里某个按钮（通过 / 拒绝 / 删除） */
+/** 某行里某个按钮（通过 / 拒绝 / 更多） */
 const buttonIn = (row, label) => row.findAll('.el-button').find(b => b.text() === label)
+
+/**
+ * 打开某行的「更多」菜单（不可逆的「删除」在里面）。
+ *
+ * 【为什么要真实点开，而不是直接调组件的方法】和改状态筛选是同一个理由（见 pickStatus）：
+ *   真正容易接错的是那根线 —— 菜单有没有绑在这一行上、点了之后有没有走到 removeComment。
+ * 【为什么要用 startsWith 而不是全等】触发按钮里还有一个箭头 `<span class="caret">▾</span>`，
+ *   它的 text() 是「更多▾」，全等匹配会找不到。
+ */
+const openMoreMenu = async (row) => {
+  await row.findAll('.el-button').find(b => b.text().startsWith('更多')).trigger('click')
+  await flushPromises()
+}
+
+/**
+ * 点「更多」菜单里的一项。
+ *
+ * 【为什么要按文字找、并断言"正好一项"】
+ *   Element Plus 把下拉菜单 teleport 到 body，它不在行里、也不在表格里，只能去 document 找。
+ *   断言"正好一项"是有意义的：菜单是**每个下拉各自一份**的，如果哪天出现两份，
+ *   说明有组件卸载后没被回收 —— 那时用户点到的可能是上一个页面残留的那一份，
+ *   它的处理函数早已失效，表现是"点了没反应"。
+ *
+ * 【为什么不断言"菜单是可见的"（第一版就是那么写的，然后红了）】
+ *   第一版按 `popper.style.display !== 'none'` 过滤，单独跑这一条时能过，
+ *   放在整个文件里跑却是 0 个可见项 —— 因为 Element Plus 维护着一份**全局的 popper 状态**，
+ *   同一个文件里前面的用例开过 el-select 的下拉，这份状态会漏到后面的用例，
+ *   于是刚点开的菜单立刻被关掉（display:none），而菜单本身是在 DOM 里的。
+ *   也就是说：**在 jsdom 里"popper 开没开"不是这个组件能决定的事**，
+ *   拿它当断言条件只会得到一个随执行顺序变红的用例（比没有用例更糟）。
+ *   所以这里只断言"菜单确实渲染出来了、且点它能走到同一个处理函数" ——
+ *   jsdom 没有布局引擎，真正的"看起来对不对"只能靠人眼，已经写进 README 的上线核对清单。
+ */
+const clickMoreItem = async (label) => {
+  const items = [...document.querySelectorAll('.el-dropdown-menu__item')]
+    .filter(i => i.textContent.trim() === label)
+  expect(items.length, `「${label}」菜单项应当正好一个（多份说明有组件没被回收）`).toBe(1)
+  items[0].dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  await flushPromises()
+}
 
 /**
  * 最近一次【列表查询】的参数。
@@ -345,6 +390,52 @@ describe('后台 · 评论管理', () => {
   // 四、删除
   // ---------------------------------------------------------------
 
+  it('操作列_should把动作排成一行不折行，且「删除」收进「更多」菜单里', async () => {
+    const wrapper = await mountSuspended(AdminPage)
+    await flushPromises()
+    await gotoComments(wrapper)
+
+    const row = rows(wrapper)[0]
+    const acts = row.find('.cm-acts')
+    expect(acts.exists()).toBe(true)
+
+    // 三个动作一个都不能少：通过 / 拒绝 在行内，删除在菜单里
+    const labels = acts.findAll('.el-button').map(b => b.text())
+    expect(labels.some(t => t === '通过')).toBe(true)
+    expect(labels.some(t => t === '拒绝')).toBe(true)
+    expect(labels.some(t => t.startsWith('更多'))).toBe(true)
+    // 而且行内**不该**再有第四个按钮（删除已经搬进菜单；它要是回来了就会把这一列再挤爆）
+    expect(labels.length).toBe(3)
+    expect(labels).not.toContain('删除')
+
+    // 删除确实在「更多」里（点开就能看到）
+    await openMoreMenu(row)
+    const items = [...document.querySelectorAll('.el-dropdown-menu__item')]
+      .filter(i => i.textContent.trim() === '删除评论')
+    expect(items.length).toBe(1)
+    // 【为什么不在这里断言"菜单处于展开态"】Element Plus 的 popper 开关状态是全局的、
+    //   会从同一个文件里前面的用例漏过来（详见 clickMoreItem 的注释）：
+    //   单独跑能过、整文件跑就红。所以这里只断言"菜单渲染出来了"，
+    //   点开它能不能用由下面三条删除用例来证明。
+
+    /**
+     * 【为什么这条断言要去看源码，而不是"看它有没有折行"】
+     *   jsdom **没有布局引擎**（不算盒模型、不做排版），所以"按钮有没有折到第二行"
+     *   在测试里根本量不出来 —— 这也正是"按钮堆"能长期存在的原因：
+     *   它不报错、不影响任何行为，只有真人看页面才会发现。
+     *   所以这里守的是**结构性的约定**：动作容器必须是 flex + `flex-wrap: nowrap`
+     *   （而不是靠"把列宽调大"—— 那改一次文案就失效），并且列宽给够了。
+     *   真正的观感仍然需要人眼确认，这一条只能保证"结构上不可能折"。
+     */
+    const src = readFileSync(join(process.cwd(), 'app/components/admin/CommentsPanel.vue'), 'utf8')
+    expect(src).toMatch(/\.cm-acts\s*\{[^}]*flex-wrap:\s*nowrap/)
+    const widthMatch = /label="操作"\s+width="(\d+)"/.exec(src)
+    expect(widthMatch).not.toBeNull()
+    // 两个小按钮（各约 48px）+ 8px 间距 + 「更多」（约 60px）+ 单元格左右内边距 24px ≈ 188，
+    // 所以列宽不能低于 190 —— 176 正是原来放不下的那个值
+    expect(Number(widthMatch[1])).toBeGreaterThanOrEqual(190)
+  })
+
   it('删除_should先二次确认（并说清前台也看不到了），确认后发 DELETE', async () => {
     const confirmSpy = vi.spyOn(ElMessageBox, 'confirm').mockResolvedValue('confirm')
 
@@ -352,7 +443,8 @@ describe('后台 · 评论管理', () => {
     await flushPromises()
     await gotoComments(wrapper)
 
-    await buttonIn(rows(wrapper)[0], '删除').trigger('click')
+    await openMoreMenu(rows(wrapper)[0])
+    await clickMoreItem('删除评论')
     await flushPromises()
 
     expect(confirmSpy).toHaveBeenCalledTimes(1)
@@ -372,7 +464,8 @@ describe('后台 · 评论管理', () => {
     await flushPromises()
     await gotoComments(wrapper)
 
-    await buttonIn(rows(wrapper)[0], '删除').trigger('click')
+    await openMoreMenu(rows(wrapper)[0])
+    await clickMoreItem('删除评论')
     await flushPromises()
 
     expect(callTo('DELETE', '/admin/comment/2')).toBeUndefined()
@@ -390,7 +483,8 @@ describe('后台 · 评论管理', () => {
     // 删掉之后后端就没有待审核的了
     mockBackend({ '/admin/comment/page': body({ records: [], total: 0 }) })
 
-    await buttonIn(rows(wrapper)[0], '删除').trigger('click')
+    await openMoreMenu(rows(wrapper)[0])
+    await clickMoreItem('删除评论')
     await flushPromises()
 
     expect(rows(wrapper).length).toBe(0)
@@ -431,7 +525,8 @@ describe('后台 · 评论管理', () => {
     await gotoComments(wrapper)
 
     const before = pageCallCount()
-    await buttonIn(rows(wrapper)[0], '删除').trigger('click')
+    await openMoreMenu(rows(wrapper)[0])
+    await clickMoreItem('删除评论')
     await flushPromises()
 
     expect(warning.mock.calls.some(c => String(c[0]).includes('列表已刷新'))).toBe(true)

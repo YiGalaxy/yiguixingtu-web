@@ -42,9 +42,11 @@
   <div class="panel glass">
     <!-- 列宽说明：可伸缩的三列（内容 / 文章标题 / 邮箱）都开了
          show-overflow-tooltip，长文本不会把行撑高、也不会把别的列挤出去；
-         固定的五列（昵称 / 状态 / 时间 / IP / 操作）合计 638px。
+         固定的五列（昵称 110 / 状态 92 / 时间 140 / IP 120 / 操作 200）合计 662px。
          窄窗口下表格会横向滚动，右侧 fixed 的「操作」列由 ≤900px 那条媒体查询
-         补上半透明底，不会出现"字叠字"（用户表那次踩过的坑）。 -->
+         补上半透明底，不会出现"字叠字"（用户表那次踩过的坑）。
+         ⚠️ 操作列从 176 加到 200 是 2026-09-11 修"按钮堆"的一部分：
+         三个小按钮并排放不下 176px，第三个会被挤到第二行（详见下面那段注释）。 -->
     <el-table v-loading="cmLoading" :data="comments" empty-text="这个状态下还没有评论">
       <el-table-column prop="nickname" label="昵称" width="110" />
       <el-table-column prop="content" label="内容" min-width="220" show-overflow-tooltip>
@@ -78,24 +80,43 @@
       <el-table-column prop="ip" label="IP" width="120">
         <template #default="{ row }">{{ row.ip || '—' }}</template>
       </el-table-column>
-      <el-table-column label="操作" width="176" fixed="right">
+      <el-table-column label="操作" width="200" fixed="right">
         <template #default="{ row }">
           <!-- 【为什么「通过 / 拒绝」不做二次确认，只有「删除」做】
                审核是可逆的：拒绝掉的评论在「已拒绝」里还在，随时能再通过。
                给一个可逆的操作加确认框，只会让"处理一批待审核"变成一道道弹窗。
                「删除」不可逆（后端是逻辑删除，删除后前台后台都不再显示、
                界面上也没有恢复入口），所以它要确认。 -->
-          <!-- 已经是当前状态的那个按钮禁用掉：点它不会发生任何事，
-               留着可点反而让人以为"点了没生效" -->
-          <el-button
-            size="small" type="success"
-            :disabled="row.status === COMMENT_STATUS.APPROVED"
-            @click="moderateComment(row, COMMENT_STATUS.APPROVED)">通过</el-button>
-          <el-button
-            size="small" type="warning"
-            :disabled="row.status === COMMENT_STATUS.REJECTED"
-            @click="moderateComment(row, COMMENT_STATUS.REJECTED)">拒绝</el-button>
-          <el-button size="small" type="danger" @click="removeComment(row)">删除</el-button>
+          <!-- 【为什么把「删除」收进「更多」菜单里】（2026-09-11 修用户报的"按钮堆"）
+               原来这一列宽 176px，里面并排放三个小按钮：
+               每个小按钮的宽度是「2 个汉字 + 左右各 11px 内边距 + 边框」≈ 48px，
+               加上 Element Plus 给相邻按钮的 12px 外边距与单元格左右各 12px 内边距，
+               合计约 186px —— **比列宽还宽**，于是第三个按钮被挤到第二行，
+               看起来就是"按钮堆在一起"。
+               现在：两个审核按钮留在外面（它们是最常用的动作，点一下就完成），
+               不可逆的「删除」收进「更多」里 —— 既解决了宽度，也让"危险动作"
+               多一道门槛（菜单 + 二次确认）。
+               .cm-acts 用 flex + nowrap 再兜一道：无论文字怎么变，都不会再折行。 -->
+          <div class="cm-acts">
+            <!-- 已经是当前状态的那个按钮禁用掉：点它不会发生任何事，
+                 留着可点反而让人以为"点了没生效" -->
+            <el-button
+              size="small" type="success"
+              :disabled="row.status === COMMENT_STATUS.APPROVED"
+              @click="moderateComment(row, COMMENT_STATUS.APPROVED)">通过</el-button>
+            <el-button
+              size="small" type="warning"
+              :disabled="row.status === COMMENT_STATUS.REJECTED"
+              @click="moderateComment(row, COMMENT_STATUS.REJECTED)">拒绝</el-button>
+            <el-dropdown trigger="click">
+              <el-button size="small" class="cm-more">更多<span class="caret">▾</span></el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item class="cm-danger" @click="removeComment(row)">删除评论</el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
+          </div>
         </template>
       </el-table-column>
     </el-table>
@@ -290,4 +311,23 @@ onMounted(refreshComments)
    这里只保证文字颜色与主题一致、不会因为换行把行高撑起来 */
 .cm-cell { color: var(--ink); }
 .muted { color: var(--muted); }
+
+/* 【操作列为什么用 flex + nowrap】按钮的宽度是跟着文字走的（中文两个字 + 内边距），
+   靠"把列宽调大"只是把问题往后推：哪天文案变成三个字又会折行。
+   flex-wrap: nowrap 是**结构性**的保证：这一行永远不折，列宽不够时由表格横向滚，
+   而不是把第三个按钮挤到第二行（用户报的就是那个样子）。 */
+.cm-acts { display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; }
+
+/* 「更多」的箭头：与导航里那个 .caret 同样的大小观感，这里单独写一份小尺寸，
+   免得依赖别的文件的样式（全局样式改了会连带影响这里） */
+.cm-more .caret { margin-left: 2px; font-size: 10px; opacity: .75; }
+
+/* 「删除评论」这一项用危险色：删除是不可逆的，和上面两个审核按钮在观感上区分开，
+   让人在点之前就意识到"这个跟前两个不一样"。
+   【为什么 scoped 样式对 teleport 出去的下拉菜单也有效】Vue 的 scope 属性是**渲染时打在元素上**的，
+   跟这个元素最后挂在哪个父节点（这里是 body）无关 —— 所以菜单虽然被 el-dropdown
+   teleport 到了 body，这条规则照样命中。
+   ⚠️ 这条类名是必须定义的：`test/styleContract.spec.ts` 会检查"模板里用到的静态类都有定义"，
+   我第一版就是只写了 class 没写规则，被它当场拦下来了。 */
+.cm-danger { color: var(--el-color-danger); }
 </style>
