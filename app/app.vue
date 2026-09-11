@@ -21,11 +21,13 @@
         <!-- 导航项来自 navItems（唯一一份定义，窄屏面板渲染的是同一个数组）。
              这里不再一项项手写：手写两份迟早只剩一份是对的，而漏改**不会报错**。 -->
         <template v-for="item in navItems" :key="item.label">
-          <!-- 有子项的（目前只有「文章」）：桌面沿用 hover 展开的下拉，交互没动 -->
+          <!-- 有子项的（目前只有「文章」）：桌面沿用 hover 展开的下拉，交互没动。
+               子项现在是**真链接**（NuxtLink）—— 它们指向 `/?categoryId=N`，
+               也就是首页那套筛选：能爬、可中键新开、点完 URL 与列表标题都会跟着变。 -->
           <div v-if="item.children" class="nv dd">
             <button class="nv-btn">{{ item.label }} <span class="caret">▾</span></button>
             <div class="dd-menu">
-              <a v-for="child in item.children" :key="child.label" @click="onChildNav(child)">{{ child.label }}</a>
+              <NuxtLink v-for="child in item.children" :key="child.label" :to="child.to">{{ child.label }}</NuxtLink>
             </div>
           </div>
           <!-- 真链接：NuxtLink 渲染成 <a href>，可爬、可中键新开 -->
@@ -76,7 +78,9 @@
       <template v-for="item in navItems" :key="item.label">
         <div v-if="item.children" class="nm-group">
           <div class="nm-group-title">{{ item.label }}</div>
-          <a v-for="child in item.children" :key="child.label" class="nm-sub" @click="onDevFromNav">{{ child.label }}</a>
+          <!-- 与桌面下拉**同一批**子项，而且同样是真链接：手机上点完直接跳走，
+               顺手把面板收起来（不收的话跳完还挂着一块盖住半屏的面板） -->
+          <NuxtLink v-for="child in item.children" :key="child.label" :to="child.to" class="nm-sub" @click="closeNav">{{ child.label }}</NuxtLink>
         </div>
         <NuxtLink v-else-if="item.to" :to="item.to" class="nm-item" @click="closeNav">{{ item.label }}</NuxtLink>
         <span v-else class="nm-item" @click="onDevFromNav">{{ item.label }}</span>
@@ -292,33 +296,50 @@ const onDev = () => ElMessage.info('该页面开发中')
  *
  * 【为什么必须是一份】两处各写一遍的话，加一个入口就要改两个地方，
  *   而漏改的那一处**什么都不报**：桌面点得到、手机上就是没那个入口（或者反过来）。
- *   这一批后面还要往导航里加东西（「文章」下拉要接真实分类、还会加四个内容页），
- *   所以先把"只有一份"这件事定下来。
+ *   「文章」下拉里的分类也是一个道理：分类是从接口来的，两处各拉一遍迟早不一致。
+ *
+ * 【为什么是 computed】「文章」的子项**来自接口**（`GET /category/list`，见
+ *   `useCategoryList`），分类变了导航要跟着变，所以这里不能是一个写死的数组。
  *
  * 字段含义：
  *   · `to`       —— 真链接（NuxtLink），可爬、可中键新开
  *   · `children` —— 有子项的（目前只有「文章」，桌面是 hover 展开的下拉）
  *   · `dev:true` —— 还没做的入口，点了给"该页面开发中"提示（做到哪一批就换成真链接）
  */
-const navItems = [
+const { categories: navCategories } = useCategoryList()
+
+/**
+ * 「文章」这一项：**有分类就是下拉（子项 = 真分类），一个都没有就退化成指向首页的链接**。
+ *
+ * 【为什么有分类时子项指向 `/?categoryId=N` 而不是给每个分类做一个页面】
+ *   首页本来就是文章列表，而且它已经带着一整套分类筛选（点分类 → 请求参数、
+ *   地址栏、列表标题三处同步）。给每个分类再做一个页面等于把同一件事做两遍，
+ *   还会多出"两套筛选逻辑谁对"的问题。`?categoryId=` 这个地址是可分享、可爬、
+ *   刷新后状态还在的。
+ *
+ * 【为什么没有分类时不是"空下拉"】空下拉点开是一片空白，用户只会觉得坏了。
+ *   而首页是文章列表，正是这一项最合理的去处（接口挂了、或者站里还没建分类时都会走到这里）。
+ *   过滤掉 `id` / `name` 缺项的脏数据，是因为它们会渲染出一个点不动的链接（`?categoryId=undefined`）。
+ */
+const articleNavItem = () => {
+  const children = navCategories.value
+    .filter(c => c && c.id != null && c.name)
+    .map(c => ({ label: c.name, to: `/?categoryId=${c.id}` }))
+  return children.length ? { label: '文章', children } : { label: '文章', to: '/' }
+}
+
+const navItems = computed(() => [
   { label: '首页', to: '/' },
-  // 归档做成【顶层导航】而不是塞进「文章」下拉框里：下拉框里那三项现在点下去还是
-  // "该页面开发中"，把唯一一个真能用的入口混在里面，用户根本不会去点它。
+  // 归档做成【顶层导航】而不是塞进「文章」下拉框里：那是独立的一页，
+  // 而「文章」下拉里是"按分类看"，两件事。混在一起用户根本分不清点哪个。
   { label: '归档', to: '/archive' },
-  {
-    label: '文章',
-    children: [
-      { label: '技术', dev: true },
-      { label: '读书', dev: true },
-      { label: '随笔', dev: true },
-    ],
-  },
+  articleNavItem(),
   { label: '音乐', to: '/#music' },
   { label: '收藏', dev: true },
   { label: '项目', dev: true },
   { label: '友链', dev: true },
   { label: '关于', to: '/#profile' },
-]
+])
 
 /** 汉堡面板开着没有 */
 const navOpen = ref(false)
@@ -334,11 +355,6 @@ const toggleNav = () => { navOpen.value = !navOpen.value }
 const onDevFromNav = () => {
   onDev()
   closeNav()
-}
-
-/** 下拉项（目前都是 dev 项，等它们真有页面了就直接用 child.to 跳） */
-const onChildNav = (child) => {
-  if (child.dev) onDev()
 }
 
 /**

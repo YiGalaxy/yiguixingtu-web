@@ -341,19 +341,18 @@ const articlesAsync = useAsyncData(
 )
 
 /**
- * 分类列表：同样走服务端渲染。
- * 【为什么这个也要改】它决定筛选条，也决定列表标题里那个分类名
- * （URL 里只有 categoryId，没有名字）—— 只放在 onMounted 里的话，
- * 服务端渲染出来的标题永远是「最新文章」，而筛选条在 HTML 里也是空的。
+ * 分类列表：**和导航栏「文章」下拉共用一份**（`useCategoryList()`）。
+ *
+ * 【为什么要共享】两处本来就该显示同一批分类；各拉各的，最容易出的不是"少一个分类"，
+ * 而是**两份数据不一致**（一处刷新了、另一处还是旧的），而界面上几乎看不出来。
+ * 顺带也少发一次请求：`useAsyncData` 的 key 相同就是同一份数据（外壳与首页
+ * 在同一个页面里各调一次，实际只打一次 `GET /category/list`）。
+ *
+ * 【为什么它也能在服务端渲染时就拿到】那是 `useAsyncData` 的机制
+ * （内部注册 onServerPrefetch，数据拿完才输出 HTML）——完整说明在那个文件的头注释里，
+ * 这里不重复。`ready` 就是它的 promise，下面和其它几份首屏数据一起 await。
  */
-const categoriesAsync = useAsyncData('home-categories', async () => {
-  const res = await request('/category/list')
-  // 【为什么用 Array.isArray 兜一道】分类会被 v-for 和 listTitle 的 .find 用到，
-  // 只要后端返回的不是数组（比如接口挂了、或者以后改成 { records: [...] } 这种分页结构），
-  // .find 就会抛 "categories.value.find is not a function" 把整个列表渲染带崩。
-  // 兜成空数组最差也只是筛选条不显示。
-  return res.ok && Array.isArray(res.data) ? res.data : []
-})
+const { categories, ready: categoriesAsync } = useCategoryList()
 
 /**
  * 标签列表（前台公开接口 GET /tag/list，带每个标签下【已发布】的文章数）。
@@ -389,7 +388,6 @@ const statsAsync = useAsyncData('home-site-stats', () => loadSiteStats())
 await Promise.all([articlesAsync, categoriesAsync, tagsAsync, statsAsync])
 
 const { data: firstPage, pending: firstPending } = articlesAsync
-const categories = computed(() => categoriesAsync.data.value ?? [])
 const tags = computed(() => tagsAsync.data.value ?? [])
 
 /** 首屏那一页的文章（useAsyncData 给的；接口失败时是空数组） */

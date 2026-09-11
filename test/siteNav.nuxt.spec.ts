@@ -14,11 +14,14 @@ import AppShell from '~/app.vue'
 //   手机上只剩 Logo 与登录按钮，归档 / 音乐 / 关于 这些页面根本进不去。
 //   （注意：不是"标签被挤窄"，是整块消失 —— 这两件事的表现很像，但修法完全不同。）
 //
-//   所以这里守三件事：
+//   所以这里守四件事：
 //     ① 汉堡按钮在、读屏信息对（aria-expanded / aria-label / aria-controls）
 //     ② 三种关法都能关：再点一次、Esc、点遮罩；路由一变也自动收
 //     ③ 面板里的导航项与桌面导航是**同一批** —— 这一条最要紧：
 //        两处各写一份的话，漏改不会报错，表现只是"手机上少一个入口"
+//     ④ 「文章」下拉里的子项是**接口里的真分类**，而且是指向首页筛选的真链接
+//        （`/?categoryId=N`）；接口挂了 / 一个分类都没有时退化成"文章 → 首页"的普通链接，
+//        而不是一个点开一片空白的下拉
 //
 //   【测不到的部分，如实写在这里】窄屏/宽屏的显隐是 CSS 媒体查询负责的，
 //   jsdom **不做布局、也不求值媒体查询**，所以"手机上是不是真的显示汉堡"量不出来 ——
@@ -48,10 +51,38 @@ vi.mock('element-plus', async (importOriginal) => {
 
 enableAutoUnmount(afterEach)
 
+/**
+ * 导航里「文章」下拉的分类**来自接口**（`GET /category/list`，见 `useCategoryList`）。
+ * 这三条就是后端会返回的形状（真实分类由站长在后台维护，前端不再写死任何分类名）。
+ */
+const CATEGORIES = [
+  { id: 1, name: '技术' },
+  { id: 2, name: '读书' },
+  { id: 3, name: '随笔' },
+]
+
+const body = (data) => ({ code: 200, message: '成功', data })
+const pathOf = (url) => String(url).split('?')[0]
+
+/**
+ * 一份最小的后端假实现。
+ * 【为什么这里要按路径分支，而不是所有请求都回 `data: null`】
+ *   「文章」的子项现在来自接口，全回 null 的话分类永远是空的，
+ *   于是所有"面板里的导航项"断言测的都是**降级那条路**，
+ *   真正要守的"分类来自接口"反而没被测到。
+ */
+const mockBackend = () => {
+  fetchMock.mockImplementation((url) => {
+    const path = pathOf(url)
+    if (path === '/category/list') return Promise.resolve(body(CATEGORIES))
+    // app.vue 挂载时会调 GET /auth/me；data 为 null = 没登录，顶栏就是干净的几个按钮
+    return Promise.resolve(body(null))
+  })
+}
+
 beforeEach(() => {
   fetchMock.mockReset()
-  // app.vue 挂载时会调 GET /auth/me；这里让它返回"没登录"，顶栏就是干净的几个按钮
-  fetchMock.mockResolvedValue({ code: 200, message: '成功', data: null })
+  mockBackend()
   infoSpy.mockClear()
   for (const key of Object.keys(cookieRefs)) cookieRefs[key].value = null
   document.body.style.overflow = ''
@@ -177,12 +208,86 @@ describe('窄屏导航 · 汉堡菜单', () => {
 
     // 桌面那份（8 项：首页/归档/文章/音乐/收藏/项目/友链/关于）
     expect(desktopLabels(wrapper)).toEqual(['首页', '归档', '文章', '音乐', '收藏', '项目', '友链', '关于'])
-    // 窄屏那份：同一批（「文章」的三个子项也平铺在里面，共 8 + 3）
+    // 窄屏那份：同一批（「文章」的三个子项也平铺在里面，共 8 + 3）。
+    // 注意这三个分类名来自接口（不是写死在 navItems 里的），所以这一条同时也在守
+    // "分类是渲染出来的，而不是硬编码的" —— 把接口的 mock 去掉，这里立刻会红。
     expect(panelLabels(wrapper)).toEqual([
       '首页', '归档', '文章', '技术', '读书', '随笔', '音乐', '收藏', '项目', '友链', '关于',
     ])
     // 也就是说：**桌面上有的入口，窄屏面板里一个都不少** ——
     // 这正是原来那个 bug 的核心（窄屏把导航整块藏了，用户没有任何入口）
+  })
+
+  it('「文章」下拉的子项_should是接口里的真分类，并且指向首页筛选的真链接', async () => {
+    const wrapper = await mountShell()
+
+    const links = wrapper.findAll('.nav-center .dd-menu a')
+    expect(links.map(a => a.text())).toEqual(['技术', '读书', '随笔'])
+    // 【为什么是 `/?categoryId=N`】首页本来就带着一整套分类筛选（点分类 → 请求参数、
+    // 地址栏、列表标题三处同步），所以"按分类看"只需要把 id 交给首页。
+    // 用 NuxtLink（渲染成 <a href>）而不是 click 跳转：能爬、可中键新开、刷新后状态还在。
+    expect(links.map(a => a.attributes('href')))
+      .toEqual(['/?categoryId=1', '/?categoryId=2', '/?categoryId=3'])
+  })
+
+  it('窄屏面板里的分类子项_should是同一批链接（桌面与手机点下去落到同一个地址）', async () => {
+    const wrapper = await mountShell()
+    await burgerBtn(wrapper).trigger('click')
+
+    const subs = wrapper.findAll('#site-mobile-nav .nm-sub')
+    expect(subs.map(a => a.text())).toEqual(['技术', '读书', '随笔'])
+    expect(subs.map(a => a.attributes('href')))
+      .toEqual(['/?categoryId=1', '/?categoryId=2', '/?categoryId=3'])
+
+    // 点一下要**立刻收起面板**：手机上跳走之后还挂着一块盖住半屏的面板，
+    // 用户会以为"点坏了"
+    await subs[0].trigger('click')
+    await flushPromises()
+    expect(isPanelHidden(wrapper)).toBe(true)
+  })
+
+  it('一个分类都没有（接口挂了 / 还没建分类）_should退化成 文章→首页 的普通链接，而不是空下拉', async () => {
+    // 三种"没有分类"的来源都过一遍：业务失败、返回的不是数组、空数组
+    for (const payload of [
+      { code: 500, message: '服务器开小差了', data: null },
+      { code: 200, message: '成功', data: { records: [] } },
+      { code: 200, message: '成功', data: [] },
+    ]) {
+      fetchMock.mockReset()
+      fetchMock.mockImplementation((url) => {
+        if (pathOf(url) === '/category/list') return Promise.resolve(payload)
+        return Promise.resolve(body(null))
+      })
+
+      const wrapper = await mountShell()
+      // 【为什么不能留一个空下拉】点开是一片空白，用户只会觉得坏了；
+      // 也不能因此整项消失 —— 那等于"站里没建分类就没有入口进文章列表"。
+      // 首页就是文章列表，所以退化成指向它的普通链接最合理。
+      expect(wrapper.find('.nav-center .dd-menu').exists()).toBe(false)
+      const article = wrapper.findAll('.nav-center > .nv').find(el => el.text().trim() === '文章')
+      expect(article.attributes('href')).toBe('/')
+      // 面板里也一样：没有子项，但「文章」这一项要在
+      expect(wrapper.findAll('#site-mobile-nav .nm-sub')).toHaveLength(0)
+      expect(panelLabels(wrapper)).toContain('文章')
+    }
+  })
+
+  it('脏分类数据（缺 id / 缺名字）_should被过滤掉，而不是渲染出一个点不动的链接', async () => {
+    fetchMock.mockReset()
+    fetchMock.mockImplementation((url) => {
+      if (pathOf(url) === '/category/list') {
+        return Promise.resolve(body([{ id: 1, name: '技术' }, { id: null, name: '没有id' }, { id: 3, name: '' }, null]))
+      }
+      return Promise.resolve(body(null))
+    })
+
+    const wrapper = await mountShell()
+
+    // 只剩一条能用的。留着脏数据的话会渲染出 `/?categoryId=undefined` 这种链接 ——
+    // 点了要么 404、要么静默地不过滤，而页面上完全看不出来
+    const links = wrapper.findAll('.nav-center .dd-menu a')
+    expect(links.map(a => a.text())).toEqual(['技术'])
+    expect(links[0].attributes('href')).toBe('/?categoryId=1')
   })
 
   it('面板里的真链接_should是普通 <a href>（可爬、可中键新开），而不是 click 跳转', async () => {
