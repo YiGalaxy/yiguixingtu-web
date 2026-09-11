@@ -92,8 +92,8 @@ v-for="t in articleTags" :key="t.id" class="doc-tag"
           </button>
         </div>
 
-        <!-- ② 发表表单 -->
-        <form class="cm-form" @submit.prevent="submitComment">
+        <!-- ② 发表表单（站点设置里把评论总开关关掉时，整块换成一句说明） -->
+        <form v-if="settings.commentEnabled" class="cm-form" @submit.prevent="submitComment">
           <div class="cm-form-title">发表评论</div>
 
           <div class="cm-fields">
@@ -140,6 +140,16 @@ v-model="commentForm.content" class="cm-textarea"
             {{ COMMENT_PENDING_NOTICE }} —— 站长审核通过后才会出现在上面的评论列表里。
           </p>
         </form>
+
+        <!-- 【评论总开关关掉时的替代说明】
+             ⚠️ 两点刻意的语义，别当成漏了：
+             ① **已有的评论仍然显示在上面** —— "关闭评论"的意思是"不再接收新评论"，
+                不是"把历史评论藏起来"。既有评论是站点内容的一部分，
+                而且后端那边也只是拒绝新的提交（不是把数据删了）
+             ② 这只是**前端的表现**：真正的拦截在后端（POST /comment 会返回
+                「评论已关闭」的业务错误）。只藏表单不拦接口等于一个假开关 ——
+                谁都能直接调接口绕过它 -->
+        <p v-else class="cm-closed">评论已关闭，暂时不能发表新的评论。</p>
 
         <!-- ③ 我这次提交的评论（待审核）：单独一块，不混进公开列表，
              免得用户以为"别人已经看到了" -->
@@ -193,6 +203,18 @@ import 'md-editor-v3/lib/preview.css'
 
 const route = useRoute()
 const { request } = useApi()
+
+/**
+ * 站点设置（文章页要用到一样：评论总开关）。
+ *
+ * 【为什么评论开关值得单独接线】它是"整站级"的开关，而文章页是它唯一生效的地方：
+ *   关掉之后这一页不再显示发表表单（已有的评论照常显示，见模板里那段说明）。
+ * 【为什么这里调 useSiteSettings 不多打一次接口】外壳已经用同一个 key 取过了，
+ *   同 key 就是同一份数据（那段 getCachedData 保证服务端也只打一次）。
+ * 【读不到时怎么办】归一化把"读不到"当成**开启**（就是改动前的行为）——
+ *   不能让接口抖一下就把全站的评论框藏起来。
+ */
+const { settings } = useSiteSettings()
 
 /**
  * 【为什么正文与评论都用 useAsyncData（服务端渲染），而不是 onMounted + ref】
@@ -520,6 +542,8 @@ const fmtTime = (t) => (t ? String(t).replace('T', ' ').slice(0, 16) : '')
 
 /* 发表表单 */
 .cm-form { margin-top: 26px; padding-top: 22px; border-top: 1px solid rgba(150,190,240,.14); }
+/* 评论关闭时的说明：与"还没有评论"那句用同一种低调样式，它不是一个错误状态 */
+.cm-closed { margin-top: 26px; padding: 18px 0 4px; border-top: 1px solid rgba(150,190,240,.14); color: var(--muted); font-size: 14px; text-align: center; }
 .cm-form-title { font-weight: 700; color: var(--ink); margin-bottom: 14px; }
 .cm-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .cm-field { display: flex; flex-direction: column; gap: 6px; }

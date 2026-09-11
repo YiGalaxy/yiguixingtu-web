@@ -281,3 +281,83 @@ describe('首页 · 内容真实性', () => {
     expect(wrapper.find('.ck-time').text()).not.toBe('')
   })
 })
+
+// =====================================================================
+// 首页 · 站点设置里的「公告」与「每页条数」
+//
+// 【这两项为什么放在首页测】
+//   它们各自只驱动首页上的一处：公告 → 顶部那条通知；每页条数 →
+//   请求 /article/page 时带的 size。断在首页上才是"用户真的看得到/真的发出去了"。
+//
+// 【公告那两条的要点】
+//   · 填了 → 顶部出现，而且是**纯文本插值**（它由管理员填写，仍按文本渲染）
+//   · 留空 → **整块不渲染**，首页外观与"上线这个功能之前"完全一样 ——
+//     这正是迁移里把公告留空的用意
+//   公告条与原来那条欢迎跑马灯是**两块**：跑马灯是站点自己的装饰文案，
+//   公告是会变的通知。合并的话，一发公告欢迎语就没了（见 index.vue 里的说明）。
+// =====================================================================
+
+describe('首页 · 站点公告与每页条数', () => {
+  const BASE_SETTINGS = {
+    siteName: '测试站点名',
+    announcement: null,
+    commentEnabled: true,
+    icpNumber: null,
+    copyright: null,
+    pageSize: 12,
+  }
+
+  /** 在默认假后端的基础上，让 /setting 返回指定内容 */
+  const withSettings = (settings) => {
+    fetchMock.mockImplementation((url) => {
+      const path = pathOf(url)
+      if (path === '/setting') return Promise.resolve(body(settings))
+      if (path === '/category/list') return Promise.resolve(body([{ id: 1, name: '技术' }]))
+      if (path === '/article/stats') return Promise.resolve(body({ articleCount: 1, viewCount: 5, categoryCount: 1 }))
+      if (path === '/article/page') return Promise.resolve(body({ records: ARTICLES, total: 1 }))
+      return Promise.resolve(body(null))
+    })
+  }
+
+  const sizeSentToArticleList = () => {
+    const call = fetchMock.mock.calls.find(c => pathOf(c[0]) === '/article/page')
+    return call?.[1]?.params?.size
+  }
+
+  it('公告填了_首页顶部出现公告条，内容是纯文本', async () => {
+    withSettings({ ...BASE_SETTINGS, announcement: '今晚 22:00 例行维护' })
+    const wrapper = await mountHome()
+
+    expect(wrapper.find('.announce').exists()).toBe(true)
+    expect(wrapper.find('.announce').text()).toContain('今晚 22:00 例行维护')
+    // 原有的欢迎跑马灯照旧在（两块，不是同一块）
+    expect(wrapper.find('.notice').exists()).toBe(true)
+  })
+
+  it('⚠️ 公告留空_整块不渲染（首页外观与"上线这个功能之前"一样）', async () => {
+    withSettings({ ...BASE_SETTINGS, announcement: '' })
+    const wrapper = await mountHome()
+
+    expect(wrapper.find('.announce').exists()).toBe(false)
+    expect(wrapper.find('.notice').exists()).toBe(true)
+  })
+
+  it('每页条数_请求列表时带上设置里的 size（不是写死的 12）', async () => {
+    withSettings({ ...BASE_SETTINGS, pageSize: 20 })
+
+    const wrapper = await mountHome()
+
+    expect(Number(sizeSentToArticleList())).toBe(20)
+    // 顺带确认文章真的渲染出来了（不是在"没数据"的分支上）
+    expect(wrapper.text()).toContain('真实的文章标题')
+  })
+
+  it('每页条数读不到_回落布局默认值 12（绝不把 undefined 当参数发出去）', async () => {
+    // 默认假后端对未知路径返回 data:null，归一化会把它收拾成默认值
+    mockBackend()
+
+    await mountHome()
+
+    expect(Number(sizeSentToArticleList())).toBe(12)
+  })
+})

@@ -55,9 +55,24 @@ export const useSeoMetaFor = (input) => {
    */
   const siteUrl = computed(() => normalizeSiteUrl(config.public.siteUrl))
 
+  /**
+   * 读出站点名（站点设置里那一项）。
+   * 【为什么也在这里读，而不是让页面自己传】和站点地址同一个理由：
+   * 全站只有一个站点名，让每个页面各读一次配置等于把"从哪里读"复制了十几遍。
+   * 【读不到时】归一化已经把它回落成 seo.ts 的 SITE_NAME（就是改动前的表现），
+   * 所以标题永远不会空。这里再多调一次 useSiteSettings 也**不会**多打接口 ——
+   * 外壳用过同一个 key（见 useSiteSettings 的注释）。
+   */
+  const { settings } = useSiteSettings()
+  const siteName = computed(() => settings.value.siteName)
+
   // 整体拼装的结果。input 是 getter，所以它依赖的数据一变就会重算，
   // unhead 会跟着更新 head（服务端渲染时也会解包后写进 HTML）
-  const head = computed(() => buildSeoHead({ ...input(), siteUrl: siteUrl.value }))
+  const head = computed(() => buildSeoHead({
+    ...input(),
+    siteUrl: siteUrl.value,
+    siteName: siteName.value,
+  }))
 
   // 【为什么要拆成三个 computed 交给 useHead】unhead 的输入对象里每个值
   // 都可以是 ref；整块换掉（直接传 computed 对象）它反而不会按字段解包。

@@ -37,7 +37,11 @@
 //   · og:url / og:image 必须是【绝对地址】，相对地址按规范是无效的
 // ============================================================
 
-/** 站点名：出现在 title 后缀、og:site_name 等所有"站点级"文案里 */
+/**
+ * 站点名：出现在 title 后缀、og:site_name、以及"没有自己摘要的页面"的默认描述开头。
+ * 【它现在只是一个**默认值**】站点名可以在后台改（站点设置里那一项），
+ * 由 {@link buildSeoHead} 的 `siteName` 参数传进来；这个常量是"读不到设置"时的回落。
+ */
 export const SITE_NAME = '亿轨星途'
 
 /** 首页副标题（个人卡片上那句自我介绍），也用作站点默认标题的后半句 */
@@ -51,10 +55,24 @@ export const SITE_TAGLINE = '在代码与星轨之间，慢慢画自己的图。
  */
 export const SITE_TITLE = `${SITE_NAME} · ${SITE_TAGLINE}`
 
-/** 站点默认描述：首页、以及任何"没有自己摘要"的页面用它 */
-export const SITE_DESCRIPTION
-  = '亿轨星途是一个个人博客：记录技术实践、读书笔记与日常随笔，'
+/**
+ * 站点默认描述里【站名之后】的那半句。
+ *
+ * 【为什么要拆成两段】站点名现在可以在后台改（站点设置），而这句话的开头正好是站名 ——
+ * 拆开才能让开头跟着设置走。后半段是文案、不是配置，所以它仍是常量。
+ */
+export const SITE_DESCRIPTION_TAIL
+  = '是一个个人博客：记录技术实践、读书笔记与日常随笔，'
     + '首页按最新发布排列，支持关键词搜索与分类筛选。'
+
+/**
+ * 站点默认描述（用代码里的默认站名拼好的那一份）。
+ *
+ * 【为什么还留着它】RSS 那条服务端路由、以及任何"拿不到站点设置"的地方仍然用它；
+ * 而页面的 head 走 {@link buildSeoHead} → {@link pageDescription}，
+ * 那里的站名会跟着站点设置走。两者在默认站名下是同一句话。
+ */
+export const SITE_DESCRIPTION = `${SITE_NAME}${SITE_DESCRIPTION_TAIL}`
 
 /** 页面标题与站点名之间的分隔符（中文语境里用间隔点比竖线干净） */
 export const TITLE_SEPARATOR = ' · '
@@ -125,19 +143,46 @@ export const absoluteUrl = (pathOrUrl, siteUrl = DEFAULT_SITE_URL) => {
 }
 
 /**
+ * 站点名的归一化：空值 / 非字符串一律回落到 {@link SITE_NAME}。
+ *
+ * 【为什么要有这一步】站点名现在可以在后台改（站点设置里那一项），
+ * 而"读不到"（接口失败、那一行被人删了）时必须回到改动前的表现 ——
+ * 也就是这个常量。回落规则只写在这一处，页面标题、默认描述都用它。
+ */
+const normalizeSiteName = (value) => {
+  const name = typeof value === 'string' ? value.trim() : ''
+  return name || SITE_NAME
+}
+
+/**
  * 纯函数：页面标题 → 完整标题。
  * 【为什么空标题要回落到站点默认标题】数据还没回来、文章不存在、或者
  * 有人忘了传 title —— 这三种情况下都不该出现一个空的 <title>。
+ *
+ * @param {string} [title]    页面标题（不含站点名）
+ * @param {string} [siteName] 站点名（站点设置里那一项；空则回落 SITE_NAME）
  */
-export const pageTitle = (title) => {
+export const pageTitle = (title, siteName) => {
   const value = typeof title === 'string' ? title.trim() : ''
-  return value ? `${value}${TITLE_SEPARATOR}${SITE_NAME}` : SITE_TITLE
+  const name = normalizeSiteName(siteName)
+  // 默认标题 = 站点名 + 那句副标题（原来是拼好的常量 SITE_TITLE；
+  // 站点名可变之后这里现拼 —— 副标题仍是常量，它属于文案、不是配置）
+  return value
+    ? `${value}${TITLE_SEPARATOR}${name}`
+    : `${name}${TITLE_SEPARATOR}${SITE_TAGLINE}`
 }
 
-/** 纯函数：描述 → 能显示的描述（空值回落站点默认描述） */
-export const pageDescription = (description) => {
+/**
+ * 纯函数：描述 → 能显示的描述（空值回落站点默认描述）。
+ *
+ * 【默认描述里那句站名也要跟着变】它是一整句话（"XX 是一个个人博客：…"），
+ * 站点改名后如果这里还写着旧名字，搜索结果里的摘要就会和标题对不上 ——
+ * 而那是最不容易被发现的一处（没人会去看自己的搜索结果摘要）。
+ * 句子的后半段仍是常量文案，只有开头那个站名是从设置里来的。
+ */
+export const pageDescription = (description, siteName) => {
   const value = typeof description === 'string' ? description.trim() : ''
-  return value || SITE_DESCRIPTION
+  return value || (normalizeSiteName(siteName) + SITE_DESCRIPTION_TAIL)
 }
 
 /**
@@ -149,6 +194,7 @@ export const pageDescription = (description) => {
  *
  * @param {object}  options
  * @param {string}  [options.siteUrl]   站点地址（运行时配置）
+ * @param {string}  [options.siteName]  站点名（站点设置；空则回落 SITE_NAME）
  * @param {string}  [options.path]      页面路径，如 '/' 或 '/article/12'
  * @param {string}  [options.title]     页面标题（不含站点名；空则用站点默认标题）
  * @param {string}  [options.description] 页面描述（空则用站点默认描述）
@@ -158,6 +204,7 @@ export const pageDescription = (description) => {
  */
 export const buildSeoHead = ({
   siteUrl,
+  siteName,
   path = '/',
   title,
   description,
@@ -165,8 +212,8 @@ export const buildSeoHead = ({
   image,
   noindex = false,
 } = {}) => {
-  const fullTitle = pageTitle(title)
-  const fullDescription = pageDescription(description)
+  const fullTitle = pageTitle(title, siteName)
+  const fullDescription = pageDescription(description, siteName)
   const url = absoluteUrl(path, siteUrl)
 
   // 逐条列出（而不是从一张键值表循环生成）：og 的键名必须是 property，
@@ -178,6 +225,13 @@ export const buildSeoHead = ({
     { property: 'og:description', content: fullDescription },
     { property: 'og:type', content: type },
     { property: 'og:url', content: url },
+    // 【站点名单独也进 og】分享卡片上"来源站点"那一行读的就是它。
+    // 它和 og:title 是两件事：og:title 是**这一页**的标题（带站点名后缀），
+    // og:site_name 是"这个站点叫什么"，社交平台会把两者分别显示。
+    // ⚠️ 这一条是 2026-09-11 补上的：在此之前 SITE_NAME 的注释一直写着
+    //    "出现在 og:site_name 里"，而 buildSeoHead 其实从没输出过这条标签 ——
+    //    注释里的一句假事实，直到给站点名做配置时才被发现（见下面那段说明）。
+    { property: 'og:site_name', content: normalizeSiteName(siteName) },
   ]
 
   // 【没有封面就一条 og:image 都不出现】不能写成 content: '' 或 content: undefined：

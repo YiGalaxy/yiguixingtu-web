@@ -481,3 +481,83 @@ describe('文章详情 · 评论区', () => {
     expect(wrapper.find('.cm-more').exists()).toBe(true)
   })
 })
+
+// =====================================================================
+// 文章详情 · 站点设置里的「评论总开关」
+//
+// 【这一组守的是"关掉评论"这个动作的两半，缺一不可】
+//   ① **已有的评论仍然显示** —— "关闭评论"的语义是"不再接收新评论"，
+//      不是"把历史评论藏起来"。既有评论是站点内容的一部分，
+//      而且后端也只是拒绝新的提交（不是把数据删了）。
+//      把这一条钉住是因为它最容易被顺手写错成 v-if 整块藏掉。
+//   ② **表单换成一句说明** —— 用户看到"评论已关闭"比看到一个点了没反应的
+//      提交按钮好得多（后者会让人以为站点坏了，然后反复点）。
+//
+//   ⚠️ 还有第三半在**后端**：关掉之后 POST /comment 会被真的拒绝。
+//      那一半的用例在后端仓库（SiteSettingTest ⑰）——
+//      只藏前端表单是"假开关"，谁都能直接调接口绕过。
+// =====================================================================
+
+describe('文章详情 · 评论总开关', () => {
+  beforeEach(() => {
+    fetchMock.mockReset()
+  })
+
+  afterEach(async () => {
+    await nextTick()
+  })
+
+  const mockBackendWith = (commentEnabled) => {
+    mockBackend({
+      '/setting': body({
+        siteName: '测试站点名',
+        announcement: null,
+        commentEnabled,
+        icpNumber: null,
+        copyright: null,
+        pageSize: 12,
+      }),
+    })
+  }
+
+  it('开关关掉_should显示"评论已关闭"，且不出现发表表单', async () => {
+    mockBackendWith(false)
+    const wrapper = await mountArticle()
+
+    expect(wrapper.find('.cm-closed').exists()).toBe(true)
+    expect(wrapper.find('.cm-closed').text()).toContain('评论已关闭')
+    // 表单整个不渲染（不是"渲染出来再禁用"）
+    expect(wrapper.find('.cm-form').exists()).toBe(false)
+    expect(wrapper.find('.cm-field').exists()).toBe(false)
+    expect(wrapper.find('.cm-submit').exists()).toBe(false)
+  })
+
+  it('开关关掉_已有的评论仍然显示（关的是"新评论"，不是历史评论）', async () => {
+    mockBackendWith(false)
+    const wrapper = await mountArticle()
+
+    expect(wrapper.findAll('.cm-item').length).toBe(2)
+    expect(wrapper.find('.cm-list').text()).toContain('先留个脚印')
+    // 评论数那个角标也还在
+    expect(wrapper.find('.cm-title').text()).toContain('2')
+  })
+
+  it('开关开着（或缺省）_表单照常出现，没有"已关闭"那句话', async () => {
+    mockBackendWith(true)
+    const wrapper = await mountArticle()
+
+    expect(wrapper.find('.cm-form').exists()).toBe(true)
+    expect(wrapper.find('.cm-closed').exists()).toBe(false)
+  })
+
+  it('⚠️ 站点设置整个读不到_表单照常出现（不能因为接口抖一下就关掉评论）', async () => {
+    // 归一化把"读不到"当成"开启" —— 这是刻意的：配置缺失不该升级成功能消失
+    mockBackend({
+      '/setting': { code: 500, message: '服务器开小差了', data: null },
+    })
+    const wrapper = await mountArticle()
+
+    expect(wrapper.find('.cm-form').exists()).toBe(true)
+    expect(wrapper.find('.cm-closed').exists()).toBe(false)
+  })
+})

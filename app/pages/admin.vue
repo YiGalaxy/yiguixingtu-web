@@ -2,7 +2,7 @@
   <div class="admin">
     <!-- ==================== 左侧菜单 ==================== -->
     <aside class="side glass">
-      <div class="side-brand"><span class="mk">✦</span> 亿轨星途 · 后台</div>
+      <div class="side-brand"><span class="mk">✦</span> {{ settings.siteName }} · 后台</div>
       <nav class="side-nav">
         <a
           v-for="m in menus" :key="m.key"
@@ -97,7 +97,14 @@
         v-model:pending-count="pendingCommentCount"
         @refresh-pending="fetchPendingCommentCount" />
 
-      <!-- ==================== ⑦ 其他模块占位 ==================== -->
+      <!-- ==================== ⑦ 站点设置 ====================
+           【为什么它有独立菜单而不是塞进别处】它管的是"整站外壳与开关"
+           （站名 / 公告 / 评论开关 / 页脚版权与备案号 / 每页条数），
+           和「文章管理」那种"维护一批记录"不是一类东西 ——
+           菜单注释里也是按这个把「设置」留在最后的。 -->
+      <AdminSettingsPanel v-else-if="cur === 'settings'" />
+
+      <!-- ==================== ⑧ 其他模块占位 ==================== -->
       <template v-else>
         <header class="top"><h1>{{ curLabel }}</h1><p>该模块开发中。</p></header>
         <div class="panel glass"><div class="empty">该模块开发中 · 敬请期待</div></div>
@@ -133,6 +140,10 @@ useSeoMetaFor(() => ({
 
 const { request } = useApi()
 const { user } = useAuth()
+
+// 【后台侧栏的站名也读站点设置】它和页眉页脚是同一个 key 的 useAsyncData，
+// 所以不会多打一次 /setting；而"后台显示的还是旧站名"正是改名之后最容易漏的一处
+const { settings } = useSiteSettings()
 
 // 当前登录用户 ID：用来禁用「操作自己」的按钮（传给用户管理面板）
 const myId = computed(() => user.value?.id)

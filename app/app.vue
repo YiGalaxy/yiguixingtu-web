@@ -57,7 +57,7 @@
     <header class="site-nav">
       <NuxtLink to="/" class="brand">
         <span class="brand-mark">✦</span>
-        <span class="brand-name">亿轨星途</span>
+        <span class="brand-name">{{ settings.siteName }}</span>
       </NuxtLink>
       <nav class="nav-center">
         <!-- 导航项来自 navItems（唯一一份定义，窄屏面板渲染的是同一个数组）。
@@ -136,9 +136,30 @@
     </main>
 
     <footer class="site-footer">
-      <div class="foot-brand">
-        <span class="foot-mark">✦</span> 亿轨星途
+      <!-- 【为什么站名/版权/备案号外面多包了一层 .foot-left】
+           页脚本来是"左边品牌 + 右边音乐开关"两栏（justify-content: space-between）。
+           直接往里塞第三个子元素会把它挤成三栏、品牌名跑到中间去。
+           包一层之后：左边是一个上下两行的块（品牌名 + 版权备案行），右边还是那个按钮，
+           而且两样都为空时这一块与改动前**逐像素一样**（少的那行根本不渲染）。 -->
+      <div class="foot-left">
+        <div class="foot-brand">
+          <span class="foot-mark">✦</span> {{ settings.siteName }}
+        </div>
+
+        <!-- 版权与备案号：**各自留空则各自不渲染**（后端的 null 就是这个语义）。
+             ⚠️ 备案号链到工信部的备案查询页（ICP_LINK 写死）——
+             这是大陆备案的要求：页面底部要展示备案号并可查询，
+             所以它必须出现在服务端渲染出的 HTML 里（这也是这里用 useAsyncData 的原因）。 -->
+        <div v-if="settings.copyright || settings.icpNumber" class="foot-meta">
+          <span v-if="settings.copyright">{{ settings.copyright }}</span>
+          <a
+            v-if="settings.icpNumber" class="foot-icp"
+            :href="ICP_LINK" target="_blank" rel="noopener noreferrer">
+            {{ settings.icpNumber }}
+          </a>
+        </div>
       </div>
+
       <button class="music-toggle" :class="{ on: musicEnabled }" :aria-label="musicEnabled ? '关闭背景音乐' : '播放背景音乐'" @click="toggleMusic">
         <span class="glyph">♫</span>
         <span class="music-label">{{ musicEnabled ? '关闭背景音乐' : '播放背景音乐' }}</span>
@@ -726,6 +747,16 @@ const onLogout = async () => {
 const { categories: navCategories } = useCategoryList()
 
 /**
+ * 站点设置（站点名 / 页脚版权与备案号）。
+ *
+ * 【为什么外壳也要读它】页眉的站名与页脚的备案号都属于"每一页都要显示的整站外壳"，
+ * 而且**备案号是合规要求**：它必须出现在服务端渲染出的 HTML 里，
+ * 所以这份数据走的是 useAsyncData（见 useSiteSettings 的注释），不是挂载后再取。
+ * 首页与后台页读的是同一个 key 的那一份，不会各打一次 /setting。
+ */
+const { settings } = useSiteSettings()
+
+/**
  * 「文章」这一项：**有分类就是下拉（子项 = 真分类），一个都没有就退化成指向首页的链接**。
  *
  * 【为什么有分类时子项指向 `/?categoryId=N` 而不是给每个分类做一个页面】
@@ -1064,8 +1095,13 @@ body { margin: 0; background: var(--bg); color: var(--ink); font-family: "PingFa
 .el-button--primary { --el-button-bg-color: var(--accent); --el-button-border-color: var(--accent); --el-button-hover-bg-color: var(--accent-strong); --el-button-hover-border-color: var(--accent-strong); --el-button-text-color: #0a1224; --el-button-hover-text-color: #0a1224; }
 
 .site-footer { position: relative; z-index: 1; margin-top: 40px; padding: 34px 32px 40px; border-top: 1px solid rgba(150,190,240,.10); display: flex; align-items: center; justify-content: space-between; gap: 16px; backdrop-filter: blur(16px); background: rgba(12,22,44,.32); }
+.foot-left { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .foot-brand { display: flex; align-items: center; gap: 8px; font-weight: 700; color: var(--ink); letter-spacing: .5px; }
 .foot-mark { color: var(--accent); }
+/* 版权与备案号那一行：只在有内容时才渲染（两样都空时页脚与改动前完全一样） */
+.foot-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; color: var(--muted); font-size: 12px; }
+.foot-icp { color: var(--muted); text-decoration: none; transition: color .2s ease; }
+.foot-icp:hover { color: var(--accent); }
 .music-toggle { display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 16px; border-radius: 999px; background: rgba(255,255,255,.06); border: 1px solid rgba(150,190,240,.16); color: var(--muted); cursor: pointer; backdrop-filter: blur(12px); transition: border-color .2s ease, color .2s ease, transform .2s ease; }
 .music-toggle:hover { border-color: var(--accent); color: var(--ink); transform: translateY(-1px); }
 .music-toggle.on { border-color: var(--accent); color: var(--accent); }

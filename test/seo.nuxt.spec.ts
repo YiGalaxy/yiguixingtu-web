@@ -83,13 +83,17 @@ const settleHead = async () => {
 describe('SEO · 纯函数拼装规则', () => {
   const base = { siteUrl: 'https://www.yigalaxy.xin', path: '/' }
 
-  it('首页_should有标题、描述、canonical 与四条 og', () => {
+  it('首页_should有标题、描述、canonical 与五条 og', () => {
     const head = buildSeoHead(base)
     const props = head.meta.map(m => m.property).filter(Boolean)
 
     expect(head.title).toBe(SITE_TITLE)
     expect(head.meta).toContainEqual({ name: 'description', content: SITE_DESCRIPTION })
-    expect(props).toEqual(['og:title', 'og:description', 'og:type', 'og:url'])
+    // 【为什么逐条断言而不是"包含某几条"】这条用例的价值就在"og 的集合是哪几条"——
+    // 少一条分享卡片就缺一块，多一条（比如把 name 写成 property）页面上完全看不出来。
+    // ⚠️ 2026-09-11 由四条变五条：补上了 og:site_name（在那之前 SITE_NAME 的注释里
+    //    写着"出现在 og:site_name 里"，而这里其实从来没输出过它 —— 见下面那条用例）
+    expect(props).toEqual(['og:title', 'og:description', 'og:type', 'og:url', 'og:site_name'])
     // link 有两类：canonical（正式地址）与 alternate（RSS 自动发现）。
     // 【为什么逐条断言而不是只查 canonical】多出来的那条 link 很容易被顺手加错
     // （rel 写成 feed、type 漏掉、href 用了相对地址），而页面上完全看不出来 ——
@@ -386,5 +390,72 @@ describe('SEO · 详情页与后台页', () => {
 
     expect(headContent('meta[name="robots"]')).toBe('noindex, nofollow')
     expect(document.title).toContain('后台管理')
+  })
+})
+
+// =====================================================================
+// 站点名跟着站点设置走（buildSeoHead 的 siteName 参数）
+//
+// 【为什么这件事必须断】
+//   站点名现在可以在后台改，而它出现在两处**用户不容易检查到**的地方：
+//   · 浏览器标题的后缀（`标题 · 站点名`）
+//   · 没有自己摘要的页面的默认描述（`XX 是一个个人博客：…`）
+//   改完站名之后如果这两处还写着旧名字，页面上完全看不出来 ——
+//   只有别人把你的链接分享出去、或者在搜索结果里看到时才会发现，
+//   而那时你已经把"站点改名"这件事忘了。
+//
+// 【回落规则】不传 siteName / 传空 / 传非字符串 → 用代码里的 SITE_NAME
+//   （就是"读不到站点设置"时的表现，与改动前完全一致）
+// =====================================================================
+
+describe('SEO · 站点名来自站点设置', () => {
+  const opts = { siteUrl: 'https://example.com', path: '/' }
+
+  it('传了 siteName_标题后缀用它', () => {
+    expect(buildSeoHead({ ...opts, siteName: '某某博客', title: '一篇文章' }).title)
+      .toBe('一篇文章 · 某某博客')
+  })
+
+  it('没有标题_默认标题是「站点名 · 副标题」', () => {
+    const title = buildSeoHead({ ...opts, siteName: '某某博客' }).title
+    expect(title.startsWith('某某博客 · ')).toBe(true)
+    // 副标题是文案、不是配置，仍然是代码里那个常量
+    expect(title).toContain(SITE_TAGLINE)
+  })
+
+  it('默认描述的开头也跟着换（那是搜索结果里最显眼的一句）', () => {
+    const head = buildSeoHead({ ...opts, siteName: '某某博客' })
+    const description = head.meta.find(m => m.name === 'description').content
+    expect(description.startsWith('某某博客')).toBe(true)
+    expect(description).not.toContain(SITE_NAME)
+  })
+
+  it('og:site_name 真的输出了，而且跟着 siteName 走', () => {
+    // 【为什么要专门断这一条】在 2026-09-11 之前，SITE_NAME 的注释里一直写着
+    // "出现在 og:site_name 里"，而 buildSeoHead **从来没有输出过这条标签** ——
+    // 一句写在注释里的假事实，直到给站点名做配置、逐处核对"它到底影响哪里"时才被发现。
+    // 分享卡片上"来源站点"那一行读的就是它，没有它卡片会缺一块。
+    const og = (options) => buildSeoHead({ ...opts, ...options }).meta
+      .find(m => m.property === 'og:site_name')?.content
+
+    expect(og({ siteName: '某某博客' })).toBe('某某博客')
+    expect(og({})).toBe(SITE_NAME)
+  })
+
+  it('页面自己传了 description_不受 siteName 影响', () => {
+    const head = buildSeoHead({ ...opts, siteName: '某某博客', description: '这一页自己的摘要' })
+    expect(head.meta.find(m => m.name === 'description').content).toBe('这一页自己的摘要')
+  })
+
+  it.each([
+    ['不传', undefined],
+    ['空串', ''],
+    ['只有空白', '   '],
+    ['非字符串', 123],
+  ])('siteName %s_回落代码里的 SITE_NAME（与改动前一致）', (_label, siteName) => {
+    expect(buildSeoHead({ ...opts, siteName, title: 'X' }).title).toBe(`X · ${SITE_NAME}`)
+    // og:title 用的是同一个完整标题，不能只改一处
+    expect(buildSeoHead({ ...opts, siteName, title: 'X' }).meta.find(m => m.property === 'og:title').content)
+      .toBe(`X · ${SITE_NAME}`)
   })
 })

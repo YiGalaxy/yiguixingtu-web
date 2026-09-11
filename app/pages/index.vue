@@ -52,7 +52,7 @@ v-for="t in tags" :key="t.id" class="tagp"
           <!-- 同上：这里原来写的是 class="pf-info"，全项目也没有这条规则，
                只是包裹用的 div，去掉类名渲染结果完全相同。 -->
           <div>
-            <div class="pf-name">亿轨星途</div>
+            <div class="pf-name">{{ settings.siteName }}</div>
             <div class="pf-sub">在代码与星轨之间，慢慢画自己的图。</div>
           </div>
         </div>
@@ -117,6 +117,19 @@ v-for="t in tags" :key="t.id" class="tagp"
         <NuxtLink class="mu-more" to="/music">完整播放器 →</NuxtLink>
       </div>
     </section>
+
+    <!-- 站点公告：**只有后台填了才渲染**（留空时这一个元素根本不存在，
+         所以"公告留空"的上线状态与改动前完全一样）。
+         【为什么和下面那条跑马灯是两块而不是同一块】
+           跑马灯是站点自己的欢迎语（装饰性文案，写在代码里），
+           而公告是站长随时要发的**通知**（会变、有信息量）。两者性质不同：
+           合并的话，公告一发出去欢迎语就没了；公告下掉之后又得靠代码里那句话顶上。
+         公告是**纯文本插值**（不能 v-html）：它由管理员填写，但仍然按文本渲染，
+         少一类注入面。 -->
+    <div v-if="settings.announcement" class="announce glass">
+      <span class="an-mark">✦</span>
+      <span class="an-text">{{ settings.announcement }}</span>
+    </div>
 
     <!-- 公告跑马灯 -->
     <div class="notice glass">
@@ -314,40 +327,16 @@ const {
 } = useArticleFilter()
 
 const page = ref(1)
-const SIZE = 12                 // 每页 12 篇，3 列瀑布流正好 4 行
 
-/** 「加载更多」追加进来的文章（首屏那一页不在这里，见下面的 articles） */
-const moreArticles = ref([])
-const loadingMore = ref(false)
-
-/**
- * 拉文章列表。
- * @param pageNo 页码
- *
- * 这里请求的是【前台公开接口】/article/page —— 它只返回已发布的文章，
- * 所以你后台的草稿绝不会出现在首页上（这条在 ArticlePublicTest 里有测试守着）。
- *
- * 参数由 toArticleParams() 统一拼装：它保证「空关键词不发、没选分类不发、
- * 没选标签不发」，也就是后端 GET /article/page 里 keyword / categoryId / tagId
- * 三个都是可选参数，可以任意组合（后端按 AND 叠加）。
- */
-const requestArticles = (pageNo) => request('/article/page', {
-  params: toArticleParams({
-    keyword: keyword.value,
-    categoryId: categoryId.value,
-    tagId: tagId.value,
-    page: pageNo,
-    size: SIZE,
-  }),
-})
-
-// 首屏第一页：服务端取好、写进 payload（见上面那段说明）。
-// 几个请求互不依赖，所以先各自发起、再一起 await —— 串行 await 会让
-// 首屏多等几个往返（原来的 onMounted 写法就是并行的，这里不能退回去）。
-const articlesAsync = useAsyncData(
-  () => `home-articles:${keyword.value || '-'}:${categoryId.value ?? '-'}:${tagId.value ?? '-'}`,
-  () => requestArticles(1),
-)
+// =====================================================================
+// 不依赖站点设置的那几份首屏数据 —— **必须先创建**，让它们立刻开始请求
+//
+// 【为什么位置这么讲究】下面会 `await settingsReady`（每页条数要用它）。
+// 在 await 之后创建的 useAsyncData 要等到设置回来才发出请求 ——
+// 那等于让标签、统计、分类三份数据都排在设置后面。
+// 它们和站点设置毫无关系，放在这里才能与之【并行】，
+// 首屏就只多一个往返（设置），而不是三个串起来。
+// =====================================================================
 
 /**
  * 分类列表：**和导航栏「文章」下拉共用一份**（`useCategoryList()`）。
@@ -392,6 +381,78 @@ const tagsAsync = useAsyncData('home-tags', async () => {
 // 更糟的是它和旁边【已经渲染出来】的文章列表自相矛盾（列表里明明有文章）。
 const { stats: siteStats, failed: statsFailed, load: loadSiteStats } = useSiteStats()
 const statsAsync = useAsyncData('home-site-stats', () => loadSiteStats())
+
+/**
+ * 站点设置（首页要用到两样：公告与每页条数）。
+ * 【为什么在首页再调一次 useSiteSettings 不会多打一次接口】
+ *   外壳（app.vue）已经用同一个 key 取过一份了 —— useAsyncData 同 key 就是同一份数据，
+ *   这里只是拿到它（外加那段 getCachedData 保证服务端也只打一次，见那个组合式函数的注释）。
+ */
+const { settings, ready: settingsReady } = useSiteSettings()
+
+/**
+ * ⚠️ 【为什么要在这里【等】站点设置到位，而不是"先发请求、到了再重发"】
+ *
+ *   每页条数是站点设置给的，而文章列表的请求要用它。不等的话会发生两件都不好的事：
+ *     · 第一次请求会用归一化的默认值（12）发出去，等设置到位后 useAsyncData 的 key
+ *       变了再发一次 —— 白打一个往返（首页本来就是最该省一次往返的页面）
+ *     · 首屏会先按 12 条渲染、再跳成实际条数，用户能看见一次重排
+ *   （第一版就是没等，被 `test/homeContent.nuxt.spec.ts` 里那条
+ *     "请求列表时带上设置里的 size" 抓出来的：断言 20 却拿到 12。）
+ *
+ *   【代价说清楚】这一步让首屏多一个串行往返 —— 先拿设置、再拿文章。
+ *   它是内部接口（SSR 直连后端容器），一次几毫秒；换来的是"只发一次请求、
+ *   SEO 抓到的 HTML 里就是正确的条数"。为了保住其余几个请求的并行，
+ *   下面把标签与统计两个 useAsyncData **放在这里之前**创建（它们不依赖设置）。
+ *
+ *   `await` 在服务端是"等这份数据到位再继续渲染"，在客户端数据已有、立即返回；
+ *   而外壳已经取过同一份数据，所以这里不会多发一次 /setting。
+ */
+await settingsReady
+
+/**
+ * 每页文章条数：**由站点设置决定**（后台「设置」里可改，缺省 12）。
+ * 【12 这个默认值为什么在前端】3 列瀑布流正好 4 行是**排版决策**，
+ * 所以它属于这里（后端只在设置那一行缺失时返回 null，不重复写一份）。
+ */
+const size = computed(() => settings.value.pageSize)
+
+/** 「加载更多」追加进来的文章（首屏那一页不在这里，见下面的 articles） */
+const moreArticles = ref([])
+const loadingMore = ref(false)
+
+/**
+ * 拉文章列表。
+ * @param pageNo 页码
+ *
+ * 这里请求的是【前台公开接口】/article/page —— 它只返回已发布的文章，
+ * 所以你后台的草稿绝不会出现在首页上（这条在 ArticlePublicTest 里有测试守着）。
+ *
+ * 参数由 toArticleParams() 统一拼装：它保证「空关键词不发、没选分类不发、
+ * 没选标签不发」，也就是后端 GET /article/page 里 keyword / categoryId / tagId
+ * 三个都是可选参数，可以任意组合（后端按 AND 叠加）。
+ */
+const requestArticles = (pageNo) => request('/article/page', {
+  params: toArticleParams({
+    keyword: keyword.value,
+    categoryId: categoryId.value,
+    tagId: tagId.value,
+    page: pageNo,
+    size: size.value,
+  }),
+})
+
+// 首屏第一页：服务端取好、写进 payload（见上面那段说明）。
+// 几个请求互不依赖，所以先各自发起、再一起 await —— 串行 await 会让
+// 首屏多等几个往返（原来的 onMounted 写法就是并行的，这里不能退回去）。
+//
+// 【key 里为什么带上 size】每页条数是站点设置里的一项、后台随时可以改：
+// 它变了就该按新条数重新取。不带进 key 的话，后台把 12 改成 20 之后首页仍然
+// 拿着旧 key 的那一份数据（12 条），表现是"改了没生效"。
+const articlesAsync = useAsyncData(
+  () => `home-articles:${keyword.value || '-'}:${categoryId.value ?? '-'}:${tagId.value ?? '-'}:${size.value}`,
+  () => requestArticles(1),
+)
 
 // 等服务端把这几份数据都拿到（并行）再渲染页面
 await Promise.all([articlesAsync, categoriesAsync, tagsAsync, statsAsync])
@@ -640,6 +701,12 @@ useSeoMetaFor(() => ({
 .mu-more:hover { color: var(--accent-strong); text-decoration: underline; }
 
 .notice { max-width: 1080px; margin: 20px auto; padding: 12px 0; border-radius: 999px; overflow: hidden; }
+/* 站点公告：与跑马灯同一套外壳语言，但**文字是静止的**（它是通知，不需要滚动去读） */
+.announce { max-width: 1080px; margin: 20px auto 0; padding: 12px 22px; border-radius: 999px; display: flex; align-items: center; gap: 10px; color: #cfdcf0; font-size: 14px; letter-spacing: 1px; }
+.announce .an-mark { color: var(--accent); flex-shrink: 0; }
+.announce .an-text { min-width: 0; word-break: break-word; }
+/* 公告与跑马灯叠在一起时把间距收一下（否则两个 20px 边距会变成 40px 的空档） */
+.announce + .notice { margin-top: 12px; }
 .notice-track { display: flex; width: max-content; white-space: nowrap; animation: marquee 20s linear infinite; }
 .notice-track span { color: #cfdcf0; font-size: 14px; letter-spacing: 1px; padding: 0 40px; }
 @keyframes marquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
