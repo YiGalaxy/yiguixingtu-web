@@ -46,6 +46,15 @@ export const STATIC_PAGES = Object.freeze([
   // 不写进 sitemap 的话，爬虫只能靠导航里的那个链接发现它 ——
   // 而归档页正是"一次拿到全部内链"的地方，把它自己排除在外没有道理
   { path: '/archive', changefreq: 'daily', priority: '0.9' },
+  // 这四个内容页（2026-09-11 新增）的内容**同样来自后端**，但它们的地址不由
+  // "文章 id" 决定，所以只能走这份固定清单。写在这里的理由与归档页完全一样：
+  // 导航里点得到 ≠ 爬虫一定能早点发现 —— sitemap 的意义正是"不用等链接被发现"。
+  // 收藏 / 项目 更新得比较勤（加一条新收藏就该被重新抓一次），所以 changefreq 给 weekly；
+  // 友链与关于变动很少，给 monthly。
+  { path: '/favorites', changefreq: 'weekly', priority: '0.7' },
+  { path: '/projects', changefreq: 'weekly', priority: '0.7' },
+  { path: '/links', changefreq: 'monthly', priority: '0.6' },
+  { path: '/about', changefreq: 'monthly', priority: '0.6' },
 ])
 // 【为什么没有 /admin】它带 noindex（见 app/pages/admin.vue），
 // 写进 sitemap 等于一边说"别收录"、一边主动把地址递给爬虫，自相矛盾。

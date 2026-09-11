@@ -12,6 +12,48 @@
     </video>
     <div class="bg-overlay"/>
 
+    <!-- ============ 背景音乐：全站**唯一**的 <audio> 实例（2026-09-11 从首页卡片挪到这里）============
+         【为什么必须放在外壳里】
+           改之前它住在首页那张音乐卡片里。而页面是随路由卸载的 ——
+           于是"在首页点了播放，点进归档/文章/音乐页"音乐立刻没了，回来还得再点一次。
+           背景音乐本来就该跨页面一直响：它的生命周期属于外壳，不属于某一页。
+           挪上来还顺手堵死了另一个更难查的问题：**同时存在两个播放器**。
+           留在页面里的话，"首页卡片一个 + 音乐页一个"就是两个 <audio> 抢同一首歌
+           （两个都在响、或者一个在响而另一个的进度条永远停在 0），
+           而共享状态里只有一份 playing/progress —— 两个实例会互相覆盖写，
+           用户看到的是"两个页面显示的进度不一样"。
+         【preload 为什么是 metadata 而不是 auto/none】
+           · `auto`：每个访客一进首页就开始下整首 2 MB 的 mp3 —— 而音乐**默认是关的**
+             （浏览器不许无手势自动播放），也就是说绝大部分人白下 2 MB。
+           · `none`：一个字都不读。后果是进度条拿不到总时长，一上来显示 `--:--`，
+             用户点了播放之后进度条还要等一次往返才开始动。
+           · `metadata`：只读文件头（几十 KB 以内），拿到总时长，不碰音频数据。
+             代价是"点播放到出声"多一次往返 —— 这个代价换掉 2 MB 的浪费，值。
+         【为什么不用 v-if="enabled" 进一步省掉这个元素】
+           那样确实能让"从不开音乐"的访客一个字节都不下，但会带来一个明确的体验退化：
+           关掉再打开时元素被销毁重建，**播放位置会丢**（同一首歌从头开始）。
+           暂停和"关掉"在用户眼里是同一件事，位置就不该丢。
+         【loop：为什么是"单曲循环"而不是"播完停下"】
+           这是**背景音乐**，曲目只有一首。播完就永久安静，用户会以为"音乐坏了/自己停了"，
+           而重新点一次播放是件很别扭的事（尤其用户根本不知道它播完了）。
+           代价是 `ended` 事件在浏览器里不会触发 —— 下面那个处理函数是**防御性**的：
+           它是为了"哪天去掉 loop（比如要支持'播完停'）时状态仍然有主"，
+           不是当前的主要路径（测试里对应那条用例也如实标注了这一点）。
+         【src 从哪来】和背景视频一样由 mediaUrl() 拼（前缀可配、名字来自 MEDIA_FILES），
+           页面里不写死 /media/bg-music.mp3，理由见 app/utils/media.ts 的头注释。 -->
+    <audio
+      ref="audioRef"
+      :src="bgMusicSrc"
+      preload="metadata"
+      loop
+      @timeupdate="onMusicTime"
+      @durationchange="onMusicDuration"
+      @loadedmetadata="onMusicDuration"
+      @play="onMusicPlay"
+      @pause="onMusicPause"
+      @ended="onMusicEnded"
+      @volumechange="onMusicVolumeChange"/>
+
     <header class="site-nav">
       <NuxtLink to="/" class="brand">
         <span class="brand-mark">✦</span>
@@ -30,10 +72,11 @@
               <NuxtLink v-for="child in item.children" :key="child.label" :to="child.to">{{ child.label }}</NuxtLink>
             </div>
           </div>
-          <!-- 真链接：NuxtLink 渲染成 <a href>，可爬、可中键新开 -->
-          <NuxtLink v-else-if="item.to" :to="item.to" class="nv">{{ item.label }}</NuxtLink>
-          <!-- 还没做的入口：给提示（做到哪一批就换成真链接） -->
-          <span v-else class="nv" @click="onDev">{{ item.label }}</span>
+          <!-- 真链接：NuxtLink 渲染成 <a href>，可爬、可中键新开。
+               导航里现在**每一项**都是上面两种之一（下拉或真链接）——
+               F5 之后已经没有"点了弹开发中"的入口了，所以那个兜底分支被删掉了：
+               留着一个永远不会走到的分支，只会让人以为还有没做完的入口。 -->
+          <NuxtLink v-else :to="item.to" class="nv">{{ item.label }}</NuxtLink>
         </template>
       </nav>
       <nav class="nav-right">
@@ -82,8 +125,8 @@
                顺手把面板收起来（不收的话跳完还挂着一块盖住半屏的面板） -->
           <NuxtLink v-for="child in item.children" :key="child.label" :to="child.to" class="nm-sub" @click="closeNav">{{ child.label }}</NuxtLink>
         </div>
-        <NuxtLink v-else-if="item.to" :to="item.to" class="nm-item" @click="closeNav">{{ item.label }}</NuxtLink>
-        <span v-else class="nm-item" @click="onDevFromNav">{{ item.label }}</span>
+        <!-- 与桌面完全一样：下拉（分类）或真链接，没有第三种 -->
+        <NuxtLink v-else :to="item.to" class="nm-item" @click="closeNav">{{ item.label }}</NuxtLink>
       </template>
     </nav>
 
@@ -225,27 +268,46 @@ const avatarText = computed(() =>
 const bgVideo = ref()
 
 /**
- * 【背景音乐的状态来自共享组合式函数】（2026-09-11 改）
+ * =====================================================================
+ *  背景音乐：**全站唯一那个播放器的家**（2026-09-11 从首页卡片挪到这里）
+ * =====================================================================
  *
- * 改之前这里是一个本地 `ref(false)`，而且它的作用是把**背景视频取消静音**：
- *     const toggleMusic = () => { musicOn.value = !musicOn.value
- *                                 bgVideo.value.muted = !musicOn.value }
- * 两个问题：
- *   ① 它管的根本不是"背景音乐"。本站的背景音乐是 `static-media/bg-music.mp3`
- *      （首页那张音乐卡片在放它），而背景视频是**装饰性的、按设计一直静音** ——
- *      给它取消静音只会让视频自己的音轨盖在音乐上
- *   ② 状态是**局部的**，所以页脚这个开关和首页卡片上的按钮**互不知道对方**：
- *      页脚显示"关闭背景音乐"时，卡片可能正显示着暂停图标，用户看到的就是"点了没反应"
+ * 【为什么挪到外壳】见模板里那段长注释（页面会随路由卸载 → 音乐跟着断；
+ *   两个页面各自的 <audio> → 两个实例互相覆盖状态）。这里只说**分工**：
  *
- * 现在状态统一放在 `useBackgroundMusic()` 里（`enabled` = 用户想不想听，持久化到 localStorage），
- * 页脚的开关、⚙ 设置面板里的开关、首页音乐卡片的按钮都用这一份。
- * 【谁真正放音】`<audio>` 元素在首页的音乐卡片里（F3 之后音乐页也会有），
- * 它照着 `enabled` 去 play/pause，并把真实状态写回 `playing`。
- *   也就是说：`enabled` 是"想听"，`playing` 是"真的在响"——浏览器有自动播放限制，
- *   没有用户手势时 `play()` 会被拒绝，这两件事就必须分开，不能合成一个变量。
+ *   · `useBackgroundMusic()`（共享状态，本次一行未改）
+ *       `enabled`  用户想不想听（持久化在 localStorage）
+ *       `playing`  是不是真的在响（浏览器有自动播放限制，所以与 enabled 必须分开）
+ *       `progress` 进度百分比（给进度条用）
+ *     页脚开关、⚙ 设置面板、首页卡片、音乐页，四处用的都是这一份 ——
+ *     这才是"点了播放，四处一起变"的原因。
+ *
+ *   · 本文件（外壳）
+ *       真正持有 <audio>；照着 `enabled` 去 play/pause，并把**真实**状态写回 `playing`；
+ *       另外管"播放器自身"的那几件事：当前秒数、总时长、音量、内嵌封面。
+ *       为什么这些不放共享状态里：`currentTime` 每 250ms 就变一次，
+ *       塞进 useState 等于让全站共享状态每秒抖四次（下面有节流实现与理由）；
+ *       而音量、封面是"这台设备上这个元素"的属性，本来就只有播放器自己知道。
+ *
+ *   · 首页卡片 / 音乐页（页面）
+ *       纯 UI：从共享状态读 `playing` / `progress`，点按钮调 `toggle`。
+ *       **不再各自持有 <audio>**（这正是"一离开首页音乐就没了"的病根）。
+ *       音乐页还要读秒数/时长/音量、要跳转进度，通过下面这个 `provide` 拿：
+ *       页面是外壳里 `<NuxtPage/>` 渲染出来的**后代**，provide/inject 天然送到。
+ *
+ * 【为什么是 provide 一个"播放器对象"，而不是再开一份 useState】
+ *   再开一份就是**第二份真相**：同一个当前秒数存两处，只要有一处忘了同步，
+ *   音乐页上的时间就会慢慢跑偏（而且不报错）。这里传出去的只有
+ *   "元素 + 它自己的几个属性 + 几个动作"，播放状态仍然只有共享状态那一份。
+ *   【注入键 'bgMusicPlayer' 在 app/pages/music.vue 里按同一个字符串 inject ——
+ *    这是两个文件之间唯一的约定，改一处必须改另一处，所以两边都写了注释。】
+ *
+ * 【为什么音乐页不直接用 useBackgroundMusic 里的 progress 就够，还要秒数】
+ *   `progress` 是百分比，它是给"细长进度条"用的（四舍五入到小数点后两位没人看得出来）；
+ *   而歌词高亮需要**秒**（要和歌词时间戳比较），时间文字也要显示 `1:23 / 3:05`。
  */
 const music = useBackgroundMusic()
-const { enabled: musicEnabled, toggle: toggleMusic } = music
+const { enabled: musicEnabled, toggle: toggleMusic, report: reportMusic } = music
 // 偏好读一次就够（服务端读不到 localStorage，所以只能在客户端做）
 onMounted(() => music.loadPreference())
 
@@ -254,6 +316,357 @@ onMounted(() => music.loadPreference())
 // （useRuntimeConfig 也就会被反复读），而它是个常量，没必要参与响应式。
 // 文件名来自 MEDIA_FILES 常量表，前缀来自运行时配置，这里是唯一的拼接点。
 const bgVideoSrc = mediaUrl(MEDIA_FILES.backgroundVideo)
+
+/**
+ * 【音频地址：跟着当前曲目走】（2026-09-11 加曲目列表时改成 computed，
+ * 同一天晚些时候又改成"读接口的曲目"）
+ *   · 曲目列表来自 `GET /music/list`（见 app/composables/useMusicTracks.ts），
+ *     接口挂了 / 站长还没上传 → 列表就是**内置那一首**（static-media/bg-music.mp3），
+ *     所以这个 computed 任何情况下都能拿到一个地址；
+ *   · 于是**换歌 = 改共享状态里的下标**，这个 computed 自己就会变成新地址，
+ *     `<audio :src>` 跟着变 —— 页面里没有任何一处自己拼地址。
+ * 【为什么不拼 /media/ 前缀】接口给的 `url` 已经是**完整地址或 `/` 开头**
+ *   （`/uploads/xxx.mp3` 是后台上传的目录，和 `/media/` 不是一回事；
+ *   将来也可能是完整外链）。所以这里直接用，只有内置那一首的地址是 mediaUrl() 拼的。
+ * 【关于跨域，别写反】`<audio>` 播放**不需要** CORS —— 外链音频没有 CORS 头也照常能响。
+ *   需要 CORS 的是我们"额外读文件头解析内嵌封面"那一步（下面 fetchMusicCover），
+ *   那是普通 fetch 请求、还带 Range 头（会触发 preflight），所以外链基本读不到封面：
+ *   这种情况下用接口给的 `cover`，再没有就显示占位图案。
+ */
+const { currentTrack } = useMusicTracks()
+const bgMusicSrc = computed(() => currentTrack.value.url)
+
+// ---------- <audio> 元素的引用与它的几个属性 ----------
+/** 模板里那个唯一 <audio> 的引用。所有对播放器的直接操作都从这里拿到元素 */
+const audioRef = ref()
+/** 当前播放到第几秒。**本地 ref**（不是 useState）—— 只有音乐页在读它 */
+const musicCurrent = ref(0)
+/** 总时长（秒）。**0 表示"还不知道"**：读元数据之前 duration 是 NaN，必须收成有限值 */
+const musicDuration = ref(0)
+/** 参考音量（0~1）。初值给 1，真的偏好等挂载后再从 localStorage 读（理由见下面那段） */
+const musicVolume = ref(1)
+/** 静音开关。**不持久化**（理由见下面 VOLUME_STORAGE_KEY 的注释） */
+const musicMuted = ref(false)
+/** 歌曲**内嵌**的封面地址（object URL）。空串 = 没读到，调用方用回落图 */
+const musicCoverUrl = ref('')
+
+/**
+ * 音量的持久化 key。
+ * 【为什么音量持久化、静音不持久化】
+ *   音量是**长期偏好**：用户把音量调到 30% 是"我就想这么听"，下次进站还得是 30%。
+ *   静音是**临时动作**：用户往往只是"先安静一下"（接个电话、开会），
+ *   下次打开站点还是静音会让人以为"又坏了"。所以静音只活在本次会话里。
+ * 【为什么服务端读不到（初值给 1）】localStorage 在服务端不存在，
+ *   如果在这里同步读，服务端渲染出来是 1、客户端一挂载立刻变成 0.3 ——
+ *   那正是 hydration 不一致（控制台一阵告警，滑块的初始位置还会闪一下）。
+ *   所以和 `enabled` 一样：**挂载后在客户端读**。
+ */
+const VOLUME_STORAGE_KEY = 'bg-music-volume'
+
+/** 读上一次存的音量（只在客户端调用）。读不到 / 被禁 / 值不合法都回落到 1 */
+const readStoredVolume = () => {
+  if (!import.meta.client) return 1
+  try {
+    const raw = Number.parseFloat(localStorage.getItem(VOLUME_STORAGE_KEY) ?? '')
+    return Number.isFinite(raw) && raw >= 0 && raw <= 1 ? raw : 1
+  } catch {
+    // 隐私模式 / 存储被禁用：音量是可有可无的东西，读不到就用默认值，不影响页面能不能开
+    return 1
+  }
+}
+
+const persistVolume = () => {
+  if (!import.meta.client) return
+  try {
+    localStorage.setItem(VOLUME_STORAGE_KEY, String(musicVolume.value))
+  } catch {
+    // 同上：存不进去就算了，本次会话里音量仍然是对的
+  }
+}
+
+/**
+ * 把音量与静音**落实到元素上**。
+ * 【为什么每次都要重新赋值】`el.volume` / `el.muted` 是元素的属性，
+ *   我们的 ref 只是"界面上的那一份"。两者之间必须有一个明确的落点，
+ *   否则会出现"滑块看着在 30%、声音还是满的"。
+ */
+const applyVolume = () => {
+  const el = audioRef.value
+  if (!el) return
+  el.volume = musicVolume.value
+  el.muted = musicMuted.value
+}
+
+/** 音乐页的音量滑块走这里：改 ref + 立刻应用到元素 + 落盘 */
+const setMusicVolume = (value) => {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return
+  musicVolume.value = Math.min(1, Math.max(0, parsed))
+  // 拖音量 = 明确"我想听"：顺手取消静音。不这么做的话，
+  // 用户会遇到"我把音量拖上去了，怎么还是没声音"（因为 muted 还挂着）
+  if (musicVolume.value > 0) musicMuted.value = false
+  applyVolume()
+  persistVolume()
+}
+
+/** 静音开关：只切换 muted，不动用户选的音量（取消静音后要回到原来的音量） */
+const toggleMusicMute = () => {
+  musicMuted.value = !musicMuted.value
+  applyVolume()
+}
+
+/** 进度百分比。duration 未知时返回 0（而不是 NaN —— NaN 写进进度条会变成非法宽度） */
+const progressOf = (el) => (el && el.duration ? (el.currentTime / el.duration) * 100 : 0)
+
+/**
+ * 跳转到某一秒（音乐页：拖进度条、点某句歌词）。
+ *
+ * 【为什么上限要分两种情况】duration 在"还没读到元数据"时是 NaN：
+ *   `Math.min(x, NaN)` 是 NaN，而给 currentTime 赋 NaN 在浏览器里会被**静默忽略**
+ *   （元素停在原地，用户看到"点了没反应"），在 happy-dom 里则直接抛 TypeError。
+ *   两种都很难查，所以这里先判断 duration 是不是有限的正数。
+ */
+const seekMusic = (seconds) => {
+  const el = audioRef.value
+  const target = Number(seconds)
+  if (!el || !Number.isFinite(target)) return
+  const max = Number.isFinite(el.duration) && el.duration > 0 ? el.duration : target
+  el.currentTime = Math.min(Math.max(0, target), max)
+  // 立刻回写本地秒数与共享进度：不等下一次 timeupdate（最多 250ms），
+  // 否则用户松开进度条之后，滑块还会"弹回去一点点"再跳过来
+  musicCurrent.value = el.currentTime
+  reportMusic({ progress: progressOf(el) })
+}
+
+/**
+ * 进度回写的节流。
+ *
+ * 【为什么必须节流】`timeupdate` 是浏览器在播放过程中**反复**触发的事件
+ * （规范给的是 4~66 次/秒）。`progress` 是 `useState` —— 全站共享、
+ * 会参与多处渲染，每帧都写一次等于把 Vue 的响应式系统按帧号跑满
+ * （首页那张卡片、音乐页的进度条、页脚……全都跟着重渲染）。
+ *
+ * 【策略】两个条件满足其一才写：
+ *   · 距上次写入 >= 250ms（正常播放时约 4 次/秒，进度条足够顺滑）
+ *   · 或者进度变化 >= 1%（拖完进度条、或浏览器一次性跳过一大段的场合，
+ *     立刻写；顺带这条判断不依赖真实时钟就能测 —— 见 test/music.nuxt.spec.ts）
+ */
+const PROGRESS_MIN_INTERVAL = 250
+const PROGRESS_MIN_DELTA = 1
+let lastProgressAt = 0
+let lastProgressValue = 0
+
+const onMusicTime = () => {
+  const el = audioRef.value
+  if (!el) return
+  // 秒数写的是**本地 ref**（只有音乐页在读），不必节流；
+  // 共享状态里的百分比才需要（见上面那段）
+  if (Number.isFinite(el.currentTime)) musicCurrent.value = el.currentTime
+  const percent = progressOf(el)
+  if (!Number.isFinite(percent)) return
+  const now = Date.now()
+  const due = now - lastProgressAt >= PROGRESS_MIN_INTERVAL
+  const jumped = Math.abs(percent - lastProgressValue) >= PROGRESS_MIN_DELTA
+  if (!due && !jumped) return
+  lastProgressAt = now
+  lastProgressValue = percent
+  reportMusic({ progress: percent })
+}
+
+/** 时长：只在"有限且为正"时采纳。读不出来就一直保持 0，界面显示 `--:--`（比显示 NaN 好） */
+const onMusicDuration = () => {
+  const el = audioRef.value
+  if (!el) return
+  musicDuration.value = Number.isFinite(el.duration) && el.duration > 0 ? el.duration : 0
+}
+
+// 真实事件回写共享状态：浏览器可能在别的地方把音频暂停/播放了
+// （系统媒体控制、来电、蓝牙断连），那时界面必须跟着变，而不是继续显示"正在播放"
+const onMusicPlay = () => reportMusic({ playing: true })
+const onMusicPause = () => reportMusic({ playing: false })
+/**
+ * 【`loop` 生效时，浏览器不会触发这个事件】
+ * 留着它是**防御性**的：哪天去掉 loop（比如要支持"播完停下"），
+ * 状态仍然有主，不会停在"显示在播、其实已经结束"。测试里那一条是手工 dispatch
+ * 出来的，注释里也如实写了这一点 —— 它不是当前的主要路径。
+ */
+const onMusicEnded = () => reportMusic({ playing: false, progress: 0 })
+
+/** 元素上的音量/静音被别人改动时（系统控件、将来的其它入口）同步回界面 */
+const onMusicVolumeChange = () => {
+  const el = audioRef.value
+  if (!el) return
+  if (Number.isFinite(el.volume)) musicVolume.value = el.volume
+  musicMuted.value = el.muted === true
+}
+
+/**
+ * 【谁真正去 play/pause、谁真正去换歌】外壳照着共享状态执行（`enabled` 与 `trackIndex`）。
+ *
+ * 【为什么用 watch 而不是"点按钮时直接 play"】开关可能在**别处**被改
+ * （页脚的 ♫、⚙ 设置面板、首页卡片、音乐页），那时候按钮根本没被点过 ——
+ * 只有 watch 才能让四处一致。换歌同理：音乐页点一行、将来的"下一首"，
+ * 都只是改共享状态里的下标，真正换音源的动作必须由持有元素的外壳来做。
+ *
+ * 【为什么 play() 成功之后还要乐观地把 playing 置为 true】
+ *   `await el.play()` 在真实浏览器里可能被自动播放策略拒绝（那时走 catch，
+ *   状态回到 false，是诚实的结果）；而测试环境（happy-dom）里"播了没声音"
+ *   这种事根本不存在，事件也不一定派发 —— 只靠事件驱动的话，
+ *   "点了之后按钮该变成暂停图标"这条就永远测不出来。
+ *   所以以**意图执行的结果**为准先置位，再由真实事件（play / pause / ended）纠正。
+ *
+ * 【换歌这一支为什么要等一拍、又为什么要显式把位置设成 0】
+ *   `<audio :src>` 是 Vue 渲染出来的属性，**换歌到属性真的写进元素之间隔着一次 DOM 更新**；
+ *   不等那一拍就 `play()`，播的还是上一首（地址还没换）。
+ *   换完之后位置理论上会自动归零，但有的浏览器要等到新音源加载出元数据才重置 ——
+ *   在那之前 `currentTime` 读出来还是上一首的位置（表现是"切歌后进度条停在中间"），
+ *   所以这里再显式设一次（设不上也不影响：新音源就绪时浏览器自己会归零）。
+ *   【切歌时正在播要接着播】`on` 没变，只是地址换了，所以下面照样走到 play() ——
+ *   不会因为换歌把用户"切成暂停"。
+ *
+ * 【为什么要监听"地址"而不是"第几首"】换歌的实质就是**音源变了**：
+ *   地址变了 → 元素必须重新加载、位置归零、封面重读。
+ *   而列表本身是异步来的（接口回来之前是内置那一首），所以"第几首"这个数字
+ *   在不同时刻可能指向不同的地址（例如接口回来之后第 0 首从内置那首换成了站长的第一首）——
+ *   盯着地址看，这两种情况都会正确地被当成"换歌"。
+ */
+watch([musicEnabled, bgMusicSrc], async ([on, src], previous) => {
+  const el = audioRef.value
+  if (!el) return
+
+  // previous 为 undefined = 这个 watch 的第一次执行（挂载时还没元素，上面已经 return 了）
+  const trackChanged = !previous || previous[1] !== src
+  if (trackChanged) {
+    // 换歌 = 换一份"这首歌自己的东西"：秒数、时长、内嵌封面全部重新来
+    musicCurrent.value = 0
+    musicDuration.value = 0
+    resetMusicCover()
+    reportMusic({ progress: 0 })
+    await nextTick()   // 等 :src 真的写进元素（见上面那段说明）
+    el.currentTime = 0
+  }
+
+  if (!on) {
+    el.pause()
+    reportMusic({ playing: false })
+    return
+  }
+  try {
+    await el.play()
+    reportMusic({ playing: true })
+  } catch {
+    reportMusic({ playing: false })
+  }
+  // 封面是"锦上添花"，放在播放之后去读：它不该挡着声音（见下面 ID3_HEAD_BYTES 那段）
+  fetchMusicCover()
+})
+
+// ---------- 歌曲内嵌封面（ID3 APIC）----------
+/**
+ * 只抓文件开头这么多字节去碰封面。
+ * 【为什么不是"把整首 mp3 下下来再解析"】整首 2 MB，而 ID3 标签在文件**最前面**
+ *   —— 封面（如果有）在开头几百 KB 里必定已经出现了。
+ * 【为什么偏偏是 128 KiB】ID3 标签通常只有几 KB（一张 500×500 的 jpg 也就 50 KB 上下）；
+ *   128 KiB 足够覆盖绝大多数"标签 + 一张封面"，同时在**没有封面**的文件上
+ *   （比如本站这一个）浪费也被限制在这个量级。
+ * 【它仍然是浪费，这一点要说清楚】本站这个 mp3 现在**根本没有 APIC 帧**
+ *   （只有 ffmpeg 写的 TXXX），所以这次抓回来的字节里一定找不到封面。
+ *   为了让"从不开音乐"的访客一个字节都不为它花，抓取是**等用户真的想听音乐之后**才发起的
+ *   （见上面那个 watch）—— 那种时候浏览器本来也要开始下这首歌了。
+ * 【换歌之后要重新抓】封面是**每首歌自己的**，所以记录"已经为哪个地址抓过"，
+ *   而不是"抓过了"（后者会让第二首歌继续顶着第一首的封面）。
+ */
+const ID3_HEAD_BYTES = 131072
+
+/**
+ * 这个音源地址是不是"我们自己的"（同源）。
+ * 【为什么要判它】见下面 fetchMusicCover 里那段：读内嵌封面这一步是 fetch + Range，
+ *   跨域时会被 CORS 预检挡住（外链基本都不放行）。同源（`/` 开头，或同源的绝对地址）
+ *   才可能成功 —— 判错的代价只是"多了一个失败的请求"或者"少读到一张封面"，
+ *   不影响播放，所以这里宁可写得保守一点。
+ */
+const isSameOrigin = (url) => {
+  if (typeof url !== 'string' || !url) return false
+  if (url.startsWith('/')) return true                       // 站内相对地址（/media、/uploads）
+  if (!import.meta.client) return false                      // 服务端没有 location，一律当作不同源
+  try {
+    return new URL(url, window.location.href).origin === window.location.origin
+  } catch {
+    return false                                             // 坏地址：当作不可读
+  }
+}
+
+/** 已经为哪个音源地址尝试过读封面（空串 = 还没试过） */
+let coverAttemptedFor = ''
+
+/** 清掉当前封面（回收 object URL）—— 换歌、卸载时都要走这里，否则就是内存泄漏 */
+const resetMusicCover = () => {
+  if (musicCoverUrl.value) {
+    try {
+      URL.revokeObjectURL(musicCoverUrl.value)
+    } catch {
+      // 已经失效的地址再撤销会抛错，忽略即可
+    }
+  }
+  musicCoverUrl.value = ''
+  coverAttemptedFor = ''
+}
+
+/** 读当前这首歌的内嵌封面。拿不到（没有 ID3 / 没有 APIC / 网络失败）就什么都不做，由调用方回落 */
+const fetchMusicCover = async () => {
+  if (!import.meta.client) return
+  const src = bgMusicSrc.value
+  if (!src || coverAttemptedFor === src) return   // 同一首歌只抓一次
+  // 【跨域的那一步会失败，而且这是正常的】`<audio>` 播放**不需要** CORS，
+  //   但我们这一步是**普通 fetch**（还带 Range 头 → 会先发 OPTIONS 预检）：
+  //   外链音频的空间商基本不会为它开放 CORS，请求必然失败。
+  //   所以外链曲目直接跳过这一步，用接口给的 `cover`（再没有就是占位图案）——
+  //   而不是发一个注定失败的请求、然后在控制台留一堆红字。
+  //   （注意别写反：**不能**放的是这一步，不是播放本身。）
+  if (!isSameOrigin(src)) return
+  coverAttemptedFor = src
+  try {
+    const head = await $fetch(src, {
+      headers: { Range: `bytes=0-${ID3_HEAD_BYTES - 1}` },
+      responseType: 'arrayBuffer',
+    })
+    const cover = parseId3v2Cover(head)
+    // 【竞态护栏】等请求回来的这段时间里用户可能已经切歌了：这份封面属于上一首，
+    // 直接丢掉。不加这一条的表现是"切歌之后封面闪回上一首的图"（而且很难复现）。
+    if (!cover || coverAttemptedFor !== src) return
+    // URL.createObjectURL 把 Blob 变成一个 <img src> 能用的地址。
+    // 【为什么不在 utils 里做】它创建的地址**必须由创建方负责回收**
+    // （revokeObjectURL），把"谁创建"和"谁回收"分开写是内存泄漏的经典起点；
+    // 所以创建与回收都留在这个生命周期最长的组件里（见 onBeforeUnmount）。
+    if (typeof URL?.createObjectURL !== 'function') return
+    musicCoverUrl.value = URL.createObjectURL(cover.blob)
+  } catch {
+    // 网络失败 / 服务器不支持 Range / 返回值根本不是二进制：
+    // 一律当作"没有内嵌封面"，页面用回落图 —— 这条路径绝不能影响页面能不能打开
+  }
+}
+
+/**
+ * 交给页面用的播放器接口（注入键 'bgMusicPlayer'，音乐页按同一字符串 inject）。
+ * 只包含"元素自己的属性 + 几个动作"，**不含** enabled/playing/progress/trackIndex
+ * ——那几样仍然只有 `useBackgroundMusic()` 一份（见本段开头的分工说明）。
+ */
+const bgMusicPlayer = {
+  audioRef,
+  currentTime: musicCurrent,
+  duration: musicDuration,
+  volume: musicVolume,
+  muted: musicMuted,
+  coverUrl: musicCoverUrl,
+  seek: seekMusic,
+  setVolume: setMusicVolume,
+  toggleMute: toggleMusicMute,
+}
+provide('bgMusicPlayer', bgMusicPlayer)
+
+// 卸载时释放 object URL。不释放的话那份图片数据会一直被浏览器攥着
+// （SPA 里反复切换/热更新时就是一条稳定的内存泄漏）
+onBeforeUnmount(resetMusicCover)
 
 // ---------- 背景视频性能优化 ----------
 // 页面切到后台（切标签页 / 最小化窗口）时暂停视频，避免白白占用 CPU 和显卡
@@ -272,7 +685,6 @@ const onLogout = async () => {
   ElMessage.success('已退出')
   navigateTo('/')
 }
-const onDev = () => ElMessage.info('该页面开发中')
 
 // =====================================================================
 //  导航（2026-09-11：窄屏从"整块隐藏"改成汉堡菜单）
@@ -303,8 +715,13 @@ const onDev = () => ElMessage.info('该页面开发中')
  *
  * 字段含义：
  *   · `to`       —— 真链接（NuxtLink），可爬、可中键新开
- *   · `children` —— 有子项的（目前只有「文章」，桌面是 hover 展开的下拉）
- *   · `dev:true` —— 还没做的入口，点了给"该页面开发中"提示（做到哪一批就换成真链接）
+ *   · `children` —— 有子项的（目前只有「文章」，桌面是 hover 展开的下拉，子项是真分类）
+ *
+ * 【`dev: true` 这个字段已经没有了】（2026-09-11）它原来标"还没做的入口"，
+ *   点了弹一句「该页面开发中」。F5 把最后四个入口（收藏 / 项目 / 友链 / 关于）
+ *   接成真页面之后，导航里**每一项都是真链接**，所以那个字段、那个兜底分支
+ *   以及对应的 `onDev()` 一起删掉了 —— 留着一个永远不会走到的分支，
+ *   只会让人以为还有没做完的入口。
  */
 const { categories: navCategories } = useCategoryList()
 
@@ -334,11 +751,25 @@ const navItems = computed(() => [
   // 而「文章」下拉里是"按分类看"，两件事。混在一起用户根本分不清点哪个。
   { label: '归档', to: '/archive' },
   articleNavItem(),
-  { label: '音乐', to: '/#music' },
-  { label: '收藏', dev: true },
-  { label: '项目', dev: true },
-  { label: '友链', dev: true },
-  { label: '关于', to: '/#profile' },
+  // 【音乐从 "首页的锚点" 变成了真页面】（2026-09-11）
+  //   改之前这一项指的是 '/#music' —— 首页那张卡片上的锚点。也就是说"音乐"
+  //   其实只是"滚到首页某个位置"，而首页那张卡片只有一个播放键：点进来的用户
+  //   看到的还是同一张卡片，感觉自己没进任何页面（这正是用户报的"音乐点进去没有东西"）。
+  //   现在它是一个**真页面** /music（旋转唱片 + 歌词 + 完整控制条），
+  //   NuxtLink 渲染成 <a href="/music">：可爬、可中键新开、刷新后还在这一页。
+  { label: '音乐', to: '/music' },
+  // 【收藏 / 项目 / 友链 / 关于：F5 的四页，2026-09-11 从"还没做"接成真页面】
+  //   在这之前它们都是 `dev: true` —— 点了只弹一句「该页面开发中」。
+  //   现在四个模块后端各有一张表、一套公开接口与后台管理面板，所以这里都是真链接。
+  //
+  // 【关于为什么不再指 '/#profile'】那是首页那张个人卡片的锚点。四页做完之后
+  //   "关于"有自己的一页（站长资料 + 自我介绍），首页那张卡片是**简述**，
+  //   点「关于」应该是去看完整的那一份，而不是滚回首页。
+  //   锚点本身留着（老的 `/#profile` 链接仍然落到那张卡片上），只是导航不再指向它。
+  { label: '收藏', to: '/favorites' },
+  { label: '项目', to: '/projects' },
+  { label: '友链', to: '/links' },
+  { label: '关于', to: '/about' },
 ])
 
 /** 汉堡面板开着没有 */
@@ -347,15 +778,6 @@ const route = useRoute()
 
 const closeNav = () => { navOpen.value = false }
 const toggleNav = () => { navOpen.value = !navOpen.value }
-
-/**
- * 窄屏面板里点"还没做"的入口：给完提示**要把面板收起来** ——
- * 不收的话提示会弹在面板底下（面板是覆盖层），用户只看到"点了没反应"。
- */
-const onDevFromNav = () => {
-  onDev()
-  closeNav()
-}
 
 /**
  * Esc 关闭：浮层类的东西一律要能用 Esc 关掉，
@@ -455,6 +877,11 @@ const regLoading = ref(false)
 const { remember, username: rememberedUsername, restore: restoreRemembered, save: saveRemembered, clear: clearRemembered } = useRememberedLogin()
 
 onMounted(async () => {
+  // 音量的偏好：和 `enabled` 一样只能在客户端读（服务端没有 localStorage），
+  // 读完立刻应用到元素上 —— 否则用户上次调的 30% 要等到他动一下滑块才生效
+  musicVolume.value = readStoredVolume()
+  applyVolume()
+
   // 回填「记住的用户名」，并【顺手清理老版本留下的 cookie】：
   // 只改代码是不够的 —— 老用户浏览器里那个带着明文密码的 rememberMe
   // 不会自己消失，restore() 会在发现老格式时立刻把它改写成只含用户名的值。

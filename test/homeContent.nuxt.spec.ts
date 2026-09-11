@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { nextTick } from 'vue'
+import { nextTick, ref } from 'vue'
 import { mockNuxtImport, mountSuspended } from '@nuxt/test-utils/runtime'
 import { flushPromises, enableAutoUnmount } from '@vue/test-utils'
 import IndexPage from '~/pages/index.vue'
+import AppShell from '~/app.vue'
 
 // =====================================================================
 // 首页「内容真实性」的组件测试
@@ -30,6 +31,16 @@ import IndexPage from '~/pages/index.vue'
 
 const { fetchMock } = vi.hoisted(() => ({ fetchMock: vi.fn() }))
 mockNuxtImport('$fetch', () => fetchMock)
+
+// 【2026-09-11 新加】背景音乐的播放器挪到了外壳（app/app.vue），所以下面有两条用例
+// 要连外壳一起挂。app.vue 的模板里有 `v-if="token"`，而 useCookie 必须返回**真的 ref**
+// 才会被模板自动解包（返回普通对象的话它永远是真值，顶栏会一直按"已登录"渲染）——
+// 与 backgroundMusic / settingsPanel 那两份用例同款写法。
+const { cookieRefs } = vi.hoisted(() => ({ cookieRefs: {} }))
+mockNuxtImport('useCookie', () => (name) => {
+  if (!cookieRefs[name]) cookieRefs[name] = ref(null)
+  return cookieRefs[name]
+})
 
 const body = (data) => ({ code: 200, message: '成功', data })
 const pathOf = (url) => String(url).split('?')[0]
@@ -79,6 +90,22 @@ const FAKE_TEXTS = [
 
 const mountHome = async () => {
   const wrapper = await mountSuspended(IndexPage)
+  await flushPromises()
+  return wrapper
+}
+
+/**
+ * 「外壳 + 首页」挂在同一棵树里（2026-09-11 新增，给涉及播放状态的两条用例用）。
+ *
+ * 【为什么非得这样挂】首页那张卡片上的按钮显示的是 `playing`（**真的在响**），
+ * 而"真的在响"只有外壳里那个 `<audio>` 能写进共享状态 —— 只挂首页时页面上没有播放器，
+ * 点了播放之后没有任何东西会把它置为 true，按钮（正确地）仍然是 ▶。
+ * 这不是测试技巧：真实应用里首页**永远**是挂在外壳里的，所以这样挂才更接近真实。
+ */
+const mountShellWithHome = async () => {
+  const wrapper = await mountSuspended(AppShell, {
+    global: { stubs: { NuxtPage: IndexPage, NuxtRouteAnnouncer: true } },
+  })
   await flushPromises()
   return wrapper
 }
@@ -159,15 +186,28 @@ describe('首页 · 内容真实性', () => {
   // 二、音乐卡片：只保留真实存在的那一个音轨
   // ---------------------------------------------------------------
 
-  it('音乐卡片_should只指向真实存在的那个音频文件', async () => {
+  it('音乐卡片_should没有自己的 <audio>（唯一的播放器在外壳里），但播放键与进度条照旧', async () => {
     const wrapper = await mountHome()
 
-    const audio = wrapper.findAll('audio')
-    expect(audio.length).toBe(1)
-    // 地址是 /media/... 而不是 /bg-music.mp3：这个文件已经不在 public/ 里
-    // （不参与构建），线上由 Nginx、dev 由 Nitro 的开发路由提供，
-    // 前缀由 app/utils/media.ts 的 mediaUrl() 统一拼出来
-    expect(audio[0].attributes('src')).toBe('/media/bg-music.mp3')
+    // 【2026-09-11 改】这条原来断言的是"卡片里**恰好有一个** `<audio>`，src 是 /media/bg-music.mp3"。
+    // 播放器现在挪到了应用外壳 `app/app.vue`：页面会随路由卸载（放在卡片里等于
+    // "一离开首页音乐就断"），而音乐页出现之后还会变成两个 `<audio>` 抢同一首歌、
+    // 互相覆盖共享状态里的 playing/progress。所以这里断言**反面**。
+    expect(wrapper.find('audio').exists()).toBe(false)
+    expect(wrapper.findAll('audio')).toHaveLength(0)
+
+    // 【语义搬到了哪里】"全站恰好一个 `<audio>`、地址是 /media/bg-music.mp3"
+    // 一条都没丢，它搬到了 test/backgroundMusic.nuxt.spec.ts 的
+    // 「背景音乐 · 播放器住在外壳里」那一组（挂外壳断言 src / preload / loop / 父节点）。
+    // 那里还有一条"单独挂载首页时一个 audio 都没有"，和这里互为印证。
+
+    // 卡片的职责没有缩水：播放键在、进度条也在（进度条读的是共享状态里的百分比）
+    expect(wrapper.find('#music .mu-ctl .play').exists()).toBe(true)
+    expect(wrapper.find('#music .mu-progress').exists()).toBe(true)
+
+    // 卡片用到的媒体地址仍然是"由 mediaUrl() 按 MEDIA_FILES 拼出来的 /media/ 前缀"，
+    // 不是写死的路径 —— 这一点由封面回落图来守（音频那条由上面说的那组用例守）
+    expect(wrapper.find('.mu-disc-img').attributes('src')).toBe('/media/cover-1.png')
   })
 
   it('音乐卡片_should没有上一首/下一首（只有一个音轨，那两个按钮点了也是原地打转）', async () => {
@@ -181,36 +221,46 @@ describe('首页 · 内容真实性', () => {
     expect(wrapper.text()).not.toContain('⏭')
   })
 
-  it('音乐卡片_should保留 #music 锚点（导航栏的「音乐」指向它）', async () => {
+  it('音乐卡片_should保留 #music 锚点（老链接 /#music 仍然落到这张卡片上）', async () => {
     const wrapper = await mountHome()
 
     expect(wrapper.find('#music').exists()).toBe(true)
-    // 卡片上写的是"背景音乐"这个真实的说明，而不是编出来的曲名
+    // 卡片上写的是曲目表（app/utils/musicTracks.ts）里**当前这一首**的曲名，
+    // 不是编出来的曲名（原来这里断言的是写死的"背景音乐"，现在它来自曲目表第一首 ——
+    // 2026-09-11 改成数据驱动之后，这条断言一个字没变，守的语义也一样）
     expect(wrapper.find('.mu-title').text()).toBe('背景音乐')
+    // 【2026-09-11 只改了这条用例的**名字与注释**，断言一个字没动】
+    // 名字原来写的是"导航栏的「音乐」指向它"——现在导航里的「音乐」指向真页面 /music 了，
+    // 锚点留下来是为了老链接（/#music）不失效，而不是给导航用。
   })
 
   it('点播放按钮_should在播放与暂停之间切换（清理没把播放功能误删）', async () => {
-    const wrapper = await mountHome()
+    // 【2026-09-11 改】断言一个字没动，只是把挂载方式换成"外壳 + 首页"（理由见
+    // mountShellWithHome 的注释）：按钮显示的是"真的在响"，而写回它的是外壳里的播放器。
+    // 改动前的实现把 <audio> 放在卡片里，所以只挂首页也能翻成 ❚❚ —— 那是旧架构的产物。
+    const wrapper = await mountShellWithHome()
 
-    const button = wrapper.find('.mu-ctl .play')
-    expect(button.text()).toBe('▶')
+    const button = () => wrapper.find('#music .mu-ctl .play')
+    expect(button().text()).toBe('▶')
 
-    await button.trigger('click')
-    expect(wrapper.find('.mu-ctl .play').text()).toBe('❚❚')
+    await button().trigger('click')
+    await flushPromises()
+    expect(button().text()).toBe('❚❚')
 
-    await wrapper.find('.mu-ctl .play').trigger('click')
-    expect(wrapper.find('.mu-ctl .play').text()).toBe('▶')
+    await button().trigger('click')
+    await flushPromises()
+    expect(button().text()).toBe('▶')
   })
 
-  it('音频播放结束_should把按钮切回「播放」（原来这里接的是"下一首"）', async () => {
-    const wrapper = await mountHome()
-
-    await wrapper.find('.mu-ctl .play').trigger('click')
-    expect(wrapper.find('.mu-ctl .play').text()).toBe('❚❚')
-
-    await wrapper.find('audio').trigger('ended')
-    expect(wrapper.find('.mu-ctl .play').text()).toBe('▶')
-  })
+  // 【这里原来还有一条「音频播放结束_should把按钮切回『播放』」】
+  //   2026-09-11 它的驱动方式变了（`ended` 现在由外壳那个 audio 派发，卡片里已经没有播放器了），
+  //   于是整条**搬到了** test/backgroundMusic.nuxt.spec.ts 的
+  //   「背景音乐 · 播放器住在外壳里」那一组（用例名：`ended 事件_should把"在响"与进度一起归零…`）。
+  //   搬家时原语义一条没丢，反而多了一句：`enabled`（想不想听）**不变**、只有 `playing` 归零
+  //   —— 而且那条用例名/注释里明确写了"loop 生效时浏览器根本不会派发 ended，
+  //   这是防御性路径"，不再暗示"播完会自己回到 ▶"（现在的行为是循环播放，不会停）。
+  //   放在那边而不是这里，是因为它需要"挂外壳"才能拿到那个 `<audio>`，
+  //   而本文件的主题是"首页上有没有假内容"。
 
   // ---------------------------------------------------------------
   // 三、真内容没被误删

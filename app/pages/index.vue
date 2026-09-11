@@ -69,34 +69,52 @@ v-for="t in tags" :key="t.id" class="tagp"
              后端根本没这个接口）。 -->
       </div>
 
-      <!-- 音乐卡片：播放的是站点自带的那个真实音频文件（static-media/bg-music.mp3）。
-           改之前这里是个"假播放列表"：三个曲名（雨落星轨 / 夜航 / 星际漫游）
-           与上一首 / 下一首按钮都是写死的，而实际上只有这一个音频文件，
-           点下一首只是把 cur 加一、曲名换个字，音乐从头开始放同一段。
-           现在只保留真实存在的东西：一个音轨、一个播放键。
-           【地址不写死】src 由 mediaUrl() 拼出来：这个文件不在 public/ 里（不进构建产物），
-           线上由 Nginx 的 /media/ 提供、dev 由 Nitro 的开发路由提供，见 app/utils/media.ts。 -->
+      <!-- 音乐卡片：**音乐页的缩影**（2026-09-11 改）
+           改之前这张卡片自己带一个 `<audio>`，两个后果都很实在：
+             · 一离开首页音乐就断（页面卸载 → 播放器跟着没了），回来还得重新点
+             · 音乐页出现之后就是**两个播放器抢同一首歌**，而且共享状态里只有一份
+               playing/progress，两个实例会互相覆盖写
+           现在真正的 `<audio>` **全站只有一个**，在外壳 `app/app.vue` 里（切页面不断）。
+           这张卡片只是它的遥控器：读共享状态（playing/progress）+ 调 toggle，
+           自己一个播放器都不持有、一行播放状态都不自己存。
+           【为什么卡片上有唱片、却没有歌词列表】卡片的高度要和左边的个人卡片摆在一行里，
+           塞进歌词列表会把首页那一行撑成竖着的长条；歌词是"看着听"的东西，属于音乐页。
+           想去的人有一眼可见的路：下面那个「完整播放器 →」是 NuxtLink（渲染成
+           `<a href="/music">`），可爬、可中键新开、刷新后还在那一页。 -->
       <div id="music" class="music glass">
         <div class="mu-badge">BACKGROUND MUSIC</div>
         <div class="mu-main">
-          <div class="mu-cover"><img src="/cover-1.png" alt="背景音乐封面" ></div>
-          <!-- 【原来这里是 class="mu-info"，但全项目没有任何 .mu-info 规则】
-               同类缺陷在归档页造成了真问题（写了 class="glass" 却没有任何规则命中，
-               卡片没有背景、文字糊在背景视频上）。这里虽然只是个纯包裹用的 div
-               （去掉类名渲染结果完全相同，一个没有规则的类对视觉零影响），
-               但"看起来像有样式、其实没有"的类留着就是隐患，所以直接去掉类名。
-               这条由 test/styleContract.nuxt.spec.ts 守着。 -->
+          <!-- 小号旋转唱片：和音乐页是同一套做法 —— 转与不转**只改 animation-play-state**，
+               不用 v-if 重建元素。重建会让 CSS 动画从 0 度重新开始，
+               用户看到的是"每暂停一次，唱片就跳回正上方"。
+               （`id="music"` 这个锚点留着：老链接 /#music 还能落到这张卡片上。） -->
+          <div class="mu-disc" :style="{ animationPlayState: playing ? 'running' : 'paused' }">
+            <!-- 封面优先用歌曲内嵌的那张（ID3 APIC，由外壳读出来注入）；
+                 拿不到就用回落图；回落图本身也没有（**现在就是这种情况**）时换成
+                 画出来的占位图案 —— 绝不让浏览器显示破图图标 -->
+            <img
+              v-if="coverSrc && !coverBroken"
+              class="mu-disc-img"
+              :src="coverSrc"
+              :alt="`${currentTrack.title} 封面`"
+              @error="coverBroken = true" >
+            <span v-else class="mu-disc-ph" aria-hidden="true">♪</span>
+            <span class="mu-disc-hole" aria-hidden="true" />
+          </div>
           <div>
-            <!-- 不写曲名：本站没有这些曲目，编一个"雨落星轨"出来只是好看 -->
-            <div class="mu-title">背景音乐</div>
-            <div class="mu-art">站点自带音轨</div>
+            <!-- 曲名与歌手都来自曲目表（app/utils/musicTracks.ts）里**当前这一首**：
+                 这张卡片是音乐页的缩影，所以它显示的必须是同一首歌的名字。
+                 歌手是可选的：没有登记歌手就整行不渲染 —— 不编名字，也不留空格子。
+                 （原来这里写的是"站点自带音轨"：那是"给用户讲实现"的话，按用户要求清掉了。） -->
+            <div class="mu-title">{{ currentTrack.title }}</div>
+            <div v-if="currentTrack.artist" class="mu-art">{{ currentTrack.artist }}</div>
           </div>
         </div>
         <div class="mu-progress"><div class="mu-bar" :style="{ width: prog + '%' }"/></div>
         <div class="mu-ctl">
           <button class="play" @click="playPause">{{ playing ? '❚❚' : '▶' }}</button>
         </div>
-        <audio ref="audioRef" :src="bgMusicSrc" @timeupdate="onTime" @ended="onEnded" @play="onPlay" @pause="onPause"/>
+        <NuxtLink class="mu-more" to="/music">完整播放器 →</NuxtLink>
       </div>
     </section>
 
@@ -194,76 +212,67 @@ v-for="t in a.tags" :key="t.id" class="tg"
 import { ElMessage } from 'element-plus'
 
 // ================================================================
-//  背景音乐（只有一个音源：static-media/bg-music.mp3）
+//  背景音乐卡片（= 音乐页的缩影，只有一个音源：static-media/bg-music.mp3）
 //
 //  【为什么不做"播放列表"】改了之前这里有个 tracks 数组与上一首/下一首按钮，
 //  但三首曲名是编的、音频只有一个文件 —— 点下一首只是把下标加一，
 //  曲名换个字，声音从头再放同一段。这种"看起来像功能、其实什么都没做"的东西
 //  比没有更糟，所以只保留真实存在的部分。
 //
-//  【音频地址为什么是算出来的】这个文件不参与构建（不在 public/ 里），
-//  线上被 Nginx 接管、dev 被 Nitro 的开发路由接管，同一个 /media 前缀两边都成立。
-//  在 setup 里算一次就够了：模板里每次渲染都重算没有意义（跟着上面视频同理）。
+//  【这张卡片**不持有播放器**】（2026-09-11 改，本次改动的关键一步）
+//    `<audio>` 已经挪到应用外壳 `app/app.vue` —— 页面会随路由卸载，
+//    播放器放在页面里就等于"一离开首页音乐就断"；而且音乐页出现之后，
+//    两页各有一个 <audio> 就是两个实例抢同一首歌、互相覆盖共享状态里的进度。
+//    这里只做三件事：读共享状态、调 toggle、把用户送到音乐页。
+//
+//  【为什么这里一行播放状态都不自己存】`useBackgroundMusic()` 是全站唯一一份：
+//    `enabled`（想不想听，持久化）/ `playing`（真的在响）/ `progress`（进度百分比）。
+//    页脚开关、⚙ 设置面板、这一页、音乐页看到的都是同一个事实 ——
+//    自己再存一份 ref，立刻就会出现"页脚说在播、卡片显示暂停"这种用户报过的现象。
 // ================================================================
-const bgMusicSrc = mediaUrl(MEDIA_FILES.backgroundMusic)
+const { playing, progress: prog, toggle: playPause } = useBackgroundMusic()
 
 /**
- * 【这张卡片不再自己管状态，而是共用 `useBackgroundMusic()` 那一份】（2026-09-11 改）
- * 改之前这里有三个自己的 ref（playing / prog / audioRef），于是：
- *   · 页脚的开关改了之后，这张卡片上的按钮**不会跟着变**（反过来也一样）——
- *     用户看到的就是"点了没反应"，而两处都觉得自己是对的
- *   · 卡片一卸载（切到别的页面），播放状态就丢了
- * 现在 `enabled`（想不想听，持久化）/ `playing`（真的在响）/ `progress` 都在共享状态里，
- * 页脚开关、⚙ 设置面板、这张卡片看到的是同一个事实。
+ * 当前这一首（曲目列表来自 `GET /music/list`，见 app/composables/useMusicTracks.ts）。
+ * 【为什么卡片也要读它】卡片上要显示**当前曲名**（它是音乐页的缩影，显示同一首歌）；
+ *   曲名/歌手只来自接口（或内置兜底那一首），卡片不自己存一份。
+ *   它和音乐页、外壳用的是同一份数据（同 key 的 useAsyncData），不会各拉一遍。
  */
-const { enabled: musicEnabled, playing, progress: prog, toggle: playPause, report } = useBackgroundMusic()
+const { currentTrack } = useMusicTracks()
 
 /**
- * 【谁真正去 play/pause】`<audio>` 元素在本组件里，所以由本组件**照着 `enabled` 执行**。
- *
- * 【为什么用 watch 而不是"点按钮时直接 play"】开关可能在**别处**被改
- * （页脚的开关、⚙ 设置面板），那时候按钮根本没被点过 —— 用 watch 才能三处一致。
- *
- * 【为什么 play() 之后还要乐观地把 playing 置为 true】`await el.play()` 在真实浏览器里
- * 可能被自动播放策略拒绝（那时会走 catch，状态回到 false，是诚实的结果）；
- * 而测试环境（jsdom）根本没有实现媒体播放，事件永远不会触发 ——
- * 只靠事件驱动的话，"点了之后按钮应该变成暂停图标"这条就永远测不出来。
- * 所以这里以**意图**为准先置位，再由真实事件（play / pause / ended）纠正。
+ * 外壳注入下来的播放器接口（只用到里面的封面地址）。
+ * 【注入键 'bgMusicPlayer' 与 app/app.vue 里 provide 的字符串必须一致】
+ * 这张卡片只需要封面：真正的播放动作由外壳照着 `enabled` 执行，
+ * 秒数/时长/音量是音乐页才要的东西。
+ * 【为什么允许为空】组件单测里（没有外壳）注入是空的，那时就用回落图。
  */
-watch(musicEnabled, async (on) => {
-  const el = audioRef.value
-  if (!el) return
-  if (!on) {
-    el.pause()
-    report({ playing: false })
-    return
-  }
-  try {
-    await el.play()
-    report({ playing: true })
-  } catch {
-    report({ playing: false })
-  }
+const player = inject('bgMusicPlayer', null)
+
+/**
+ * 歌曲**内嵌**封面（ID3 APIC）的地址，由外壳读出来注入。
+ * 这里这一小段"从注入值里取一个 ref 的值"的写法在音乐页里更完整（那边要读五六个值）
+ * —— 一个共享的小工具函数本该落在 `app/utils` 里，但本次改动限定了可动的文件，
+ * 所以两边各写一次（保持短、并各自注明约定）。
+ */
+const id3CoverUrl = computed(() => {
+  const source = player?.coverUrl
+  if (source == null) return ''
+  const value = (typeof source === 'object' && 'value' in source) ? source.value : source
+  return typeof value === 'string' ? value : ''
 })
 
-const audioRef = ref()
-
-// timeupdate 是 <audio> 的原生事件，播放过程中大约每 250ms 触发一次；
-// duration 在读元数据之前是 NaN，所以要判断一下再算百分比
-const onTime = () => {
-  if (audioRef.value?.duration) {
-    report({ progress: (audioRef.value.currentTime / audioRef.value.duration) * 100 })
-  }
-}
-
-// 放完之后把按钮切回「播放」。再点播放时浏览器会从头开始放
-// （HTML 规范里 play() 对已结束的媒体会先回到起始位置），所以不需要手动 currentTime = 0
-const onEnded = () => { report({ playing: false, progress: 0 }) }
-
-// 真实事件回写：浏览器可能在别的地方把音频暂停了（比如系统媒体控制、来电），
-// 那时界面必须跟着变，而不是继续显示"正在播放"
-const onPlay = () => { report({ playing: true }) }
-const onPause = () => { report({ playing: false }) }
+// 封面回落图：**这首歌在接口里登记的 `cover`**（后台可以给每首歌配一张图）。
+// 【为什么这里不再过 mediaUrl()】接口给的已经是地址本身（`/uploads/...` 或完整外链），
+// 前缀是后端的事；只有内置兜底那一首的地址是前端用 mediaUrl() 拼的。
+const fallbackCoverSrc = computed(() => currentTrack.value.cover || '')
+/** 封面确认加载失败：失败后不再挂 <img>，改显示画出来的占位图案（避免破图图标） */
+const coverBroken = ref(false)
+const coverSrc = computed(() => id3CoverUrl.value || fallbackCoverSrc.value)
+// 【地址一变就重新给 <img> 一次机会】内嵌封面（异步）到了、或者切到了另一首歌
+// （回落图换了一张）时都要忘掉"上一次失败过" —— 否则第一首的回落图 404 之后，
+// 第二首明明有封面也永远显示占位图案，而且不报任何错
+watch(coverSrc, () => { coverBroken.value = false })
 
 // ================================================================
 //  文章列表：从后端真实拉取
@@ -592,15 +601,43 @@ useSeoMetaFor(() => ({
 .music { border-radius: 22px; padding: 20px 22px; }
 .mu-badge { font-size: 11px; letter-spacing: 2px; color: var(--accent); font-weight: 700; }
 .mu-main { display: flex; gap: 14px; align-items: center; margin: 14px 0; }
-.mu-cover { width: 72px; height: 72px; border-radius: 14px; overflow: hidden; box-shadow: 0 6px 20px rgba(0,0,0,.4); }
-.mu-cover img { width: 100%; height: 100%; object-fit: cover; }
+/* 小号旋转唱片：和音乐页那张是同一套做法（黑色同心圆用 repeating-radial-gradient 画，
+   不引图片），只是尺寸小一圈。
+   【为什么 animation-play-state 的生效值来自模板里的内联样式】
+   转/停由播放状态决定，而播放状态是响应式的 —— 内联样式是"每个组件各说各的"时
+   唯一不会互相打架的地方（写死在 CSS 里就只能二选一）。
+   另外全局那条 prefers-reduced-motion 媒体查询会把动画整个关掉，
+   所以"减少动态效果"的用户看到的是一张静止的唱片，这里不用再写一遍。 */
+.mu-disc {
+  position: relative; width: 72px; height: 72px; flex-shrink: 0; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: repeating-radial-gradient(circle at 50% 50%, #101a30 0 2px, #16233d 2px 4px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .42), inset 0 0 0 1px rgba(180, 210, 245, .14);
+  animation: muSpin 24s linear infinite;
+  animation-play-state: paused;
+}
+.mu-disc-img { width: 62%; height: 62%; border-radius: 50%; object-fit: cover; box-shadow: 0 0 0 3px rgba(10, 18, 36, .6); }
+/* 封面加载失败时的占位：一个音符 + 一层渐变，不是浏览器的破图图标 */
+.mu-disc-ph {
+  width: 62%; height: 62%; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px; color: var(--accent);
+  background: linear-gradient(150deg, rgba(242, 193, 78, .22), rgba(89, 214, 230, .16));
+}
+.mu-disc-hole { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 8px; height: 8px; border-radius: 50%; background: var(--bg); }
+@keyframes muSpin { to { transform: rotate(360deg); } }
 .mu-title { font-weight: 800; font-size: 17px; }
 .mu-art { color: var(--muted); font-size: 13px; }
-.mu-progress { height: 5px; border-radius: 999px; background: rgba(255,255,255,.08); overflow: hidden; }
+.mu-progress { height: 5px; border-radius: 999px; background: rgba(255, 255, 255, .08); overflow: hidden; }
 .mu-bar { height: 100%; background: linear-gradient(90deg, var(--accent), var(--cyan)); width: 0; }
 .mu-ctl { display: flex; align-items: center; justify-content: center; gap: 16px; margin-top: 14px; }
 .mu-ctl button { background: none; border: none; color: var(--ink); font-size: 18px; cursor: pointer; }
 .mu-ctl .play { width: 42px; height: 42px; border-radius: 50%; background: linear-gradient(135deg, var(--accent), var(--cyan)); color: #0a1224; font-weight: 800; display: flex; align-items: center; justify-content: center; }
+/* 「完整播放器 →」：指向音乐页的**真链接**（NuxtLink → <a href>），
+   所以是可爬的、可中键新开的。做成一行右对齐的小字链接而不是按钮 ——
+   卡片的主要动作是那个圆形的播放键，这里只是"想去更完整的地方"的第二入口。 */
+.mu-more { display: block; margin-top: 10px; text-align: right; color: var(--accent); font-size: 13px; font-weight: 600; text-decoration: none; }
+.mu-more:hover { color: var(--accent-strong); text-decoration: underline; }
 
 .notice { max-width: 1080px; margin: 20px auto; padding: 12px 0; border-radius: 999px; overflow: hidden; }
 .notice-track { display: flex; width: max-content; white-space: nowrap; animation: marquee 20s linear infinite; }

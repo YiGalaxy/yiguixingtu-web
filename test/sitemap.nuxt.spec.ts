@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest'
+import { readdirSync } from 'node:fs'
+import { join } from 'node:path'
 
 // =====================================================================
 // sitemap.xml 与 robots.txt 的纯函数
@@ -27,6 +29,7 @@ import { describe, it, expect } from 'vitest'
 import {
   ARTICLE_PAGE_SIZE,
   MAX_ARTICLE_PAGES,
+  STATIC_PAGES,
   buildArticleEntries,
   buildRobotsTxt,
   buildSitemapXml,
@@ -203,14 +206,36 @@ describe('sitemap · 文章记录', () => {
     expect(xml).not.toContain('/admin')
   })
 
-  it('归档页_should也在静态页里（它是导航里点得到的独立入口）', () => {
-    // 【为什么单列一条】归档页的内容同样来自后端，但它不由"文章 id"决定，
+  it('归档页与四个内容页_should也在静态页里（它们都是导航里点得到的独立入口）', () => {
+    // 【为什么单列一条】这几页的内容同样来自后端，但不由"文章 id"决定，
     // 所以走的是 STATIC_PAGES 那一份定义。漏掉它不会有任何报错 ——
     // 表现只是"爬虫得先发现导航里的那个链接才知道有这一页"，
     // 而站点地图存在的意义正是"不用等链接被发现"。
     const xml = buildSitemapXml({ siteUrl: SITE, articles: [] })
 
     expect(xml).toContain(`<loc>${SITE}/archive</loc>`)
+    // 收藏 / 项目 / 友链 / 关于（F5 新加的四页）
+    expect(xml).toContain(`<loc>${SITE}/favorites</loc>`)
+    expect(xml).toContain(`<loc>${SITE}/projects</loc>`)
+    expect(xml).toContain(`<loc>${SITE}/links</loc>`)
+    expect(xml).toContain(`<loc>${SITE}/about</loc>`)
+  })
+
+  it('静态页清单_should与磁盘上的页面文件对得上（漏一个都不会报错，只是永远不会被收录）', () => {
+    // 【为什么这条值得写】STATIC_PAGES 是手写的清单：新加一个页面却忘了写进来，
+    // 构建、lint、其它用例全都不会报错 —— 唯一的后果是搜索引擎晚很久才知道有这一页。
+    // 所以这里把"清单"与"磁盘上真实存在的页面文件"对一遍（这条测试读的是文件系统，
+    // 所以它能真的发现"加了页面但忘了加清单"）。
+    const files = readdirSync(join(process.cwd(), 'app/pages'))
+      .filter(f => f.endsWith('.vue'))
+      .map(f => `/${f.replace(/\.vue$/, '')}`)
+
+    const listed = STATIC_PAGES.map(p => p.path)
+    // 首页是目录本身（app/pages/index.vue），单独看
+    for (const path of listed.filter(p => p !== '/')) {
+      expect(files, `STATIC_PAGES 里的 ${path} 在 app/pages 下没有对应文件`).toContain(path)
+    }
+    expect(files).toContain('/index')
   })
 
   it('站点地址带结尾斜杠时_should不会拼出双斜杠', () => {

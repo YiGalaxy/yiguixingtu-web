@@ -20,7 +20,7 @@
 
     <div class="main">
       <!--
-        ==================== 七个菜单 ====================
+        ==================== 十二个菜单 ====================
         【每个菜单是一个组件，划分依据有两条】
           ① 一个菜单 = 一个独立的"加载 / 刷新单元"：切过去要重新拉一次的东西
              （标签列表、分类列表、评论待办、概览数字）正好都是那个菜单的整块内容，
@@ -77,6 +77,20 @@
         :categories="categories"
         :loading="categoryLoading"
         @refresh="fetchCategories" />
+
+      <!-- ==================== ⑧ F5 四个内容模块 ====================
+           【为什么这四个面板没有 props、也不监听事件】它们的列表只有自己用
+           （不像标签/分类那样要喂文章弹窗的下拉框），所以列表 ref、loading 与
+           "什么时候刷新"全都留在面板内部（挂载时自己拉一次）——
+           这里只负责"哪个菜单显示哪一个"。这与「评论管理」是同一个判断，
+           好处是 admin.vue 不用再为四个模块各维护一份没人共用的状态与请求。 -->
+      <AdminFavoritesPanel v-else-if="cur === 'favorites'" />
+      <AdminProjectsPanel v-else-if="cur === 'projects'" />
+      <AdminLinksPanel v-else-if="cur === 'links'" />
+      <AdminAboutPanel v-else-if="cur === 'about'" />
+      <!-- 音乐管理（第 12 个菜单）：同样是"数据只有自己用"的自包含面板 ——
+           它的音频文件走 POST /upload?type=audio，那一套规则收在 useUpload('audio') 里 -->
+      <AdminMusicPanel v-else-if="cur === 'music'" />
 
       <AdminCommentsPanel
         v-else-if="cur === 'comments'"
@@ -136,6 +150,19 @@ const menus = [
   { key: 'users',    label: '用户管理' },
   { key: 'tags',     label: '标签管理' },
   { key: 'categories', label: '分类管理' },
+  // ---------- 内容模块（F5 的四个 + 音乐，菜单从七个变十二个）----------
+  // 【为什么插在「分类管理」之后、「评论管理」之前】
+  //   这几项和上面的标签/分类是同一类东西：**站点级静态内容**（站长自己维护、
+  //   没有别人引用、用"显示/隐藏"控制可见性），排在内容类菜单里最自然。
+  //   而「评论管理」是每天要处理一遍的待办（它带角标），「设置」是站点的开关 ——
+  //   这两个各有各的性质，所以留在最后。
+  // 【名字都带「管理」】与标签管理/分类管理对称：叫法不一致会让人以为
+  //   某一页的能力不一样（实际上这几页都是"列表 + 增删改"）。
+  { key: 'favorites', label: '收藏管理' },
+  { key: 'projects',  label: '项目管理' },
+  { key: 'links',     label: '友链管理' },
+  { key: 'about',     label: '关于管理' },
+  { key: 'music',     label: '音乐管理' },
   { key: 'comments', label: '评论管理' },
   { key: 'settings', label: '设置' },
 ]

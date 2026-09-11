@@ -266,21 +266,34 @@ describe('⚙ 站点设置面板', () => {
     expect(document.body.classList.contains(POPUP_LOCK_CLASS)).toBe(false)
 
     await gearBtn(wrapper).trigger('click')
-    await flushPromises()
+    // 【这条用例里所有的"状态翻转"都用轮询，不赌"一次 flushPromises 就够"】
+    // 元素状态翻转（抽屉 visible、body 上的锁类）都不是同步的：
+    //   · 抽屉的 visible 由 Element Plus 的 watch + nextTick 推上去
+    //   · 解锁更是走一个 `setTimeout(200)`
+    // 原来这里用的是"flushPromises 一次" + "睡 260 毫秒"，在**同时跑很多个 spec**
+    // （机器忙）时实测红过一次 —— 那不是产品的问题，是断言在赌机器速度。
+    // 改成 `vi.waitFor` 之后，表达的是"最终会变成这样"：默认每 50ms 试一次，
+    // 2 秒还没变才判失败。既不会因为机器慢而假红，也不会把真 bug 放过去
+    // （真没解锁的话 2 秒后照样红）。
+    await vi.waitFor(() => {
+      expect(isDrawerOpen(wrapper)).toBe(true)
+    }, { timeout: 2000, interval: 50 })
+
     // 手机上滑面板会把背后的页面一起滚走，松手后停在一个莫名其妙的位置。
     // 【为什么断言的是 body 上的类，而不是内联的 style.overflow】Element Plus 的滚动锁
     // 用的是 `el-popup-parent--hidden` 这个类（只有补偿滚动条宽度时才写内联 width），
     // 和我们自己那个窄屏面板直接写 style.overflow 的做法不一样 ——
     // 断言写错地方会得到一条永远为真的假绿用例。
-    expect(document.body.classList.contains(POPUP_LOCK_CLASS)).toBe(true)
+    await vi.waitFor(() => {
+      expect(document.body.classList.contains(POPUP_LOCK_CLASS)).toBe(true)
+    }, { timeout: 2000, interval: 50 })
 
     await drawerEl(wrapper).find('.el-drawer__close-btn').trigger('click')
     await flushPromises()
     expect(isDrawerOpen(wrapper)).toBe(false)
-    // 【为什么要等 200ms】Element Plus 的解锁走的是一个 setTimeout(200)，
-    // 不是同步的 —— 立刻断言会红，但那不是产品的问题
-    await new Promise(resolve => setTimeout(resolve, 260))
-    expect(document.body.classList.contains(POPUP_LOCK_CLASS)).toBe(false)
+    await vi.waitFor(() => {
+      expect(document.body.classList.contains(POPUP_LOCK_CLASS)).toBe(false)
+    }, { timeout: 2000, interval: 50 })
   })
 
   it('按 Esc_should关掉面板（浮层一律要能用键盘关掉）', async () => {

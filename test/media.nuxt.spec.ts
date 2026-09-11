@@ -130,6 +130,17 @@ describe('resolveMediaFile：请求文件名 → 磁盘路径（dev 路由的穿
 
     const video = resolveMediaFile('bg-star.mp4', dir)
     expect(video.contentType).toBe('video/mp4')
+
+    // 【音乐页的两个文件，2026-09-11 加进白名单】它们线上由 Nginx 直接读磁盘，
+    // 只有本地这条 dev 路由在管白名单 —— 漏掉的话会出现"线上好了、本地还是占位图
+    // 与「暂无歌词」"，本地一测就以为功能没做（这条断言就是钉住这一点）。
+    const cover = resolveMediaFile('cover-1.png', dir)
+    expect(cover.contentType).toBe('image/png')
+
+    const lyrics = resolveMediaFile('bg-music.lrc', dir)
+    // 歌词是纯文本：**必须**带 charset，且绝不能是 text/html
+    // （当成 HTML 解析等于给 XSS 开门）
+    expect(lyrics.contentType).toBe('text/plain; charset=utf-8')
   })
 
   it('大写扩展名_should也能识别（三端行为一致，否则本机能播服务器 404）', () => {
@@ -146,6 +157,12 @@ describe('resolveMediaFile：请求文件名 → 磁盘路径（dev 路由的穿
     ['隐藏文件', '.env'],
     ['换扩展名读其它文件', 'bg-music.mp3.txt'],
     ['可执行文件', 'bg-music.exe'],
+    // 【为什么补这三条】白名单在 2026-09-11 加了 .png / .lrc（音乐页的封面与歌词）。
+    // 加白名单这件事本身很容易被后来的人改成"黑名单"或者干脆删掉判断，
+    // 所以这里额外钉住三类**必须继续被拒**的东西：网页 / 脚本 / 能让浏览器执行的东西。
+    ['网页', 'evil.html'],
+    ['脚本', 'evil.js'],
+    ['SVG（能被当 HTML 执行）', 'evil.svg'],
     ['没有扩展名', 'bg-music'],
     ['空字符串', ''],
     ['空字节截断', 'bg-music.mp3\u0000.png'],

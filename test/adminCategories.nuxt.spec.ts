@@ -145,8 +145,9 @@ describe('后台 · 分类管理', () => {
 
     expect(wrapper.findAll('.panel .el-table__row').length).toBe(0)
     expect(wrapper.text()).toContain('还没有分类')
-    // 菜单项数量：概览 / 文章 / 用户 / 标签 / 分类 / 评论 / 设置
-    expect(wrapper.findAll('.side-nav .nv-label').length).toBe(7)
+    // 菜单项数量：概览 / 文章 / 用户 / 标签 / 分类 / 收藏 / 项目 / 友链 / 关于 / 音乐 / 评论 / 设置
+    // （F5 加了四个内容模块、后来又加了音乐，从 7 项变成 12 项）
+    expect(wrapper.findAll('.side-nav .nv-label').length).toBe(12)
   })
 
   it('分类页_should是可编辑的（有新建 / 编辑 / 删除按钮，且不再有"只读"说明）', async () => {

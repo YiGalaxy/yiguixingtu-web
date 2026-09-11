@@ -9,7 +9,36 @@
 | 文件 | 用途 | 引用方 |
 |---|---|---|
 | `bg-star.mp4` | 全站背景视频 | `app/app.vue` 的 `<video>` |
-| `bg-music.mp3` | 首页音乐卡片的音源 | `app/pages/index.vue` 的 `<audio>` |
+| `bg-music.mp3` | 背景音乐的音源 | `app/app.vue` 里**唯一**的那个 `<audio>`（2026-09-11 从首页卡片挪进外壳：页面会随路由卸载，放在卡片里等于"一离开首页音乐就断"，而且音乐页出现后会变成两个播放器抢同一首歌。首页卡片与音乐页现在都只是它的遥控器） |
+
+## 音乐播放器还需要上传的两个文件（**现在还不在这个目录里**）
+
+音乐页（`app/pages/music.vue`）与首页那张音乐卡片上要显示封面与歌词，它们各自对应一个文件。
+名字登记在 `app/utils/media.ts` 的 `MEDIA_FILES` 里（文件名只在那一个地方定义），
+所以只要按下面的名字放进来、上传到服务器，页面就会自动用上，**不需要改代码**：
+
+| 文件 | 用途 | `MEDIA_FILES` 里的键 | 现状 |
+|---|---|---|---|
+| `cover-1.png` | 唱片的**封面回落图** —— 音频文件里没有内嵌封面（没有 ID3 `APIC` 帧）时用它 | `musicCover` | **尚未上传** |
+| `bg-music.lrc` | 歌词（LRC 纯文本格式）。页面上「当前歌词 + 歌词列表 + 点某句跳转」全部来自它 | `musicLyrics` | **尚未上传** |
+
+这两个文件都缺失时的表现（**也就是现在线上/本地的表现**）：
+唱片中央显示一个占位图案（不是浏览器的破图图标）、歌词区显示「暂无歌词」。
+**页面上不会出现任何编造的封面或歌词**——拿不到就是拿不到。
+
+### 本地开发也能拿到这两个文件（2026-09-11 已修）
+
+原本有个坑：`/media/` 在 `npm run dev` 下由 Nitro 的开发路由
+（`server/routes/media/[...file].get.ts`）提供，而它复用的扩展名白名单
+（`server/utils/mediaFile.ts` 的 `ALLOWED_MEDIA_EXTENSIONS`）**当时只有 `.mp4` 与 `.mp3`**。
+线上由 Nginx 的 `location /media/` 直接读磁盘、没有这层白名单 ——
+于是会出现一种最难查的现象：**把 `cover-1.png` / `bg-music.lrc` 放进本目录、也传上了服务器，
+线上好了，本地却仍然是占位图与「暂无歌词」**，本地一测就以为功能没做。
+
+现在白名单补上了 `.png` 与 `.lrc`（`.lrc` 用 `text/plain; charset=utf-8` 发，
+**绝不能**当成 HTML 解析 —— 那才是真的给 XSS 开门），两种环境提供同一批文件。
+白名单本身没有变松：`../` 上跳、隐藏文件、换扩展名、可执行文件、无扩展名仍然一律拒绝，
+`test/media.nuxt.spec.ts` 里连 `evil.html` / `evil.js` / `evil.svg` 都各钉了一条。
 
 ## 为什么要挪出 `public/`
 
@@ -37,7 +66,11 @@ Nuxt 会把 `public/` 下的**所有**文件原样拷进 `.output/public`，
    ```bash
    # 在服务器上（或本机传到服务器）
    sudo mkdir -p /var/www/media
+   # 必需的两个（背景视频 + 背景音乐）
    sudo cp static-media/bg-star.mp4 static-media/bg-music.mp3 /var/www/media/
+   # 可选的两个（唱片的封面回落图 + 歌词）。**不放也不会报错**：
+   # 页面会显示占位图案与「暂无歌词」，功能本身照常（见上面那一节）
+   sudo cp static-media/cover-1.png static-media/bg-music.lrc /var/www/media/   # 有这两个文件时才执行
    sudo chmod 644 /var/www/media/*
    ```
 

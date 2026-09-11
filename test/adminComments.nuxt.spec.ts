@@ -237,7 +237,9 @@ describe('后台 · 评论管理', () => {
 
     expect(rows(wrapper).length).toBe(0)
     expect(wrapper.text()).toContain('这个状态下还没有评论')
-    expect(wrapper.findAll('.side-nav .nv-label').length).toBe(7)
+    // 菜单项数量：概览 / 文章 / 用户 / 标签 / 分类 / 收藏 / 项目 / 友链 / 关于 / 音乐 / 评论 / 设置
+    // （F5 加了四个内容模块、后来又加了音乐，从 7 项变成 12 项）
+    expect(wrapper.findAll('.side-nav .nv-label').length).toBe(12)
   })
 
   it('接口返回了非数组_should当成空列表，而不是把渲染打挂', async () => {

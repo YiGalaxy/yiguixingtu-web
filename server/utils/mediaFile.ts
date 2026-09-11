@@ -30,16 +30,29 @@ export const MEDIA_DIR_NAME = 'static-media'
 /**
  * 允许的文件扩展名白名单。
  * 【为什么是白名单而不是黑名单】黑名单永远列不全（.jsp / .php / .env / 各种大小写变形）；
- *   这里本来就只有两个音视频文件，直接列出允许的两种最省心。
+ *   这里本来就只有几个静态媒体文件，直接列出允许的几种最省心。
  * 【为什么统一转小写再比】Windows / macOS 上 `BG-MUSIC.MP3` 是同一个文件，
  *   而 Linux 上不是 —— 转小写之后三端行为一致，不会出现"本机好好的、服务器 404"。
+ *
+ * 【2026-09-11 加了 .png 与 .lrc】原因是一条真实的坑：
+ *   音乐页要显示唱片的封面回落图（`cover-1.png`）与歌词（`bg-music.lrc`），
+ *   而这两个文件线上由 Nginx 的 `location /media/` 直接从磁盘读、没有任何扩展名白名单；
+ *   只有**本地开发**这条 Nitro 路由在管。白名单不跟着补的话会出现一种最难查的现象：
+ *   把两个文件放进 `static-media/` 之后，**线上好了、本地仍然是占位图与「暂无歌词」**
+ *   （因为 dev 这条路由 404 掉了），于是本地一测就以为功能没做。
+ *   两种环境必须能提供同一批文件，否则"本地测过"这件事就没有意义。
+ *   ⚠️ 加进来的都是**静态资源**：图片与纯文本歌词。.lrc 用 `text/plain` 发，
+ *   绝不能让浏览器把它当 HTML 解析（那才是真的给 XSS 开门）。
  */
-export const ALLOWED_MEDIA_EXTENSIONS = Object.freeze(['.mp4', '.mp3'])
+export const ALLOWED_MEDIA_EXTENSIONS = Object.freeze(['.mp4', '.mp3', '.png', '.lrc'])
 
 /** 扩展名 → Content-Type。写死映射而不是靠第三方库推断，避免多一个依赖 */
 const CONTENT_TYPES = Object.freeze({
   '.mp4': 'video/mp4',
   '.mp3': 'audio/mpeg',
+  '.png': 'image/png',
+  // 歌词是纯文本；带上 charset 是因为歌词里有中文，不带的话某些浏览器会按 latin-1 解
+  '.lrc': 'text/plain; charset=utf-8',
 })
 
 /** 默认的媒体目录（仓库根目录下的 static-media/），允许调用方覆盖，方便测试 */

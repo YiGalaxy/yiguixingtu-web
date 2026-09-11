@@ -43,8 +43,26 @@ export const DEFAULT_MEDIA_BASE = '/media'
 export const MEDIA_FILES = Object.freeze({
   /** 全站背景视频（app.vue 的 <video>） */
   backgroundVideo: 'bg-star.mp4',
-  /** 首页音乐卡片的音源（index.vue 的 <audio>） */
+  /** 背景音乐的源（app.vue 里那个**唯一的** <audio>；首页卡片与音乐页都只是它的遥控器） */
   backgroundMusic: 'bg-music.mp3',
+  /**
+   * 背景音乐的歌词（LRC 纯文本）。
+   * 【为什么歌词也放在这里】它和音频是"同一首歌的两半"：文件改名、换目录、
+   *   换 CDN 前缀时两者必须一起动。登记在这一处之后，音乐页只写"要歌词"，
+   *   地址由 mediaUrl() 拼 —— 不会出现"音频搬了、歌词还指着老地址"这种半截改动。
+   * 【拿不到怎么办】404 / 空文件一律显示「暂无歌词」，**绝不编歌词**
+   *   （本项目的底线：要么真数据，要么不显示）。
+   */
+  musicLyrics: 'bg-music.lrc',
+  /**
+   * 唱片的封面回落图：歌曲**没有**内嵌 ID3 封面时用它。
+   * 【为什么回落图也走 /media/ 而不是 public/】它是"这首歌的封面"，
+   *   和音频一起换、一起传；放在 public/ 里的话改一次封面就要重新构建前端。
+   * 【它同样可能不存在】现在 static-media/ 里还没有这个文件，
+   *   所以 `<img>` 的 onerror 会被触发 —— 页面必须显示一个不难看的占位图案，
+   *   而不是浏览器的破图图标（见音乐页的 .mp-cover-ph）。
+   */
+  musicCover: 'cover-1.png',
 })
 
 /**

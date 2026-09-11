@@ -1,12 +1,21 @@
 // ============================================================
 // app/composables/useUpload.ts
-// 作用：图片上传。后端接口是 POST /upload（仅管理员），返回 { url }。
+// 作用：文件上传。后端接口是 POST /upload（仅管理员），返回 { url }。
+//
+// 【两种上传形态：图片与音频】
+//   同一个接口既收图片也收音频（音频靠 `?type=audio` 区分），但两者的
+//   白名单与大小上限完全不同（图片 5MB、音频 20MB）。所以这里把它做成
+//   **一张规则表 + 一个 mode 参数**，而不是在调用处各写一遍 if：
+//     · useUpload()            → 图片模式（默认，行为与加这个参数之前一模一样）
+//     · useUpload('audio')     → 音频模式（只收 .mp3、上限 20MB）
+//   写成"两套函数"或者"在调用处判断"的后果是：大小上限改了要改好几处，
+//   漏掉的那一处不会有任何报错 —— 只会让某个入口静默地放行一个超大文件。
 //
 // 【为什么单独抽一个 composable，而不是直接写在 admin.vue 里】
 //   1. admin.vue 已经有 1000 行，再把上传的校验与请求塞进去更难维护
 //   2. 抽出来之后可以【单独写测试】：admin.vue 是页面组件，
 //      而这里是可以直接调用、直接断言的普通函数
-//   3. 将来别处要传图（头像、评论配图）可以直接复用
+//   3. 图片 / 音频两种形态共用同一套"预检 + 拼 FormData + 发请求"的逻辑
 //
 // 【它和 useApi 的分工】
 //   useApi 负责"怎么发请求"（带 token、判 code、处理 401/403）；
@@ -15,15 +24,61 @@
 //     因为前端代码可以被绕过（直接调接口）。两边都做，但定位不同。
 // ============================================================
 
-export const useUpload = () => {
+/**
+ * 两种形态的规则表。
+ *
+ * 【为什么用 Object.freeze 冻两层】它是一份"与后端配置对齐"的约定
+ * （后端 app.upload.allowed-extensions / max-size）：数组被就地 push 一个
+ * 扩展名、或者上限被改一个数字，都会让前端预检与后端校验悄悄分叉 ——
+ * 冻上之后这种改动会当场报错，而不是等到某天有人传了个后端不收的文件。
+ *
+ * 【typeParam 是什么】音频要走 `POST /upload?type=audio`（后端据此决定落到哪个目录、
+ * 以及按哪套白名单校验）；图片不需要这个参数，所以它是 null。
+ */
+const UPLOAD_MODES = Object.freeze({
+  image: Object.freeze({
+    label: '图片',
+    extensions: Object.freeze(['jpg', 'jpeg', 'png', 'gif', 'webp']),
+    maxSize: 5 * 1024 * 1024,
+    maxSizeText: '5MB',
+    // 超限提示里的主语：图片就是「图片」，音频是「单个音频」
+    // （后端给的措辞是「单个音频不超过 20MB」，前端提示要与它一致 ——
+    //   写小了用户会被前端白拦一次，写大了会白跑一趟后端）
+    sizeSubject: '图片',
+    typeParam: null,
+  }),
+  audio: Object.freeze({
+    label: '音频',
+    // 只放行 mp3：前台播放器用的是 <audio>，浏览器对 mp3 的支持最广；
+    // 想加 m4a / wav 时要连同后端那一份白名单一起改
+    extensions: Object.freeze(['mp3']),
+    // 20MB 的依据写在后端注释里：320kbps × 5 分钟 ≈ 12MB，留了余量
+    maxSize: 20 * 1024 * 1024,
+    maxSizeText: '20MB',
+    sizeSubject: '单个音频',
+    // 【音频才有的查询参数】后端 `POST /upload?type=audio`；
+    // 不传（或 type=image）走图片那一套。传了别的值后端会 400「不支持的上传类型」，
+    // 不会悄悄回落到图片 —— 所以这里绝不能写成别的值
+    typeParam: 'audio',
+  }),
+})
+
+/**
+ * @param {'image'|'audio'} mode 上传形态；默认 image。
+ *   传了不认识的模式时回落到 image（宁可让图片那套更严的规则生效，
+ *   也不要因为一个拼错的字符串变成"什么都能传"）。
+ */
+export const useUpload = (mode = 'image') => {
   const { request } = useApi()
 
-  /** 与后端 app.upload.allowed-extensions 保持一致 */
-  const ALLOWED_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp']
+  const rules = UPLOAD_MODES[mode] || UPLOAD_MODES.image
 
-  /** 与后端 app.upload.max-size 保持一致（5MB） */
-  const MAX_SIZE = 5 * 1024 * 1024
-  const MAX_SIZE_TEXT = '5MB'
+  /** 与后端 app.upload.allowed-extensions 保持一致（图片 5 种 / 音频只有 mp3） */
+  const ALLOWED_EXTENSIONS = rules.extensions
+
+  /** 与后端 app.upload.max-size 保持一致（图片 5MB / 音频 20MB） */
+  const MAX_SIZE = rules.maxSize
+  const MAX_SIZE_TEXT = rules.maxSizeText
 
   /**
    * 前端预检：在把文件发出去之前先拦一道。
@@ -38,7 +93,7 @@ export const useUpload = () => {
    */
   const validateFile = (file) => {
     if (!file) {
-      return '请选择要上传的图片'
+      return `请选择要上传的${rules.label}`
     }
 
     // 取扩展名：文件名可能带路径、可能是大写，统一处理
@@ -47,12 +102,12 @@ export const useUpload = () => {
     const extension = dotIndex >= 0 ? name.slice(dotIndex + 1).toLowerCase() : ''
 
     if (!ALLOWED_EXTENSIONS.includes(extension)) {
-      return `只支持 ${ALLOWED_EXTENSIONS.join(' / ')} 格式的图片`
+      return `只支持 ${ALLOWED_EXTENSIONS.join(' / ')} 格式的${rules.label}`
     }
 
     // file.size 是字节数，由浏览器提供，不需要读文件内容
     if (file.size > MAX_SIZE) {
-      return `图片不能超过 ${MAX_SIZE_TEXT}`
+      return `${rules.sizeSubject}不能超过 ${MAX_SIZE_TEXT}`
     }
 
     if (file.size === 0) {
@@ -91,7 +146,14 @@ export const useUpload = () => {
     // 字段名必须叫 file —— 后端是 @RequestParam("file") MultipartFile file
     formData.append('file', file)
 
-    const res = await request('/upload', { method: 'POST', body: formData })
+    // 【音频多一个查询参数】图片模式【不传 params 这个键】，
+    // 让发出去的请求与加音频模式之前完全一样（既有用例钉着这一点）
+    const options = { method: 'POST', body: formData }
+    if (rules.typeParam) {
+      options.params = { type: rules.typeParam }
+    }
+
+    const res = await request('/upload', options)
 
     if (!res.ok) {
       // useApi 已经把后端的 message 透出来了（比如"只允许上传 xxx 格式的图片"），

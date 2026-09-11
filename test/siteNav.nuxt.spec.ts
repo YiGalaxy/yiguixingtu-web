@@ -290,26 +290,48 @@ describe('窄屏导航 · 汉堡菜单', () => {
     expect(links[0].attributes('href')).toBe('/?categoryId=1')
   })
 
-  it('面板里的真链接_should是普通 <a href>（可爬、可中键新开），而不是 click 跳转', async () => {
+  it('面板里的每一项_should都是真 <a href>（可爬、可中键新开），且地址逐项对得上', async () => {
+    // 【2026-09-11 把这条加强了】原来只抽查「归档」与「关于」两个。
+    // 现在 F5 把最后四个入口（收藏 / 项目 / 友链 / 关于）也接成了真页面，
+    // 于是"导航里每一项都是真链接"这件事可以**逐项**钉住了 —— 而且值得钉：
+    // 只要有一项还是 `@click` 跳转（或者指回了首页锚点），爬虫就少一个入口，
+    // 而页面上完全看不出差别。
     const wrapper = await mountShell()
 
-    const archive = wrapper.findAll('#site-mobile-nav .nm-item').find(a => a.text() === '归档')
-    expect(archive.attributes('href')).toBe('/archive')
-
-    const about = wrapper.findAll('#site-mobile-nav .nm-item').find(a => a.text() === '关于')
-    expect(about.attributes('href')).toBe('/#profile')
+    const hrefs = wrapper.findAll('#site-mobile-nav .nm-item')
+      .map(a => [a.text(), a.attributes('href')])
+    // 【为什么这里没有「文章」】它在这个 mock 下是**分组**（接口返回了 3 个分类），
+    // 面板里渲染成 `.nm-group-title` + 三个 `.nm-sub`，不是 `.nm-item`
+    // （分类那几条由上面那条用例单独守）。只有"一个分类都没有"时它才退化成
+    // 指向首页的 `.nm-item`。
+    expect(hrefs).toEqual([
+      ['首页', '/'],
+      ['归档', '/archive'],
+      ['音乐', '/music'],       // F3：从"首页锚点"变成真页面
+      ['收藏', '/favorites'],   // F5 四页
+      ['项目', '/projects'],
+      ['友链', '/links'],
+      ['关于', '/about'],
+    ])
   })
 
-  it('面板里点「还没做」的入口_should给提示，并把面板收起来（不收的话提示被面板盖住）', async () => {
+  it('面板里的链接点下去_should立刻收起面板（不收的话跳完还盖着半屏）', async () => {
     const wrapper = await mountShell()
     await burgerBtn(wrapper).trigger('click')
+    expect(isPanelHidden(wrapper)).toBe(false)
 
-    const devItem = wrapper.findAll('#site-mobile-nav .nm-item').find(el => el.text() === '收藏')
-    await devItem.trigger('click')
+    // 【这条原来测的是"点『还没做』的入口给提示并收面板"】F5 之后导航里
+    // 已经没有"还没做"的入口了，所以改成用真链接来驱动同一件事：
+    // 面板里的项点下去必须**立刻收**（不等路由变），否则跳走之后还挂着一块盖住半屏的面板。
+    const collection = wrapper.findAll('#site-mobile-nav .nm-item').find(el => el.text() === '收藏')
+    await collection.trigger('click')
+    await flushPromises()
 
-    expect(infoSpy).toHaveBeenCalled()
-    expect(String(infoSpy.mock.calls[0][0])).toContain('开发中')
     expect(isPanelHidden(wrapper)).toBe(true)
+    // 【顺带钉住"开发中"提示真的没了】F5 之前点「收藏」会弹一句「该页面开发中」；
+    // 现在它是真链接。这条断言守的是"别哪天又把某个入口退回成弹提示"——
+    // 那种回归在页面上只表现为"点了没跳走"，很容易被当成网络慢。
+    expect(infoSpy).not.toHaveBeenCalled()
   })
 
   it('展开时_should锁住 body 滚动，收起与卸载时都要解开', async () => {
