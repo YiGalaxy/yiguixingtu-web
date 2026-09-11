@@ -225,8 +225,19 @@ npm run lint:fix     # 自动修掉能修的部分
 用 `npm ci` 而不是 `npm install`：它严格按 `package-lock.json` 安装，
 装不出锁文件之外的东西，所以"CI 绿了、别人 clone 下来却跑不起来"不会发生。
 
-> ⚠️ **本仓库目前还没有 GitHub 远程地址**，所以工作流文件已就位但还没真正跑过。
-> 建好远程仓库、推上去之后，README 顶部的 CI 徽章按注释里的说明替换 URL 即可。
+> ⚠️ **依赖走的是国内镜像源**（`registry.npmmirror.com`，在 `Dockerfile` 里用
+> `ARG NPM_REGISTRY` 设置，可以在构建时覆盖）。原因是实测：在国内的服务器上，
+> `registry.npmjs.org` 一次元数据请求就要 **3.5 秒**，而 `npm ci` 要拉几百个包 ——
+> 在 2 核 2G 的机器上这会把构建时间拖到不可接受，失败时也只给一句 "network timeout"。
+> 换源是安全的：`package-lock.json` 里每个包都带 `integrity`（sha512），
+> npm 装完逐个校验，镜像站只能决定"从哪下"、换不掉包的内容。
+> （这和"不要用不知名的 Docker 加速站"是两回事：那个换的是镜像层，没有等价的校验。）
+
+> ⚠️ **CI 到底绿没绿，以 GitHub 的 Actions 页面为准**。
+> 仓库的远程地址是 `https://github.com/YiGalaxy/yiguixingtu-web`（远程名 `main`），
+> `.github/workflows/ci.yml` 已就位、推上去之后会自动跑 lint / test / build。
+> 本地这三次是逐条自己跑过的（`npm run lint`、`npm run test`、`npm run build`），
+> 但"本地绿"与"CI 绿"是两件事 —— 别把前者当成后者的证据。
 
 ## 部署
 

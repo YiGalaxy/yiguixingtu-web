@@ -32,9 +32,26 @@ WORKDIR /build
 #   前端依赖安装本来就慢，这一步能省掉大量重复等待。
 COPY package.json package-lock.json ./
 
+# 【npm 依赖走国内镜像 —— 与后端 Dockerfile 里那个 Maven 镜像源同一个套路】
+#
+#   ⚠️ 实测（服务器上，2026-09-11）：
+#     `curl -o /dev/null -w '%{time_total}' https://registry.npmjs.org/nuxt` → **3.5 秒**
+#     一次元数据请求就要 3.5 秒，而 `npm ci` 要拉几百个包、合计几百 MB。
+#     在 2 核 2G 的机器上，这会把构建时间拖到不可接受，而且中途失败的概率明显上升
+#     （失败时只有一句 "network timeout"，看不出是镜像源的问题）。
+#
+#   【为什么换镜像源是安全的】package-lock.json 里每个包都带 integrity（sha512），
+#   npm 装完会逐个校验。镜像站只能决定"从哪里下"，换不掉包的内容 ——
+#   校验不通过会直接报错，而不是悄悄装上一个被改过的包。
+#   这一条和"不要用不知名的 Docker 加速站"不一样：那个换的是镜像层，没有等价的校验。
+#
+#   想换别的源 / 想验证是否真是源的问题：构建时传 --build-arg NPM_REGISTRY=...
+#   （传 https://registry.npmjs.org 即回到官方源）
+ARG NPM_REGISTRY=https://registry.npmmirror.com
+
 # 用 npm ci 而不是 npm install：严格按 lock 文件安装，
 # 保证"镜像里装的依赖"和"本地验证过的依赖"完全一致
-RUN npm ci
+RUN npm config set registry "$NPM_REGISTRY" && npm ci
 
 COPY . .
 
