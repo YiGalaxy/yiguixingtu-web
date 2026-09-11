@@ -58,9 +58,12 @@ export const MEDIA_FILES = Object.freeze({
    * 唱片的封面回落图：歌曲**没有**内嵌 ID3 封面时用它。
    * 【为什么回落图也走 /media/ 而不是 public/】它是"这首歌的封面"，
    *   和音频一起换、一起传；放在 public/ 里的话改一次封面就要重新构建前端。
-   * 【它同样可能不存在】现在 static-media/ 里还没有这个文件，
-   *   所以 `<img>` 的 onerror 会被触发 —— 页面必须显示一个不难看的占位图案，
-   *   而不是浏览器的破图图标（见音乐页的 .mp-cover-ph）。
+   * 【它现在真的存在了】2026-09-11 把 public/cover-1.png 复制了一份到 static-media/
+   *   （同一张图，逐字节一致）——在那之前 static-media/ 里没有它，
+   *   所以音乐页**永远**走的是 `<img>` 的 onerror 那条路。
+   *   ⚠️ 现在仍然保留 onerror 兜底：文件可能被误删、CDN 可能抽风、部署时可能忘了传 ——
+   *   那时候页面要显示一个不难看的占位图案，而不是浏览器的破图图标
+   *   （见音乐页的 .mp-cover-ph）。
    */
   musicCover: 'cover-1.png',
 })

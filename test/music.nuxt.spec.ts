@@ -413,8 +413,10 @@ describe('音乐页 · 歌词', () => {
 describe('音乐页 · 封面与控制条', () => {
   it('封面加载失败_should换成占位图案，而不是留一个破图图标', async () => {
     const wrapper = await mountPlayer()
-    // 现在这首歌没有内嵌 ID3 封面，而 static-media/cover-1.png 也还不存在 ——
-    // 也就是说**这条路径就是线上正在走的那条**
+    // 现在这首歌没有内嵌 ID3 封面，所以会去取 static-media/cover-1.png
+    // （那个文件 2026-09-11 起是真的存在了，但这里手动触发 error，
+    //  验证的是"取不到封面时"的兜底 —— 文件被误删、CDN 抽风、
+    //  部署时忘了传，都会走到这条路上）
     const img = wrapper.find('.mp-cover')
     expect(img.exists()).toBe(true)
     expect(img.attributes('src')).toBe('/media/cover-1.png')

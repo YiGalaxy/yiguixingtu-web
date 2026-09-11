@@ -2006,8 +2006,15 @@ Array.isArray(options.retryStatusCodes)
 
 ```bash
 sudo mkdir -p /var/www/media
-sudo cp static-media/bg-star.mp4 static-media/bg-music.mp3 /var/www/media/
+# 三个必需的：背景视频 + 背景音乐 + 唱片封面回落图（cover-1.png 是 2026-09-11 加进来的）
+sudo cp static-media/bg-star.mp4 static-media/bg-music.mp3 static-media/cover-1.png /var/www/media/
+# 可选的一个：歌词（不放只是显示「暂无歌词」）
+# sudo cp static-media/bg-music.lrc /var/www/media/
+sudo chmod 644 /var/www/media/*
 ```
+
+> ⚠️ 别写成 `cp static-media/* /var/www/media/` —— 那会把这个目录里的 `README.md`
+> 也一起复制过去（无害，但没必要）。逐个点名更清楚"到底要哪些文件"。
 
 Nginx 里加上（**必须放在反代到 Nuxt 的 `location /` 之前**）：
 
