@@ -14,27 +14,35 @@
         <span class="brand-name">亿轨星途</span>
       </NuxtLink>
       <nav class="nav-center">
-        <NuxtLink to="/" class="nv">首页</NuxtLink>
-        <!-- 归档：按年月浏览全部文章的第二个入口。
-             首页是信息流（擅长"看最近有什么"），归档擅长"找去年 3 月那篇"——
-             没有这个入口的话，找旧文只能一页页翻首页。
-             做成【顶层导航】而不是塞进「文章」下拉框里：下拉框里的三项（技术/读书/随笔）
-             现在点下去还是"该页面开发中"，把唯一一个真能用的入口混在里面，
-             用户根本不会去点它。 -->
-        <NuxtLink to="/archive" class="nv">归档</NuxtLink>
-        <div class="nv dd">
-          <button class="nv-btn">文章 <span class="caret">▾</span></button>
-          <div class="dd-menu">
-            <a @click="onDev">技术</a><a @click="onDev">读书</a><a @click="onDev">随笔</a>
+        <!-- 导航项来自 navItems（唯一一份定义，窄屏面板渲染的是同一个数组）。
+             这里不再一项项手写：手写两份迟早只剩一份是对的，而漏改**不会报错**。 -->
+        <template v-for="item in navItems" :key="item.label">
+          <!-- 有子项的（目前只有「文章」）：桌面沿用 hover 展开的下拉，交互没动 -->
+          <div v-if="item.children" class="nv dd">
+            <button class="nv-btn">{{ item.label }} <span class="caret">▾</span></button>
+            <div class="dd-menu">
+              <a v-for="child in item.children" :key="child.label" @click="onChildNav(child)">{{ child.label }}</a>
+            </div>
           </div>
-        </div>
-        <NuxtLink to="/#music" class="nv">音乐</NuxtLink>
-        <span class="nv" @click="onDev">收藏</span>
-        <span class="nv" @click="onDev">项目</span>
-        <span class="nv" @click="onDev">友链</span>
-        <NuxtLink to="/#profile" class="nv">关于</NuxtLink>
+          <!-- 真链接：NuxtLink 渲染成 <a href>，可爬、可中键新开 -->
+          <NuxtLink v-else-if="item.to" :to="item.to" class="nv">{{ item.label }}</NuxtLink>
+          <!-- 还没做的入口：给提示（做到哪一批就换成真链接） -->
+          <span v-else class="nv" @click="onDev">{{ item.label }}</span>
+        </template>
       </nav>
       <nav class="nav-right">
+        <!-- 汉堡按钮：只在窄屏出现（显隐由 CSS 负责，不用 JS 量宽度 —— 见 script 里的说明）。
+             aria-expanded 让读屏软件知道"这个按钮是展开还是收起"，
+             aria-controls 指向它控制的那个面板。 -->
+        <button
+          class="icon-btn nav-burger"
+          :class="{ on: navOpen }"
+          :aria-expanded="navOpen ? 'true' : 'false'"
+          aria-controls="site-mobile-nav"
+          :aria-label="navOpen ? '关闭导航菜单' : '打开导航菜单'"
+          @click="toggleNav">
+          <span class="burger-lines"><i /><i /><i /></span>
+        </button>
         <button class="icon-btn" @click="onDev">⚙</button>
         <template v-if="token">
           <!-- 登录状态提示：头像首字 + 昵称 + 角色标签 -->
@@ -52,6 +60,24 @@
         </template>
       </nav>
     </header>
+
+    <!-- ============ 窄屏导航面板（汉堡菜单） ============
+         只在 ≤1000px 用得到；桌面导航在上面那个 .nav-center 里照常显示。
+         · 用 v-show 而不是 v-if：面板常驻 DOM（所以 aria-controls 指向的那个 id 一直存在），
+           收起时是 display:none —— 读屏软件与 Tab 键都不会走到里面
+         · 遮罩点一下也能关（手机上最常见的关法）
+         · 面板里的链接是**同一个 navItems**，所以桌面与手机永远不会有"少一个入口"的差别 -->
+    <div v-if="navOpen" class="nav-scrim" @click="closeNav" />
+    <nav v-show="navOpen" id="site-mobile-nav" class="nav-mobile glass">
+      <template v-for="item in navItems" :key="item.label">
+        <div v-if="item.children" class="nm-group">
+          <div class="nm-group-title">{{ item.label }}</div>
+          <a v-for="child in item.children" :key="child.label" class="nm-sub" @click="onDevFromNav">{{ child.label }}</a>
+        </div>
+        <NuxtLink v-else-if="item.to" :to="item.to" class="nm-item" @click="closeNav">{{ item.label }}</NuxtLink>
+        <span v-else class="nm-item" @click="onDevFromNav">{{ item.label }}</span>
+      </template>
+    </nav>
 
     <main class="page">
       <NuxtRouteAnnouncer />
@@ -168,6 +194,111 @@ const onLogout = async () => {
   navigateTo('/')
 }
 const onDev = () => ElMessage.info('该页面开发中')
+
+// =====================================================================
+//  导航（2026-09-11：窄屏从"整块隐藏"改成汉堡菜单）
+//
+//  【修的是什么】原来这里只有一行 CSS：
+//      `@media (max-width: 1000px) { .nav-center { display: none; } }`
+//    也就是说窄屏（手机、平板、或者只是把窗口拖窄）下**整个中间导航直接消失**，
+//    而且**没有任何替代入口** —— 手机上只剩左上角 Logo 和右边登录按钮，
+//    归档 / 音乐 / 关于 这些页面在手机上根本进不去。用户报的就是这个。
+//    注意它和"标签被挤窄"是两件事：这里不是挤，是**整块被藏掉**。
+//
+//  【做法】窄屏显示一个汉堡按钮（`.nav-burger`），点开一个面板，
+//    里面是**同一批导航项**。显隐一律由 CSS 媒体查询控制，
+//    **不用 JS 去量窗口宽度** —— SSR 首屏在服务端量不到宽度，
+//    用 JS 判断会出现"服务端渲染成桌面版、客户端立刻改成移动版"的一下闪烁，
+//    严重时还会 hydration 不一致。CSS 没有这个问题。
+// =====================================================================
+
+/**
+ * 导航项：**只有这一份定义**，桌面导航（≥1000px）与窄屏的汉堡面板都渲染它。
+ *
+ * 【为什么必须是一份】两处各写一遍的话，加一个入口就要改两个地方，
+ *   而漏改的那一处**什么都不报**：桌面点得到、手机上就是没那个入口（或者反过来）。
+ *   这一批后面还要往导航里加东西（「文章」下拉要接真实分类、还会加四个内容页），
+ *   所以先把"只有一份"这件事定下来。
+ *
+ * 字段含义：
+ *   · `to`       —— 真链接（NuxtLink），可爬、可中键新开
+ *   · `children` —— 有子项的（目前只有「文章」，桌面是 hover 展开的下拉）
+ *   · `dev:true` —— 还没做的入口，点了给"该页面开发中"提示（做到哪一批就换成真链接）
+ */
+const navItems = [
+  { label: '首页', to: '/' },
+  // 归档做成【顶层导航】而不是塞进「文章」下拉框里：下拉框里那三项现在点下去还是
+  // "该页面开发中"，把唯一一个真能用的入口混在里面，用户根本不会去点它。
+  { label: '归档', to: '/archive' },
+  {
+    label: '文章',
+    children: [
+      { label: '技术', dev: true },
+      { label: '读书', dev: true },
+      { label: '随笔', dev: true },
+    ],
+  },
+  { label: '音乐', to: '/#music' },
+  { label: '收藏', dev: true },
+  { label: '项目', dev: true },
+  { label: '友链', dev: true },
+  { label: '关于', to: '/#profile' },
+]
+
+/** 汉堡面板开着没有 */
+const navOpen = ref(false)
+const route = useRoute()
+
+const closeNav = () => { navOpen.value = false }
+const toggleNav = () => { navOpen.value = !navOpen.value }
+
+/**
+ * 窄屏面板里点"还没做"的入口：给完提示**要把面板收起来** ——
+ * 不收的话提示会弹在面板底下（面板是覆盖层），用户只看到"点了没反应"。
+ */
+const onDevFromNav = () => {
+  onDev()
+  closeNav()
+}
+
+/** 下拉项（目前都是 dev 项，等它们真有页面了就直接用 child.to 跳） */
+const onChildNav = (child) => {
+  if (child.dev) onDev()
+}
+
+/**
+ * Esc 关闭：浮层类的东西一律要能用 Esc 关掉，
+ * 否则键盘用户点开面板之后只能靠鼠标去点遮罩。
+ */
+const onNavKeydown = (event) => {
+  if (event.key === 'Escape' && navOpen.value) closeNav()
+}
+onMounted(() => window.addEventListener('keydown', onNavKeydown))
+onBeforeUnmount(() => window.removeEventListener('keydown', onNavKeydown))
+
+/**
+ * 路由一变就收起面板：面板里的项点下去会跳走，跳走之后还挂着一个盖住半屏的面板，
+ * 用户会以为"点坏了"。
+ *
+ * 【和"链接自己 @click=closeNav"是什么关系】两者**都要**，分工不同：
+ *   · 链接上的 `@click="closeNav"` 管"点了面板里的项" —— 立刻收，
+ *     不用等路由真的变（手机上这一下延迟都能感觉到）
+ *   · 这个 watch 管**所有别的跳转路径**：浏览器后退/前进、点 Logo、代码里
+ *     `navigateTo`、以后新增的入口…… 不可能靠每个调用点自觉去关面板
+ */
+watch(() => route.fullPath, () => closeNav())
+
+/**
+ * 打开面板时锁住 body 滚动：手机上滑面板会带着背后的页面一起滚，
+ * 松手之后页面停在一个莫名其妙的位置。
+ * 【为什么在卸载时要清掉】不清的话，带着 overflow:hidden 的 body 会被带到下一个页面 ——
+ * 表现是整个站点突然不能滚了，而且很难联想到是"那个面板"干的。
+ */
+const setBodyLock = (locked) => {
+  if (import.meta.client) document.body.style.overflow = locked ? 'hidden' : ''
+}
+watch(navOpen, (open) => setBodyLock(open))
+onBeforeUnmount(() => setBodyLock(false))
 
 const form = reactive({ username: '', password: '' })
 const regForm = reactive({ username: '', nickname: '', password: '' })
@@ -303,7 +434,49 @@ body { margin: 0; background: var(--bg); color: var(--ink); font-family: "PingFa
 .nav-right { display: flex; align-items: center; gap: 8px; }
 .icon-btn { width: 36px; height: 36px; border-radius: 10px; background: none; border: 1px solid transparent; color: var(--muted); font-size: 16px; cursor: pointer; transition: .2s; }
 .icon-btn:hover { color: var(--accent); border-color: var(--line); }
-@media (max-width: 1000px) { .nav-center { display: none; } }
+/* 【窄屏导航：从"整块隐藏"改成汉堡菜单】（2026-09-11）
+   原来这里只有 `.nav-center { display: none }` —— 于是窄屏下整个中间导航直接消失，
+   而且没有任何替代入口（手机上只剩 Logo 与登录按钮）。现在两者由同一条媒体查询互换：
+   桌面显示完整导航、窄屏显示汉堡按钮。
+   ⚠️ 为什么必须是 CSS 而不是用 JS 量窗口宽度：SSR 首屏在服务端量不到宽度，
+   用 JS 判断会出现"服务端渲染成桌面版、客户端立刻改成移动版"的一下闪烁，
+   严重时还会 hydration 不一致。 */
+.nav-burger { display: none; }
+@media (max-width: 1000px) {
+  .nav-center { display: none; }
+  .nav-burger { display: inline-flex; align-items: center; justify-content: center; }
+}
+
+/* 汉堡图标：三条线；展开时上下两条转成叉。
+   【为什么用 transform 画叉而不是换图标】换图标要么引一整个图标库（体积），
+   要么维护两套 SVG —— 而这里只需要两条线的旋转。 */
+.burger-lines { display: inline-flex; flex-direction: column; justify-content: center; gap: 4px; width: 18px; height: 18px; }
+.burger-lines i { display: block; height: 2px; border-radius: 2px; background: currentColor; transition: transform .2s, opacity .2s; }
+.nav-burger.on .burger-lines i:nth-child(1) { transform: translateY(6px) rotate(45deg); }
+.nav-burger.on .burger-lines i:nth-child(2) { opacity: 0; }
+.nav-burger.on .burger-lines i:nth-child(3) { transform: translateY(-6px) rotate(-45deg); }
+
+/* 遮罩：盖住导航以下的部分，点一下关面板（手机上最常见的关法）。
+   导航本身 z-index 是 200，所以它仍然在遮罩之上、随时点得到（再点一次汉堡就收起）。 */
+.nav-scrim { position: fixed; inset: 64px 0 0; z-index: 150; background: rgba(6,12,26,.55); }
+
+/* 窄屏导航面板：从导航条下面滑出来。玻璃底来自全局 .glass（见本文件上面那段说明） */
+.nav-mobile {
+  position: fixed; top: 64px; left: 0; right: 0; z-index: 160;
+  display: flex; flex-direction: column; gap: 2px;
+  max-height: calc(100vh - 64px); overflow-y: auto;
+  padding: 10px 14px 16px;
+  border-radius: 0 0 18px 18px;
+  /* 只保留下边一条边：面板是贴着屏幕两侧的，左右上三条边会显得像悬浮的卡片 */
+  border-left: none; border-right: none; border-top: none;
+}
+.nm-item, .nm-sub { padding: 12px; border-radius: 12px; color: var(--muted); font-size: 15px; text-decoration: none; cursor: pointer; }
+.nm-item:hover, .nm-sub:hover { color: var(--ink); background: rgba(255,255,255,.06); }
+/* 「文章」的子项缩进一层 + 一个分组标题：手机上没有 hover 展开这种东西，
+   所以子项直接平铺出来，比再套一层下拉好用（手指点得到、也不用猜哪里能展开） */
+.nm-group { display: flex; flex-direction: column; gap: 2px; padding-top: 6px; }
+.nm-group-title { padding: 4px 12px; font-size: 12px; letter-spacing: 1px; color: var(--accent); font-weight: 700; }
+.nm-sub { padding-left: 26px; font-size: 14px; }
 /* 登录状态胶囊：头像首字 + 昵称 + 角色标签 */
 .user-chip { display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 12px 0 4px; border-radius: 999px; background: rgba(255,255,255,.06); border: 1px solid var(--line); }
 .uc-avatar { width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, var(--accent-strong), var(--accent)); color: #0a1224; font-size: 13px; font-weight: 800; }
