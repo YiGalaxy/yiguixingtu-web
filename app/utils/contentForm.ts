@@ -54,6 +54,21 @@ export const LINK_LIMITS = Object.freeze({
   description: 200,
 })
 
+/**
+ * 文章附件的上限（对齐后端 ArticleForm 上的校验与附件配置）。
+ *
+ * 【为什么 count 是 20】附件是"跟着文章走的一份小清单"，不是网盘：
+ *   一篇文章挂几十个附件时，正文页那张列表本身就成了噪音。
+ *   真要放很多文件，正确做法是打包成一个压缩包 —— 它本身就是一个附件。
+ * 【为什么 name 限 100】文件名要显示在附件列表里，过长会把那一行撑破；
+ *   后端按同一个数字校验（两边是同一个事实，各写一份迟早漂移）。
+ */
+export const ATTACHMENT_LIMITS = Object.freeze({
+  count: 20,
+  name: 100,
+  url: 500,
+})
+
 /** 项目的字段上限（对齐 ProjectForm / ProjectServiceImpl 的常量） */
 export const PROJECT_LIMITS = Object.freeze({
   name: 100,

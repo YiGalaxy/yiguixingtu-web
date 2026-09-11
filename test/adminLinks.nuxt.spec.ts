@@ -398,7 +398,7 @@ describe('后台 · 友链管理', () => {
 
   it('上传失败_should【保留原来的头像地址】并给出后端原话', async () => {
     const errorSpy = vi.spyOn(ElMessage, 'error').mockImplementation(() => {})
-    mockBackend({ '/upload': { code: 400, message: '图片不能超过 5MB' } })
+    mockBackend({ '/upload': { code: 400, message: '图片不能超过 10MB' } })
 
     const wrapper = await mountSuspended(AdminPage)
     await flushPromises()
@@ -440,7 +440,7 @@ describe('后台 · 友链管理', () => {
     vi.restoreAllMocks()
   })
 
-  it('选了超过 5MB 的图片_should本地就拦下，一个请求都不发', async () => {
+  it('选了超过 10MB 的图片_should本地就拦下，一个请求都不发', async () => {
     const errorSpy = vi.spyOn(ElMessage, 'error').mockImplementation(() => {})
 
     const wrapper = await mountSuspended(AdminPage)
@@ -448,7 +448,8 @@ describe('后台 · 友链管理', () => {
     await gotoLinks(wrapper)
     await clickCreate(wrapper)
 
-    await panelOf(wrapper).vm.onAvatarChosen({ raw: { name: 'big.png', size: 5 * 1024 * 1024 + 1 } })
+    // 上限 10MB（2026-09-11 从 5MB 提上来的）：给上限 + 1 字节，边界要卡准
+    await panelOf(wrapper).vm.onAvatarChosen({ raw: { name: 'big.png', size: 10 * 1024 * 1024 + 1 } })
     await flushPromises()
 
     expect(callTo('POST', '/upload')).toBeUndefined()

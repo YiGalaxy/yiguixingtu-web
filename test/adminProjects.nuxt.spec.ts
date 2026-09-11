@@ -538,7 +538,7 @@ describe('后台 · 项目管理', () => {
     vi.restoreAllMocks()
   })
 
-  it('选了超过 5MB 的图片_should本地就拦下，一个请求都不发', async () => {
+  it('选了超过 10MB 的图片_should本地就拦下，一个请求都不发', async () => {
     const errorSpy = vi.spyOn(ElMessage, 'error').mockImplementation(() => {})
 
     const wrapper = await mountSuspended(AdminPage)
@@ -546,8 +546,9 @@ describe('后台 · 项目管理', () => {
     await gotoProjects(wrapper)
     await clickCreate(wrapper)
 
-    // 上限 5MB（与后端 app.upload.max-size 一致）：这里给上限 + 1 字节，边界要卡准
-    await panelOf(wrapper).vm.onCoverChosen({ raw: { name: 'big.png', size: 5 * 1024 * 1024 + 1 } })
+    // 上限 10MB（2026-09-11 从 5MB 提上来的，与后端 app.upload.max-size 同一个事实）：
+    // 这里给上限 + 1 字节，边界要卡准
+    await panelOf(wrapper).vm.onCoverChosen({ raw: { name: 'big.png', size: 10 * 1024 * 1024 + 1 } })
     await flushPromises()
 
     expect(callTo('POST', '/upload')).toBeUndefined()

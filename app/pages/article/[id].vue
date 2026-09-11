@@ -47,6 +47,30 @@ v-for="t in articleTags" :key="t.id" class="doc-tag"
         </header>
 
         <MdPreview :model-value="article.content || ''" theme="dark" :language="zh_CN" />
+
+        <!-- ==================== 附件 ====================
+             【为什么放在正文之后、"完"之前】附件是正文的补充材料：
+             读者读完正文正好看到"这篇还附了哪些文件"；放到评论区下面等于藏起来 ——
+             几乎没人会翻过去。
+             【为什么要 download 属性】它让浏览器**下载**而不是就地打开，
+             与后端那层 `Content-Disposition: attachment` 是同一件事的两道保险：
+             前端这道在某些场景（跨域、浏览器策略）下不生效，但不能因此不写。
+             【为什么要 rel=noopener】附件地址现在是同源的，但保持这个习惯 ——
+             哪天附件挪到别的域，这一行不用再改。 -->
+        <section v-if="attachments.length" class="doc-attach">
+          <h2 class="doc-attach-title">附件（{{ attachments.length }}）</h2>
+          <ul class="doc-attach-list">
+            <li v-for="item in attachments" :key="item.url">
+              <a class="doc-attach-item" :href="item.url" :download="item.name" target="_blank" rel="noopener">
+                <!-- 【为什么要有 title】文件名上限 100 字，而这一行是 ellipsis 截断的 ——
+                     没有 title 的话，被截断之后读者**没有任何办法**看到全名
+                     （与后台弹窗里那一处保持一致） -->
+                <span class="doc-attach-name" :title="item.name">{{ item.name }}</span>
+                <span class="doc-attach-size">{{ formatFileSize(item.size) }}</span>
+              </a>
+            </li>
+          </ul>
+        </section>
       </article>
 
       <footer v-if="article" class="doc-foot">
@@ -279,6 +303,14 @@ const errMsg = computed(() => res.value?.message || '它可能已被删除，或
  */
 const articleTags = computed(() => (Array.isArray(article.value?.tags) ? article.value.tags : []))
 
+/**
+ * 这篇文章的附件清单（后端详情接口返回）。
+ * 【为什么要兜底成数组】附件是后加的字段：接口还没更新、或者这篇文章确实没有附件时，
+ * `article.value.attachments` 是 undefined —— 模板里写 `attachments.length` 会直接抛错，
+ * 把整个文章页带崩。一个**可选字段不该有这个能力**（与上面 articleTags 同一条理由）。
+ */
+const attachments = computed(() => (Array.isArray(article.value?.attachments) ? article.value.attachments : []))
+
 // ================================================================
 //  评论区
 // ================================================================
@@ -499,6 +531,17 @@ const fmtTime = (t) => (t ? String(t).replace('T', ' ').slice(0, 16) : '')
 .doc-top { color: var(--accent); border: 1px solid rgba(242,193,78,.45); border-radius: 999px; padding: 1px 10px; font-size: 12px; }
 .doc-cover { width: 100%; border-radius: 16px; margin-top: 22px; display: block; }
 
+/* 附件区：在正文之后、"完"之前。
+   每一项都是"文件名（可省略号）+ 大小"的**整行链接** —— 整行可点比只有文字可点更好按，
+   手机上尤其明显。 */
+.doc-attach { margin-top: 34px; border-top: 1px solid rgba(150,190,240,.12); padding-top: 22px; }
+.doc-attach-title { font-size: 15px; font-weight: 700; color: var(--ink); margin: 0 0 14px; }
+.doc-attach-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.doc-attach-item { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 12px; background: rgba(255,255,255,.04); border: 1px solid rgba(150,190,240,.14); color: var(--muted); text-decoration: none; transition: border-color .2s ease, color .2s ease; }
+.doc-attach-item:hover { border-color: var(--accent); color: var(--accent); }
+/* 文件名要能截断：flex 子项默认 min-width 是 auto，不写 min-width: 0 就会把整行撑破 */
+.doc-attach-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.doc-attach-size { flex: 0 0 auto; font-size: 12px; font-variant-numeric: tabular-nums; }
 .doc-foot { text-align: center; margin-top: 34px; color: var(--muted); font-size: 13px; display: flex; flex-direction: column; align-items: center; gap: 18px; letter-spacing: 2px; }
 
 /* ==================== 评论区 ====================

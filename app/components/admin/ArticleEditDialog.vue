@@ -98,16 +98,46 @@
       </div>
     </div>
 
+    <div class="af-row">
+      <span class="ed-label">附件</span>
+      <div class="af-attach">
+        <el-upload
+          :show-file-list="false"
+          :auto-upload="false"
+          :accept="attachmentAccept"
+          :on-change="onAttachmentChosen"
+        >
+          <el-button :loading="attachmentUploading">上传附件</el-button>
+        </el-upload>
+        <!-- 【为什么附件只是"待提交的清单"、不立刻落库】
+             新建文章时它还没有 id，上传即落库会产生一条挂不到任何文章的孤儿记录；
+             所以这里与标签（tagIds）同一个思路：先攒在表单里，保存文章时整体提交，
+             后端按提交内容【整体替换】这篇文章的附件。 -->
+        <ul v-if="form.attachments.length" class="af-attach-list">
+          <li v-for="(item, index) in form.attachments" :key="item.url">
+            <span class="af-attach-name" :title="item.name">{{ item.name }}</span>
+            <span class="af-attach-size">{{ formatFileSize(item.size) }}</span>
+            <el-button link type="danger" @click="removeAttachment(index)">移除</el-button>
+          </li>
+        </ul>
+      </div>
+      <span class="af-hint">
+        支持 {{ ATTACHMENT_EXTENSIONS.join(' / ') }}，单个不超过 {{ ATTACHMENT_MAX_SIZE_TEXT }}，
+        最多 {{ ATTACHMENT_LIMITS.count }} 个；保存后读者可在文章页下载。
+      </span>
+    </div>
+
     <div class="af-editor">
       <MdEditor
         v-model="form.content"
         theme="dark"
         :language="zh_CN"
-        :toolbars-exclude="['github', 'fullscreen', 'preview-html']" />
+        :toolbars-exclude="['github', 'fullscreen', 'preview-html']"
+        @on-upload-img="onEditorUploadImg" />
     </div>
 
     <template #footer>
-      <span class="af-foot-tip">正文用 Markdown 写，右侧实时预览</span>
+      <span class="af-foot-tip">正文用 Markdown 写，右侧实时预览；工具栏的图片按钮可直接上传插图</span>
       <el-button @click="visible = false">取消</el-button>
       <el-button type="primary" :loading="saving" @click="saveArticle">保存</el-button>
     </template>
@@ -170,6 +200,13 @@ const form = reactive({
   categoryId: null,
   // 选中的标签 id 数组。空数组 = 这篇文章没有标签（不是"不改标签"，见 saveArticle）
   tagIds: [],
+  /**
+   * 附件清单（一篇文章多条）。每一项是 `{ name, url, size }`。
+   * 【为什么是"待提交的清单"而不是上传即落库】新建文章时它还没有 id，
+   * 上传即落库会产生挂不到任何文章的孤儿记录 —— 与标签同一个思路：
+   * 攒在表单里，保存时整体提交，后端按提交内容整体替换（见 saveArticle）。
+   */
+  attachments: [],
   status: 0,      // 默认草稿 —— 安全默认值，避免半成品被直接发出去
   isTop: 0,
 })
@@ -178,6 +215,87 @@ const form = reactive({
 // 逻辑都在 useUpload 里（含类型/大小的前端预检），这里只负责
 // "把界面上发生的事转成调用 + 把结果反馈给用户"
 const { upload: uploadCover, ALLOWED_EXTENSIONS, MAX_SIZE_TEXT } = useUpload()
+
+// ---------- 附件上传 ----------
+// 与封面走同一套 useUpload，只是换成 attachment 形态：白名单是文档/压缩包/音视频，
+// 单文件上限 100MB（封面那套是图片、10MB）。三个数字都在 useUpload 的规则表里，
+// 与后端 app.upload 的配置一一对应。
+const {
+  upload: uploadAttachment,
+  ALLOWED_EXTENSIONS: ATTACHMENT_EXTENSIONS,
+  MAX_SIZE_TEXT: ATTACHMENT_MAX_SIZE_TEXT,
+} = useUpload('attachment')
+const attachmentUploading = ref(false)
+
+/**
+ * 文件选择框的 `accept`：用**扩展名**列表而不是 MIME 类型。
+ * 【为什么用扩展名】附件里有 zip / 7z / rar / md / csv 这些各平台 MIME 不一致的格式，
+ * 写 MIME 会漏、而且不同系统给的值还不一样；扩展名最稳。
+ * 【它只是"选择框默认筛掉什么"】用户可以切到"所有文件"照样选 ——
+ * 真正的白名单校验在 useUpload 里（选错了会被拦下并说明原因）。
+ */
+const attachmentAccept = ATTACHMENT_EXTENSIONS.map(ext => '.' + ext).join(',')
+
+/**
+ * 编辑器工具栏「上传图片」的回调（md-editor-v3 的 `onUploadImg`）。
+ *
+ * 【⚠️ 为什么必须有这个函数】不接它，工具栏那个图片按钮**点了没有任何反应** ——
+ *   不报错、也不提示。站长只会以为"这个功能没做"（用户就是这么反馈的）。
+ *
+ * 【为什么是 files 数组 + callback，而不是我们自己往正文里拼 Markdown】
+ *   md-editor-v3 支持一次选多张，它把选中的文件交给我们，等我们传完再调
+ *   `callback(urls)` —— 由它负责插入：**保留光标位置、以及"选中一段文字后插图片"
+ *   这种把选中内容替换成图片的语义**。自己拼 `![](url)` 会丢掉这些，
+ *   而且在光标不在末尾时会插到错误的位置。
+ *
+ * 【为什么一张都没成功也要 callback([])】不回调的话，编辑器会一直停在
+ *   "上传中"，工具栏从此不可用。
+ */
+const onEditorUploadImg = async (files, callback) => {
+  const list = Array.isArray(files) ? files : [files]
+  const urls = []
+  for (const file of list) {
+    // 复用封面那套图片规则（白名单与 10MB 上限都在 useUpload 里）
+    const res = await uploadCover(file)
+    if (res.ok && res.url) urls.push(res.url)
+    else ElMessage.error(res.message || '图片上传失败')
+  }
+  callback(urls)
+}
+
+/**
+ * 选中附件（el-upload 关掉自动上传后由这个回调接管）。
+ * 【注意 uploadFile.raw】el-upload 给的是包装对象，真正的 File 在 `.raw` 上。
+ */
+const onAttachmentChosen = async (uploadFile) => {
+  const file = uploadFile?.raw
+  if (!file) return
+
+  // 数量上限在前端先拦一道（后端也会拦）：到上限时直接提示，
+  // 不浪费用户一次 100MB 的上传
+  if (form.attachments.length >= ATTACHMENT_LIMITS.count) {
+    ElMessage.warning(`一篇文章最多 ${ATTACHMENT_LIMITS.count} 个附件`)
+    return
+  }
+
+  attachmentUploading.value = true
+  try {
+    const res = await uploadAttachment(file)
+    if (res.ok && res.url) {
+      form.attachments.push({ name: res.name || file.name, url: res.url, size: res.size ?? file.size })
+      ElMessage.success('附件上传成功，保存文章后生效')
+    } else {
+      ElMessage.error(res.message || '附件上传失败')
+    }
+  } finally {
+    attachmentUploading.value = false
+  }
+}
+
+/** 从清单里移除一个附件（真正删文件发生在保存时：后端按提交内容整体替换） */
+const removeAttachment = (index) => {
+  form.attachments.splice(index, 1)
+}
 const coverUploading = ref(false)
 
 /**
@@ -220,6 +338,8 @@ const resetForm = () => {
   // 新建时是空数组（"还没打标签"），不是上一篇文章的标签 ——
   // 不清的话会出现"新建的文章莫名其妙带着上一篇的标签"
   form.tagIds = []
+  // 附件同理：不清的话"新建的文章"会莫名其妙带着上一篇的附件
+  form.attachments = []
   form.status = 0
   form.isTop = 0
 }
@@ -277,13 +397,30 @@ const openEdit = async (row) => {
   emit('refresh-tags')
   const detail = await request('/admin/article/' + row.id)
 
-  if (detail.ok) {
-    form.content = detail.data.content || ''
-    // 【以详情为准】详情里的 tags 是这篇文章最新的标签；
-    // 列表那一份可能是几分钟前拉的（别人刚改过标签时就会不一致）。
-    // 注意要用 Array.isArray 兜底：tags 缺失时不能把已回显的标签清成空数组。
-    if (Array.isArray(detail.data.tags)) form.tagIds = tagIdsOf(detail.data.tags)
+  // 【⚠️ 详情读不到就【不要】打开编辑器】
+  //   正文与附件都只存在于详情接口里（列表为了省带宽既不返回 content、也不返回附件）。
+  //   如果这里静默失败还让用户进编辑器：
+  //     · 编辑器是空的  ⇒ 一保存就把正文清空了
+  //     · 附件清单是空的 ⇒ 一保存就把附件（连同磁盘上的文件）全删了
+  //   两者都是"界面看起来一切正常"的静默数据丢失。
+  //   所以宁可不打开弹窗、直接报错 —— 用户重试一次就好，比丢数据强得多。
+  if (!detail.ok) {
+    ElMessage.error(detail.message || '文章详情读取失败，已取消打开编辑器（避免保存时清空正文与附件）')
+    return
   }
+
+  form.content = detail.data.content || ''
+  // 【以详情为准】详情里的 tags 是这篇文章最新的标签；
+  // 列表那一份可能是几分钟前拉的（别人刚改过标签时就会不一致）。
+  // 注意要用 Array.isArray 兜底：tags 缺失时不能把已回显的标签清成空数组。
+  if (Array.isArray(detail.data.tags)) form.tagIds = tagIdsOf(detail.data.tags)
+  // 附件只认详情这一份（列表里根本没有这个字段）。
+  // 逐项兜底成 { name, url, size }，避免某个脏字段让整张清单渲染不出来。
+  // ⚠️ size 缺失时保留 null（而不是填 0）：0 字节的文件根本传不上来，
+  //    显示成 "0 B" 是假信息；formatFileSize(null) 会给「—」。
+  form.attachments = Array.isArray(detail.data.attachments)
+    ? detail.data.attachments.map(a => ({ name: a?.name || '', url: a?.url || '', size: a?.size ?? null }))
+    : []
 
   visible.value = true
 }
@@ -323,6 +460,13 @@ const saveArticle = async () => {
     //   另外传一个不存在的标签 id 时后端返回 404 并且【不会动原有的标签】
     //   （校验先于写入），所以这里不需要先自己校验一遍 id 是否存在。
     tagIds: [...form.tagIds],
+    // 【attachments 永远传，和 tagIds 同一个道理】
+    //   后端对附件是【整体替换】语义：不传这个字段、和传空数组，结果都是
+    //   "清空这篇文章的附件"（而且会连带删掉磁盘上的文件）。
+    //   既然两者等价，就显式传一份清单 —— 它把"我就是要清空"写在请求体里，
+    //   看日志的人一眼能分辨"用户移除了附件"和"前端忘了传"（后者是 bug）。
+    //   传一个不属于本项目的地址后端会拒（校验 url 前缀），所以这里不用自己先校验。
+    attachments: form.attachments.map(a => ({ name: a.name, url: a.url, size: a.size })),
     status: form.status,
     isTop: form.isTop,
   }
@@ -387,6 +531,14 @@ defineExpose({ openCreate, openEdit })
 
 .af-editor { margin-top: 8px; }
 /* 编辑器这一块不参与 .af-row 的垂直居中对齐 */
+/* 附件清单：每行「文件名 + 大小 + 移除」。
+   文件名要能截断（用户可能传一个很长的名字），所以每层都写 min-width: 0 ——
+   flex 子项的默认 min-width 是 auto，不写的话长名字会把整行撑破，而不是变成省略号。 */
+.af-attach { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.af-attach-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.af-attach-list li { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.af-attach-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); font-size: 13px; }
+.af-attach-size { flex: 0 0 auto; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 .af-editor .md-editor { border: 1px solid rgba(150,190,240,.18); }
 
 /* 弹窗底部：提示语靠左，按钮靠右 */

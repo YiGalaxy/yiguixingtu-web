@@ -2,12 +2,13 @@
 // app/composables/useUpload.ts
 // 作用：文件上传。后端接口是 POST /upload（仅管理员），返回 { url }。
 //
-// 【两种上传形态：图片与音频】
-//   同一个接口既收图片也收音频（音频靠 `?type=audio` 区分），但两者的
-//   白名单与大小上限完全不同（图片 5MB、音频 20MB）。所以这里把它做成
+// 【三种上传形态：图片 / 音频 / 附件】
+//   同一个接口按 `?type=` 区分，但三者的白名单与大小上限完全不同
+//   （图片 10MB、音频 20MB、附件 100MB）。所以这里把它做成
 //   **一张规则表 + 一个 mode 参数**，而不是在调用处各写一遍 if：
-//     · useUpload()            → 图片模式（默认，行为与加这个参数之前一模一样）
-//     · useUpload('audio')     → 音频模式（只收 .mp3、上限 20MB）
+//     · useUpload()              → 图片模式（默认，行为与加这个参数之前一模一样）
+//     · useUpload('audio')       → 音频模式（只收 .mp3、上限 20MB）
+//     · useUpload('attachment')  → 附件模式（文档 / 压缩包 / 音视频、上限 100MB）
 //   写成"两套函数"或者"在调用处判断"的后果是：大小上限改了要改好几处，
 //   漏掉的那一处不会有任何报错 —— 只会让某个入口静默地放行一个超大文件。
 //
@@ -39,8 +40,11 @@ const UPLOAD_MODES = Object.freeze({
   image: Object.freeze({
     label: '图片',
     extensions: Object.freeze(['jpg', 'jpeg', 'png', 'gif', 'webp']),
-    maxSize: 5 * 1024 * 1024,
-    maxSizeText: '5MB',
+    // 【2026-09-11 从 5MB 提到 10MB】站长要求：正文插图经常是手机直出的大图，
+    // 5MB 会频繁拦下正常使用。⚠️ 改这个数字必须同时改后端 app.upload.max-size
+    // （那才是真正生效的一层），以及 README 里那份限额说明
+    maxSize: 10 * 1024 * 1024,
+    maxSizeText: '10MB',
     // 超限提示里的主语：图片就是「图片」，音频是「单个音频」
     // （后端给的措辞是「单个音频不超过 20MB」，前端提示要与它一致 ——
     //   写小了用户会被前端白拦一次，写大了会白跑一趟后端）
@@ -61,10 +65,33 @@ const UPLOAD_MODES = Object.freeze({
     // 不会悄悄回落到图片 —— 所以这里绝不能写成别的值
     typeParam: 'audio',
   }),
+  /**
+   * 附件（文章的可下载文件）。2026-09-11 新增。
+   *
+   * 【为什么白名单里【没有】html / svg / xml / js】这是这个类型最要紧的一条：
+   *   附件由后端 `/uploads/**` 在**同域**下提供，而浏览器是按扩展名决定
+   *   "就地打开还是下载"的 —— 一旦放行 html/svg，用户点开附件就等于在你域名下
+   *   执行了一段别人写的网页脚本（同源 XSS，能读 cookie、能冒充用户调接口）。
+   *   所以这里只放**文档 / 压缩包 / 音视频**，与后端 attachmentAllowedExtensions 一致；
+   *   后端那边另外会强制 `Content-Disposition: attachment` 兜第二道。
+   */
+  attachment: Object.freeze({
+    label: '附件',
+    extensions: Object.freeze([
+      'pdf', 'zip', '7z', 'rar',
+      'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx',
+      'txt', 'md', 'csv', 'json',
+      'mp3', 'mp4',
+    ]),
+    maxSize: 100 * 1024 * 1024,
+    maxSizeText: '100MB',
+    sizeSubject: '单个附件',
+    typeParam: 'attachment',
+  }),
 })
 
 /**
- * @param {'image'|'audio'} mode 上传形态；默认 image。
+ * @param {'image'|'audio'|'attachment'} mode 上传形态；默认 image。
  *   传了不认识的模式时回落到 image（宁可让图片那套更严的规则生效，
  *   也不要因为一个拼错的字符串变成"什么都能传"）。
  */
@@ -161,7 +188,15 @@ export const useUpload = (mode = 'image') => {
       return { ok: false, message: res.message || '上传失败' }
     }
 
-    return { ok: true, url: res.data?.url }
+    return {
+      ok: true,
+      url: res.data?.url,
+      // 【附件要用到 name 与 size】后台的附件列表要显示"文件名 + 大小"。
+      // 优先用后端回的（它才是真正落库的那份），没有就回落到本地 File ——
+      // 这两个值本来就来自这次选择，回落到 File 不会失真。
+      name: res.data?.name || file.name,
+      size: Number.isFinite(res.data?.size) ? res.data.size : file.size,
+    }
   }
 
   return { upload, validateFile, MAX_SIZE, MAX_SIZE_TEXT, ALLOWED_EXTENSIONS }

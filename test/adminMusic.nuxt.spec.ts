@@ -14,7 +14,7 @@ import { MUSIC_LIMITS, checkMediaUrl, checkImageUrl, MEDIA_URL_MESSAGE } from '~
 //
 //   ① 音频上传走的是 `POST /upload?type=audio`，而图片走的是 `POST /upload`
 //      —— 少了那个查询参数，后端就会按**图片**的白名单校验，一个正常的 mp3 会被拒；
-//      而且两种形态的白名单/大小上限完全不同（图片 5MB / 音频 20MB），
+//      而且两种形态的白名单/大小上限完全不同（图片 10MB / 音频 20MB），
 //      所以下面既断言"参数带上去了"，也断言"音频模式下 .jpg 会被本地拦下、
 //      20MB 那条边界卡在 20MB+1 字节"。
 //
@@ -707,7 +707,7 @@ describe('后台 · 音乐管理', () => {
   // 六、封面上传（图片模式，与另外四个面板同款）
   // ---------------------------------------------------------------
 
-  it('上传封面_should走图片那一档（不带 type 参数、上限 5MB），并把地址填进封面输入框', async () => {
+  it('上传封面_should走图片那一档（不带 type 参数、上限 10MB），并把地址填进封面输入框', async () => {
     mockBackend({ '/upload': body({ url: 'http://x/uploads/cover/9.png' }) })
 
     const wrapper = await mountSuspended(AdminPage)
@@ -734,7 +734,7 @@ describe('后台 · 音乐管理', () => {
     expect(wrapper.find('.el-dialog .cover-preview').attributes('src')).toBe('http://x/uploads/cover/9.png')
   })
 
-  it('封面选了超过 5MB 的图片_should按图片那一档拦下（音频的 20MB 不适用于封面）', async () => {
+  it('封面选了超过 10MB 的图片_should按图片那一档拦下（音频的 20MB 不适用于封面）', async () => {
     const errorSpy = vi.spyOn(ElMessage, 'error').mockImplementation(() => {})
 
     const wrapper = await mountSuspended(AdminPage)
@@ -742,12 +742,14 @@ describe('后台 · 音乐管理', () => {
     await gotoMusic(wrapper)
     await clickCreate(wrapper)
 
-    // 6MB：对音频是合法的、对图片超限 —— 这条用例证明两档规则没有串味
-    await panelOf(wrapper).vm.onCoverChosen({ raw: { name: 'big.png', size: 6 * 1024 * 1024 } })
+    // 【为什么是 12MB】它必须落在"图片上限（10MB）之上、音频上限（20MB）之下"才有力气：
+    // 图片提到 10MB 之前这条用的是 6MB，改动之后 6MB 两边都合法，
+    // 这条用例就变成了永远为真 —— 两档规则万一串味，它也照样绿。
+    await panelOf(wrapper).vm.onCoverChosen({ raw: { name: 'big.png', size: 12 * 1024 * 1024 } })
     await flushPromises()
 
     expect(callTo('POST', '/upload')).toBeUndefined()
-    expect(errorSpy.mock.calls.some(c => String(c[0]).includes('5MB'))).toBe(true)
+    expect(errorSpy.mock.calls.some(c => String(c[0]).includes('10MB'))).toBe(true)
     vi.restoreAllMocks()
   })
 

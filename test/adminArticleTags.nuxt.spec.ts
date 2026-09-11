@@ -191,18 +191,27 @@ describe('后台 · 文章弹窗的标签多选', () => {
     expect(formRow(wrapper, '标签').text()).toContain('Vue')
   })
 
-  it('编辑时列表与详情的标签不一致_should以详情为准（否则会把别人刚打的标签覆盖掉）', async () => {
-    // 详情接口拿不到（挂了）：这时退回用列表里的那一份回显，
-    // 而不是把标签显示成"一个都没选"—— 后者会让用户一保存就清掉全部标签
+  it('详情接口挂掉时_should连弹窗都不打开（不能给用户一个"标签/正文/附件都是空的"的假象）', async () => {
+    // 【2026-09-11 这条的前提变了，但结论更强】加附件那一批改动给 openEdit() 加了一道护栏：
+    //   详情读不到就**不打开编辑器**并直接报错（理由：正文与附件只存在于详情接口里，
+    //   静默失败还让用户进编辑器 ⇒ 一保存就把正文与附件全部清空）。
+    //   所以这里能断言的从"退回用列表里那一份"变成了"连弹窗都没开"：
+    //   表单里那份 tagIds 仍然来自列表项（openEdit 在发详情请求【之前】就回显了它），
+    //   而用户根本没机会看到它 —— 完整的那一组护栏在 test/articleAttachments.nuxt.spec.ts 里。
     mockBackend({ '/admin/article/12': { code: 500, message: '服务器开小差了' } })
 
     const wrapper = await mountSuspended(AdminPage)
     await flushPromises()
     await gotoArticles(wrapper)
 
+    // 点之前先确认"本来就没开"，否则下面那句"没打开"可能只是因为弹窗压根没渲染过
+    expect(wrapper.find('.art-edit-modal').exists()).toBe(false)
+
     await wrapper.findAll('.el-table__row .el-button').find(b => b.text() === '编辑').trigger('click')
     await flushPromises()
 
+    expect(wrapper.find('.art-edit-modal').exists()).toBe(false)
+    // 列表里那一份仍然被回显进了表单（这是"以详情为准"的前半段，没被这次改动删掉）
     expect(artFormTags(wrapper)).toEqual([7])
   })
 
