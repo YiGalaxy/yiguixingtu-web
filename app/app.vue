@@ -2,8 +2,12 @@
   <div class="shell">
     <!-- 背景视频：地址由 mediaUrl() 拼出来（前缀可配），页面里不写死 /bg-star.mp4。
          这个文件不在 public/ 里 —— 线上由 Nginx 的 /media/ 提供、dev 由 Nitro 的
-         开发路由提供，理由见 app/utils/media.ts 与 static-media/README.md。 -->
-    <video ref="bgVideo" class="bg-video" autoplay muted loop playsinline preload="auto">
+         开发路由提供，理由见 app/utils/media.ts 与 static-media/README.md。
+
+         【v-if 而不是 v-show】⚙ 设置面板里关掉「背景视频」之后，这个元素要**从 DOM 里去掉**：
+         留着它（哪怕 display:none）浏览器照样会解码视频、照样占着显存。
+         v-if 会销毁元素，解码与下载一起停 —— 这才对得起"关掉更省电"那句话。 -->
+    <video v-if="videoOn" ref="bgVideo" class="bg-video" autoplay muted loop playsinline preload="auto">
       <source :src="bgVideoSrc" type="video/mp4" >
     </video>
     <div class="bg-overlay"/>
@@ -43,7 +47,7 @@
           @click="toggleNav">
           <span class="burger-lines"><i /><i /><i /></span>
         </button>
-        <button class="icon-btn" @click="onDev">⚙</button>
+        <button class="icon-btn" aria-haspopup="dialog" aria-label="打开站点设置" title="站点设置" @click="openSettings">⚙</button>
         <template v-if="token">
           <!-- 登录状态提示：头像首字 + 昵称 + 角色标签 -->
           <div class="user-chip" :title="'当前登录：' + displayName">
@@ -93,6 +97,54 @@
         <span class="music-label">{{ musicEnabled ? '关闭背景音乐' : '播放背景音乐' }}</span>
       </button>
     </footer>
+
+    <!-- ============ ⚙ 站点设置面板（右上角那个齿轮） ============
+         【为什么用 el-drawer 而不是自己搭一个浮层】抽屉自带这几件本来就该有的东西：
+         遮罩、Esc 关闭、锁住背景滚动、**焦点陷阱**（打开后按 Tab 不会跑到背后的页面上），
+         以及 role="dialog" + aria-modal。自己写一遍只会写得比它差。
+         窄屏导航那个面板是自己搭的（它更像"从导航条里滑出来的一块菜单"，
+         而这里是标准对话框语义），两者的取舍不同。
+
+         【为什么 size 写的是 min(380px, 88vw)】Element Plus 把 size 原样写进 width
+         （`addUnit()`：字符串就原样用），所以这里能直接给一个 CSS 表达式 ——
+         桌面 380px、窄屏不超过 88vw（手机上留一点边：让人看得出"背后还有一页"，
+         也暗示点遮罩能关掉）。
+
+         【为什么面板里的说明文字要写"只存在你这台设备上"】这两个开关都只改本机偏好，
+         既不上传也不跟随账号。不写清楚的话，用户会以为换台电脑登录就该还是关的。 -->
+    <el-drawer
+      v-model="settingsOpen"
+      class="settings-drawer"
+      title="站点设置"
+      direction="rtl"
+      size="min(380px, 88vw)">
+      <p class="set-sub">这两个开关只影响你这台设备上的显示与声音，不会同步到账号。</p>
+      <div class="set-card glass">
+        <div class="set-row">
+          <div class="set-info">
+            <span class="set-name">背景视频</span>
+            <span class="set-desc">首页那层流动的星空。关掉更省电、也更省流量</span>
+          </div>
+          <!-- 【为什么不是 v-model】v-model 只会改到一个 ref 上，而"关掉"这件事
+               还得写进 cookie（服务端下次渲染时才知道）—— 所以统一走 setVideoOn()。
+               aria-label 是给读屏软件的：开关本身没有可读的文字（名字在旁边的 span 里）。 -->
+          <el-switch
+            :model-value="videoOn"
+            aria-label="背景视频"
+            @update:model-value="setVideoOn" />
+        </div>
+        <div class="set-row">
+          <div class="set-info">
+            <span class="set-name">背景音乐</span>
+            <span class="set-desc">和页脚的 ♫ 是同一个设置，改哪个都一样</span>
+          </div>
+          <el-switch
+            :model-value="musicEnabled"
+            aria-label="背景音乐"
+            @update:model-value="setMusicOn" />
+        </div>
+      </div>
+    </el-drawer>
 
     <el-dialog v-model="loginVisible" class="auth-modal" :show-close="false" width="400px" :close-on-click-modal="true">
       <div class="auth-card">
@@ -323,6 +375,58 @@ const setBodyLock = (locked) => {
 watch(navOpen, (open) => setBodyLock(open))
 onBeforeUnmount(() => setBodyLock(false))
 
+// =====================================================================
+//  ⚙ 站点设置面板（右上角那个齿轮，2026-09-11 新加）
+//
+//  【修的是什么】那个按钮原来写的是 `@click="onDev"` —— 点下去只弹一句
+//  「该页面开发中」。面板里现在有两个开关：背景视频、背景音乐。
+//
+//  【两个开关各自的状态放在哪，为什么不一样】
+//    · 背景视频 → **cookie**（`useCookie`）
+//    · 背景音乐 → localStorage（`useBackgroundMusic` 里）
+//    这不是随手选的，是因为两者的诉求不同：
+//
+//    视频这个偏好**必须在服务端渲染时就知道**。视频元素只要进了首屏 HTML，
+//    浏览器立刻就会去下 `bg-star.mp4`（`preload="auto"`）并开始解码 ——
+//    于是"特意把视频关掉"的用户每次打开页面都还会白下一段视频，
+//    还得看它闪一下再被抹掉，那个开关等于白关。localStorage 服务端读不到，
+//    cookie 能从请求头里读到，所以这里只能用 cookie。
+//
+//    音乐不需要这样：它无论如何都得等用户手势才能播（浏览器自动播放限制），
+//    服务端渲染成什么样都不影响结果 —— 那就不必让每个请求都多背一个 cookie。
+// =====================================================================
+
+/**
+ * 背景视频偏好。**null（cookie 不存在）= 默认开**，只有用户显式关掉才写 false。
+ * 重新打开时写 null —— useCookie 收到 null 会把 cookie 删掉，
+ * 这样"没设置"与"设置成开"不会变成两种表达同一件事的值。
+ * maxAge 给 180 天：不给的话它是会话 cookie，用户关掉浏览器再进来视频又回来了。
+ */
+const videoPref = useCookie('bg-video-enabled', { maxAge: 60 * 60 * 24 * 180 })
+const videoOn = computed(() => videoPref.value !== false)
+const setVideoOn = (value) => { videoPref.value = value ? null : false }
+
+/** 设置面板开着没有。只有 app.vue 用得到，所以不做成共享状态 */
+const settingsOpen = ref(false)
+
+/**
+ * 打开设置面板。顺手把窄屏导航面板收起来 ——
+ * 两个浮层叠在一起时，Esc 与点遮罩都只能关掉一个，剩下那个还盖着半屏，
+ * 用户的感受就是"没关上"（设置那个齿轮在窄屏下也在导航条右侧，很容易两个都开着）。
+ */
+const openSettings = () => {
+  closeNav()
+  settingsOpen.value = true
+}
+
+/**
+ * 面板里的音乐开关：只把"用户的意图"写给共享状态。
+ * 【为什么不能直接 v-model="musicEnabled"】那样只改了内存里那个 ref，
+ * 不会落盘（写 localStorage 的动作在 useBackgroundMusic().setEnabled 里）——
+ * 刷新一下偏好就没了，而这种"当时生效、下次失效"的 bug 极难被注意到。
+ */
+const setMusicOn = (value) => music.setEnabled(value)
+
 const form = reactive({ username: '', password: '' })
 const regForm = reactive({ username: '', nickname: '', password: '' })
 const loading = ref(false)
@@ -526,6 +630,34 @@ body { margin: 0; background: var(--bg); color: var(--ink); font-family: "PingFa
 .music-toggle .glyph { font-style: normal; font-size: 16px; }
 .music-toggle .music-label { font-size: 13px; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* ===== ⚙ 站点设置抽屉 =====
+   【为什么选择器要写成 `.el-drawer.settings-drawer`（两个类一起）】
+   Element Plus 自己的 `.el-drawer` 也定了一份背景色，和我们这条一样都是"一个类"的选择器，
+   优先级相同 —— 谁赢只看打包之后谁在后面，而那个顺序不受我们控制（今天对、明天可能就反了）。
+   多写一个类把优先级抬上去，就与顺序无关了。下面 .set-* 那几条同理：
+   带上 `.settings-drawer` 前缀既抬了优先级，也把作用范围限制在面板内部。 */
+.el-drawer.settings-drawer { background: rgba(10,18,36,.72); backdrop-filter: blur(26px) saturate(150%); -webkit-backdrop-filter: blur(26px) saturate(150%); border-left: 1px solid rgba(150,190,240,.14); box-shadow: -24px 0 70px rgba(0,0,0,.5); }
+.settings-drawer .el-drawer__header { margin-bottom: 0; padding: 18px 22px; color: var(--ink); font-size: 16px; font-weight: 700; letter-spacing: 1px; border-bottom: 1px solid var(--line); }
+.settings-drawer .el-drawer__close-btn { color: var(--muted); }
+.settings-drawer .el-drawer__close-btn:hover { color: var(--accent); }
+.settings-drawer .el-drawer__body { padding: 18px 22px 26px; }
+.set-sub { margin: 0 0 16px; color: var(--muted); font-size: 13px; line-height: 1.7; }
+/* 每一行是一张"卡片"：玻璃底来自全局 .glass，这里只补圆角与内边距。
+   两行之间用虚线分隔，而不是给每行各套一个方框 —— 那会在面板里叠出一堆框，
+   看起来比背景还乱。 */
+.set-card { border-radius: 16px; padding: 4px 14px; }
+.set-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 14px 0; }
+.set-row + .set-row { border-top: 1px dashed rgba(150,190,240,.16); }
+.set-info { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.set-name { font-size: 14px; font-weight: 600; color: var(--ink); }
+.set-desc { font-size: 12px; line-height: 1.6; color: var(--muted); }
+/* 开关的配色跟上本站的调子：Element Plus 默认是蓝色，和我们这套深蓝金完全不搭。
+   关闭态也要给个亮一点的颜色 —— 默认的 rgba(0,0,0,.25) 在这个深色底上几乎看不见。 */
+.settings-drawer .el-switch__core { background-color: rgba(255,255,255,.16); border-color: rgba(150,190,240,.24); }
+.settings-drawer .el-switch.is-checked .el-switch__core { background-color: var(--accent); border-color: var(--accent); }
+.settings-drawer .el-switch.is-checked .el-switch__action { background-color: #0a1224; }
+@media (prefers-reduced-transparency: reduce) { .el-drawer.settings-drawer { background: var(--surface); } }
 
 .auth-modal { border-radius: 20px; overflow: hidden; background: rgba(10,18,36,.55); backdrop-filter: blur(26px) saturate(150%); -webkit-backdrop-filter: blur(26px) saturate(150%); border: 1px solid rgba(150,190,240,.14); box-shadow: 0 26px 90px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.08); }
 .auth-modal .el-dialog__header { display: none; }
