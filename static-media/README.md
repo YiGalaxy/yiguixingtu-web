@@ -9,6 +9,7 @@
 | 文件 | 用途 | 引用方 |
 |---|---|---|
 | `bg-star.mp4` | 全站背景视频 | `app/app.vue` 的 `<video>` |
+| `bg-star.jpg` | **背景底图**：背景视频被关掉 / 还没就位 / 加载失败时露出来的静态背景 | `app/app.vue` 的 `.bg-poster`，经 `MEDIA_FILES.backgroundPoster` 取地址 |
 | `bg-music.mp3` | 背景音乐的音源 | `app/app.vue` 里**唯一**的那个 `<audio>`（2026-09-11 从首页卡片挪进外壳：页面会随路由卸载，放在卡片里等于"一离开首页音乐就断"，而且音乐页出现后会变成两个播放器抢同一首歌。首页卡片与音乐页现在都只是它的遥控器） |
 | `cover-1.png` | 唱片的**封面回落图**（音频里没有内嵌 ID3 封面时用它） | `app/pages/music.vue`，经 `MEDIA_FILES.musicCover` 取地址 |
 | `beian.png` | 页脚**公安网安备案**那一项前面的官方图标（蓝底警徽，36×40） | `app/app.vue` 的页脚，经 `MEDIA_FILES.policeIcon` 取地址 |
@@ -80,17 +81,19 @@ Nuxt 会把 `public/` 下的**所有**文件原样拷进 `.output/public`，
    ```bash
    # 在服务器上（或本机传到服务器）
    sudo mkdir -p /var/www/media
-   # 必需的四个（背景视频 + 背景音乐 + 唱片封面回落图 + 公安备案图标）
-   sudo cp static-media/bg-star.mp4 static-media/bg-music.mp3 static-media/cover-1.png static-media/beian.png /var/www/media/
+   # 必需的五个（背景视频 + 背景底图 + 背景音乐 + 唱片封面回落图 + 公安备案图标）
+   sudo cp static-media/bg-star.mp4 static-media/bg-star.jpg static-media/bg-music.mp3 static-media/cover-1.png static-media/beian.png /var/www/media/
    # 可选的一个（歌词）。**不放也不会报错**：歌词区显示「暂无歌词」，其余功能照常
    sudo cp static-media/bg-music.lrc /var/www/media/   # 有这个文件时才执行
    sudo chmod 644 /var/www/media/*
    ```
    ⚠️ `cp` 会把本目录的 `README.md` 也一起复制过去（`static-media/*` 通配）——
    无害但没必要，所以上面的命令是逐个点名而不是用 `*`。
-   ⚠️ **漏传 `beian.png` 的表现很隐蔽**：页脚那行备案信息照常显示、链接也能点，
+   ⚠️ **漏传 `bg-star.jpg` 的表现**：页面本身不会报错，但用户在 ⚙ 设置里关掉背景视频之后，
+   背景会退回成一片纯色（少了那张静态底图）—— 也就是这个功能看起来"没做"。
+   ⚠️ **漏传 `beian.png` 的表现**：页脚那行备案信息照常显示、链接也能点，
    只是图标位置是一个破图（浏览器的小裂图）。备案的合规要求是"备案号**与图标**一起展示"，
-   所以它算"必需的四个"之一。
+   所以它算"必需的五个"之一。
 
 2. 在 Nginx 里把 `/media/` 这个前缀指到那个目录（**要放在反代到 Nuxt 的
    `location /` 之前，否则请求会被转发给 Node**）：

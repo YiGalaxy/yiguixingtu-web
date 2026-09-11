@@ -7,6 +7,16 @@
          【v-if 而不是 v-show】⚙ 设置面板里关掉「背景视频」之后，这个元素要**从 DOM 里去掉**：
          留着它（哪怕 display:none）浏览器照样会解码视频、照样占着显存。
          v-if 会销毁元素，解码与下载一起停 —— 这才对得起"关掉更省电"那句话。 -->
+    <!-- 背景**底图**（静态）：背景视频被关掉 / 还没就位 / 加载失败时露出来的那一张
+         （文件与"为什么挑那一帧"见 MEDIA_FILES.backgroundPoster）。
+
+         【为什么它是常驻元素、没有 v-if】三种情况都要它在场：
+           · 用户在 ⚙ 设置里关掉了背景视频 —— 这时它就是页面背景，而不是一片纯色
+           · 视频正在下载 / 解码 —— 先出图，避免"先黑一下再出画面"
+           · 视频加载失败、或浏览器不支持 mp4 —— 兜底
+         它在 z-index 上比视频低一层（-11 对 -10），所以视频一旦就位就把它整个盖住，
+         连条件判断都不需要 —— 比"视频关掉时才把它插进来"少一处能写错的同步逻辑。 -->
+    <div class="bg-poster" :style="bgPosterStyle"/>
     <video v-if="videoOn" ref="bgVideo" class="bg-video" autoplay muted loop playsinline preload="auto">
       <source :src="bgVideoSrc" type="video/mp4" >
     </video>
@@ -349,6 +359,12 @@ onMounted(() => music.loadPreference())
 // （useRuntimeConfig 也就会被反复读），而它是个常量，没必要参与响应式。
 // 文件名来自 MEDIA_FILES 常量表，前缀来自运行时配置，这里是唯一的拼接点。
 const bgVideoSrc = mediaUrl(MEDIA_FILES.backgroundVideo)
+
+// 【背景底图的样式】也在这里算一次：模板里写 `:style="{ backgroundImage: ... }"`
+// 会在**每次渲染**时新建一个对象、并重新拼一遍字符串，而它是个常量。
+// 地址同样由 mediaUrl() 拼（文件名来自 MEDIA_FILES，前缀来自运行时配置）——
+// 所以哪天把媒体挪到 CDN，这里不用改。
+const bgPosterStyle = { backgroundImage: `url(${mediaUrl(MEDIA_FILES.backgroundPoster)})` }
 
 // 【页脚那张公安备案图标的地址】同样在 setup 里算一次，理由与上面那条完全一样。
 // 它是"和备案号一起换"的文件（备案号变了图标也不会变，但两者永远一起改部署），
@@ -1022,6 +1038,13 @@ body { margin: 0; background: var(--bg); color: var(--ink); font-family: "PingFa
 
 /* 视频每帧都要跑一遍 filter，所以只保留必要的 brightness。
    原来的 contrast + saturate 去掉，能明显减少每帧的 GPU 开销。 */
+/* 背景**底图**（静态）。它在 z-index 上比视频低一层（-11 对 -10），
+   所以视频一旦就位就把它整个盖住 —— 不需要任何条件判断，
+   也就没有"视频开关与底图不同步"这种能写错的地方。
+   【为什么连亮度滤镜都要一致（1.35）】这张图就是从那段视频里抽的一帧**原始像素**，
+   而视频那层有 `filter: brightness(1.35)`。不给同一个滤镜的话，关掉视频的瞬间
+   画面会明显变暗，看起来像"关掉之后坏了"，而不是"换成了一张静态背景"。 */
+.bg-poster { position: fixed; inset: 0; z-index: -11; pointer-events: none; background-position: center; background-size: cover; background-repeat: no-repeat; filter: brightness(1.35); }
 .bg-video { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: -10; pointer-events: none; filter: brightness(1.35); transform: translateZ(0); will-change: transform; }
 .bg-overlay { position: fixed; inset: 0; z-index: -9; pointer-events: none; background: rgba(6,12,26,.12); backdrop-filter: blur(0); }
 

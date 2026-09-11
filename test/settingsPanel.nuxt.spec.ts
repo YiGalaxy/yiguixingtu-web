@@ -174,6 +174,38 @@ describe('⚙ 站点设置面板', () => {
     expect(localStorage.getItem('bg-music-enabled')).toBeNull()
   })
 
+  it('⚠️ 关掉背景视频之后_should露出静态背景底图（而不是一片纯色）', async () => {
+    // 【用户报的需求】"动态视频停下后就相当于关了，可以在其关了之后用一张图片来作为背景"。
+    //   做法：常驻一个比视频**低一层**的底图（`.bg-poster`，z-index -11 对 -10）——
+    //   视频在时它被完全盖住，视频一关它就露出来。
+    //   【为什么不做成"关掉时才把它插进来"】那样就有两个状态要同步（开关 + 元素在不在），
+    //   多一处能写错的地方；常驻 + 分层的效果是"视频在与不在"只由一个开关决定。
+    const wrapper = await mountShell()
+    const poster = () => wrapper.find('.bg-poster')
+
+    // 视频开着时底图也在（这就是"常驻"的含义：它不参与那个开关）
+    expect(wrapper.find('video').exists()).toBe(true)
+    expect(poster().exists()).toBe(true)
+
+    await gearBtn(wrapper).trigger('click')
+    await flushPromises()
+    await switches(wrapper)[0].trigger('click')
+    await flushPromises()
+
+    // 视频没了，但底图还在 —— 这一条正是用户要的效果
+    expect(wrapper.find('video').exists()).toBe(false)
+    expect(poster().exists()).toBe(true)
+  })
+
+  it('静态背景底图_should指向 /media/ 下那张从视频里抽的帧', async () => {
+    // 地址只在 mediaUrl() 里拼一次（文件名登记在 MEDIA_FILES 里），所以这里断言最终值。
+    // 它和视频是同一段素材的两半（`bg-star.mp4` / `bg-star.jpg`）：必须一起传、一起换，
+    // 所以两者都走 /media/ 而不是打进构建产物。
+    const wrapper = await mountShell()
+    const style = wrapper.find('.bg-poster').attributes('style') || ''
+    expect(style).toContain('/media/bg-star.jpg')
+  })
+
   it('重新打开背景视频_should把 cookie 删掉（"没设置"就等于默认开）', async () => {
     const wrapper = await mountShell()
     await gearBtn(wrapper).trigger('click')
