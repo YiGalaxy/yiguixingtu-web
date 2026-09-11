@@ -136,34 +136,46 @@
     </main>
 
     <footer class="site-footer">
-      <!-- 【为什么站名/版权/备案号外面多包了一层 .foot-left】
-           页脚本来是"左边品牌 + 右边音乐开关"两栏（justify-content: space-between）。
-           直接往里塞第三个子元素会把它挤成三栏、品牌名跑到中间去。
-           包一层之后：左边是一个上下两行的块（品牌名 + 版权备案行），右边还是那个按钮，
-           而且两样都为空时这一块与改动前**逐像素一样**（少的那行根本不渲染）。 -->
-      <div class="foot-left">
+      <!-- 【页脚为什么是"上下两行"】
+           第一行是"左边品牌 + 右边音乐开关"，第二行是**通栏居中**的版权与备案信息。
+           备案的展示位置在国内站点的惯例是"最底部一行、居中"：它是一条独立的合规声明，
+           和品牌名挤在同一栏里会让人以为它是品牌的一部分。
+           所以外层用 flex-direction: column —— 第一行的两样东西仍然靠 space-between
+           分居两侧，第二行自己居中，两边互不影响。
+           ⚠️ 三项都为空时第二行**整行不渲染**（不是渲染一个空条），
+              这样"上线这个功能"本身不改变站点外观。 -->
+      <div class="foot-top">
         <div class="foot-brand">
           <span class="foot-mark">✦</span> {{ settings.siteName }}
         </div>
 
-        <!-- 版权与备案号：**各自留空则各自不渲染**（后端的 null 就是这个语义）。
-             ⚠️ 备案号链到工信部的备案查询页（ICP_LINK 写死）——
-             这是大陆备案的要求：页面底部要展示备案号并可查询，
-             所以它必须出现在服务端渲染出的 HTML 里（这也是这里用 useAsyncData 的原因）。 -->
-        <div v-if="settings.copyright || settings.icpNumber" class="foot-meta">
-          <span v-if="settings.copyright">{{ settings.copyright }}</span>
-          <a
-            v-if="settings.icpNumber" class="foot-icp"
-            :href="ICP_LINK" target="_blank" rel="noopener noreferrer">
-            {{ settings.icpNumber }}
-          </a>
-        </div>
+        <button class="music-toggle" :class="{ on: musicEnabled }" :aria-label="musicEnabled ? '关闭背景音乐' : '播放背景音乐'" @click="toggleMusic">
+          <span class="glyph">♫</span>
+          <span class="music-label">{{ musicEnabled ? '关闭背景音乐' : '播放背景音乐' }}</span>
+        </button>
       </div>
 
-      <button class="music-toggle" :class="{ on: musicEnabled }" :aria-label="musicEnabled ? '关闭背景音乐' : '播放背景音乐'" @click="toggleMusic">
-        <span class="glyph">♫</span>
-        <span class="music-label">{{ musicEnabled ? '关闭背景音乐' : '播放背景音乐' }}</span>
-      </button>
+      <!-- 版权与两类备案号：**各自留空则各自不渲染**（后端的 null 就是这个语义）。
+           ⚠️ 这两类备案都是大陆站点的**合规要求**，必须真的出现在服务端渲染出的 HTML 里
+              （这也是这里用 useAsyncData 的原因）：
+                · ICP 备案号     → 链到工信部的备案查询页（ICP_LINK 写死）
+                · 公安网安备案号 → 链到公安部平台的查询页，**前面还要带那张官方图标**；
+                  链接由 policeQueryUrl() 按号拼（它从号里取数字部分），
+                  图标走 /media/beian.png（和备案号一起换，所以不进构建产物） -->
+      <div v-if="footerMetaVisible" class="foot-meta">
+        <span v-if="settings.copyright">{{ settings.copyright }}</span>
+        <a
+          v-if="settings.icpNumber" class="foot-icp"
+          :href="ICP_LINK" target="_blank" rel="noopener noreferrer">
+          {{ settings.icpNumber }}
+        </a>
+        <a
+          v-if="settings.policeNumber" class="foot-police"
+          :href="policeQueryUrl(settings.policeNumber)" target="_blank" rel="noopener noreferrer">
+          <img class="foot-police-icon" :src="policeIconSrc" alt="公安网安备案" height="20" >
+          <span>{{ settings.policeNumber }}</span>
+        </a>
+      </div>
     </footer>
 
     <!-- ============ ⚙ 站点设置面板（右上角那个齿轮） ============
@@ -337,6 +349,11 @@ onMounted(() => music.loadPreference())
 // （useRuntimeConfig 也就会被反复读），而它是个常量，没必要参与响应式。
 // 文件名来自 MEDIA_FILES 常量表，前缀来自运行时配置，这里是唯一的拼接点。
 const bgVideoSrc = mediaUrl(MEDIA_FILES.backgroundVideo)
+
+// 【页脚那张公安备案图标的地址】同样在 setup 里算一次，理由与上面那条完全一样。
+// 它是"和备案号一起换"的文件（备案号变了图标也不会变，但两者永远一起改部署），
+// 所以登记在 MEDIA_FILES 里、走 /media/ 前缀，而不是打进构建产物。
+const policeIconSrc = mediaUrl(MEDIA_FILES.policeIcon)
 
 /**
  * 【音频地址：跟着当前曲目走】（2026-09-11 加曲目列表时改成 computed，
@@ -757,6 +774,17 @@ const { categories: navCategories } = useCategoryList()
 const { settings } = useSiteSettings()
 
 /**
+ * 页脚最底下那一行（版权 / ICP 备案号 / 公安备案号）**整行**要不要渲染。
+ *
+ * 【为什么不是模板里写 `copyright || icpNumber || policeNumber`】
+ *   这一行是"有一项就渲染整行、一项都没有就整行不存在"的结构，而"哪些项算有"
+ *   已经由归一化统一成了"非 null"。把三选一留在模板里的话，下一个加字段的人
+ *   （比如再添个"增值电信业务经营许可证号"）很容易只加了 `<a>` 忘了改那个 `||`——
+ *   表现是"后台填了但页脚不显示"，而且不报任何错。抽成函数之后新字段只进这一处。
+ */
+const footerMetaVisible = computed(() => hasFooterMeta(settings.value))
+
+/**
  * 「文章」这一项：**有分类就是下拉（子项 = 真分类），一个都没有就退化成指向首页的链接**。
  *
  * 【为什么有分类时子项指向 `/?categoryId=N` 而不是给每个分类做一个页面】
@@ -1094,14 +1122,27 @@ body { margin: 0; background: var(--bg); color: var(--ink); font-family: "PingFa
 
 .el-button--primary { --el-button-bg-color: var(--accent); --el-button-border-color: var(--accent); --el-button-hover-bg-color: var(--accent-strong); --el-button-hover-border-color: var(--accent-strong); --el-button-text-color: #0a1224; --el-button-hover-text-color: #0a1224; }
 
-.site-footer { position: relative; z-index: 1; margin-top: 40px; padding: 34px 32px 40px; border-top: 1px solid rgba(150,190,240,.10); display: flex; align-items: center; justify-content: space-between; gap: 16px; backdrop-filter: blur(16px); background: rgba(12,22,44,.32); }
-.foot-left { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+/* 【页脚为什么是纵向两行】见模板里那段注释：第一行是"品牌 + 音乐开关"（两侧分布），
+   第二行是通栏居中的版权与备案信息。这里 flex-direction: column 就是为了让第二行
+   不受第一行 space-between 的影响（否则三项会被当成第三栏、备案号跑到中间去）。 */
+.site-footer { position: relative; z-index: 1; margin-top: 40px; padding: 34px 32px 40px; border-top: 1px solid rgba(150,190,240,.10); display: flex; flex-direction: column; gap: 20px; backdrop-filter: blur(16px); background: rgba(12,22,44,.32); }
+.foot-top { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .foot-brand { display: flex; align-items: center; gap: 8px; font-weight: 700; color: var(--ink); letter-spacing: .5px; }
 .foot-mark { color: var(--accent); }
-/* 版权与备案号那一行：只在有内容时才渲染（两样都空时页脚与改动前完全一样） */
-.foot-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; color: var(--muted); font-size: 12px; }
+/* 版权与备案号那一行：通栏居中，只在有内容时才渲染（三样都空时页脚与改动前完全一样）。
+   ⚠️ justify-content: center 是这一行刻意与上面那行不同的地方 ——
+      备案信息是一条独立的合规声明，按国内站点惯例放在最底部居中，
+      而不是跟着品牌名靠左（那样看起来像品牌的一部分）。 */
+.foot-meta { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px 16px; color: var(--muted); font-size: 12px; }
 .foot-icp { color: var(--muted); text-decoration: none; transition: color .2s ease; }
 .foot-icp:hover { color: var(--accent); }
+/* 公安备案那一项：图标 + 备案号，两者是一个整体（间隔用 gap 5px，比上面那 16px 紧得多）。
+   【为什么图标要 display: block + height 固定】img 默认是 inline，会跟着基线留出下方空隙，
+   和文字并排时那一行会被撑高；给它固定高度（宽度 auto）既没有空隙，
+   也保证 36×40 的原图按比例缩到 20px 高，不会被拉变形。 */
+.foot-police { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); text-decoration: none; transition: color .2s ease; }
+.foot-police:hover { color: var(--accent); }
+.foot-police-icon { display: block; height: 20px; width: auto; }
 .music-toggle { display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 16px; border-radius: 999px; background: rgba(255,255,255,.06); border: 1px solid rgba(150,190,240,.16); color: var(--muted); cursor: pointer; backdrop-filter: blur(12px); transition: border-color .2s ease, color .2s ease, transform .2s ease; }
 .music-toggle:hover { border-color: var(--accent); color: var(--ink); transform: translateY(-1px); }
 .music-toggle.on { border-color: var(--accent); color: var(--accent); }

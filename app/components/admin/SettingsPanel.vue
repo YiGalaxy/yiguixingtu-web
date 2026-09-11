@@ -15,7 +15,7 @@
       首页公告   → 首页顶部那一条（留空则整块不渲染）
       评论总开关 → 文章页的评论区（关掉之后不再显示评论框）
       每页条数   → 首页文章瀑布流一次显示几篇
-      页脚两行   → 页脚的版权与备案号（各自留空则各自不渲染）
+      页脚那一行 → 页脚的版权、ICP 备案号与公安备案号（各自留空则各自不渲染）
 
     【字段上限 50 / 500 / 50 / 200 与 1~50】抄自后端 SettingForm 的 @Size / @Min / @Max
     （app/utils/siteSettings.ts 的 SETTING_LIMITS 是同一份数字，两边对照着看）。
@@ -90,6 +90,26 @@
       </span>
     </div>
 
+    <div class="af-row">
+      <span class="ed-label">公安备案号</span>
+      <el-input v-model="form.policeNumber" placeholder="比如：川公网安备51090002000169号（留空则不显示）" :maxlength="SETTING_LIMITS.policeNumber" />
+      <!-- 【为什么和 ICP 那一栏分开，而不是并成一栏】
+           它们是两个不同的备案体系（工信部发证 / 公安部发证），查询入口也完全不同：
+           ICP 是一个固定地址，公安那边要带上这个站的备案编号才能查到。
+           合成一栏的话，"其中一项留空"就没法表达了，而缺哪一项是很常见的中间状态。
+           【为什么这一栏不用填链接、也不用填号码里的数字部分】
+           页脚那边由 policeQueryUrl() 按号拼链接（它自己从号里取数字部分），
+           让站长再抄一遍数字只会多出"两个地方对不上"的可能。
+           【为什么这一栏没有"上传图标"】那张公安图标是平台给的固定图，
+           和备案号一起换，所以它放在 static-media/beian.png（随部署上传），
+           不在这里做上传 —— 它不属于"每个站不一样的内容"，而是"这类备案的固定标识"。
+           后端同样只卡长度、不校验格式，理由与上面 ICP 那一栏一模一样。 -->
+      <span class="af-hint">
+        填了就会出现在页脚最底部（前面带官方图标），并自动链接到<a :href="POLICE_LINK" target="_blank" rel="noopener noreferrer">公安部备案平台</a>的查询页；
+        只填号本身，链接里的编号由这个号自动取。
+      </span>
+    </div>
+
     <p class="st-foot">
       这些设置决定的是整站外壳（每一页都会读它），所以保存后前台会立刻跟着变 ——
       页眉的站名、页脚的版权与备案号、首页的公告，都不需要重新部署。
@@ -130,6 +150,7 @@ import {
   ICP_LINK,
   PAGE_SIZE_MAX,
   PAGE_SIZE_MIN,
+  POLICE_LINK,
   SETTING_LIMITS,
   normalizeSiteSettings,
 } from '~/utils/siteSettings'
@@ -150,7 +171,7 @@ const setNotice = (text, kind = 'info') => {
 
 /**
  * 表单。字段名与后端 SettingForm **逐字一致**
- * （siteName / announcement / commentEnabled / icpNumber / copyright / pageSize）——
+ * （siteName / announcement / commentEnabled / icpNumber / policeNumber / copyright / pageSize）——
  * 名字写错时后端拿不到值，而它不会报错，只会把那一栏存成空（最像"界面坏了"的一种失败）。
  *
  * 【为什么初值取自 DEFAULT_SITE_SETTINGS】那一行还没读回来时表单不该是空的
@@ -163,6 +184,7 @@ const form = reactive({
   announcement: '',
   commentEnabled: DEFAULT_SITE_SETTINGS.commentEnabled,
   icpNumber: '',
+  policeNumber: '',
   copyright: '',
   pageSize: DEFAULT_SITE_SETTINGS.pageSize,
 })
@@ -178,6 +200,7 @@ const fillForm = (data) => {
   form.announcement = s.announcement ?? ''
   form.commentEnabled = s.commentEnabled
   form.icpNumber = s.icpNumber ?? ''
+  form.policeNumber = s.policeNumber ?? ''
   form.copyright = s.copyright ?? ''
   form.pageSize = s.pageSize
   updatedAt.value = data?.updateTime ? formatDateTime(data.updateTime) : ''
@@ -237,6 +260,7 @@ const save = async () => {
         announcement: form.announcement,
         commentEnabled: form.commentEnabled,
         icpNumber: form.icpNumber,
+        policeNumber: form.policeNumber,
         copyright: form.copyright,
         pageSize: form.pageSize,
       },

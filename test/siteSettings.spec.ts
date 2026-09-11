@@ -5,9 +5,13 @@ import {
   ICP_LINK,
   PAGE_SIZE_MAX,
   PAGE_SIZE_MIN,
+  POLICE_LINK,
   SETTING_LIMITS,
+  hasFooterMeta,
   hasIcp,
+  hasPolice,
   normalizeSiteSettings,
+  policeQueryUrl,
 } from '~/utils/siteSettings'
 import { SITE_NAME } from '~/utils/seo'
 
@@ -34,6 +38,7 @@ describe('normalizeSiteSettings —— 形状永远完整', () => {
       announcement: '今晚维护',
       commentEnabled: false,
       icpNumber: '京ICP备12345678号-1',
+      policeNumber: '川公网安备 51090002000169号',
       copyright: '© 2026 某某',
       pageSize: 20,
     })
@@ -42,6 +47,7 @@ describe('normalizeSiteSettings —— 形状永远完整', () => {
       announcement: '今晚维护',
       commentEnabled: false,
       icpNumber: '京ICP备12345678号-1',
+      policeNumber: '川公网安备 51090002000169号',
       copyright: '© 2026 某某',
       pageSize: 20,
     })
@@ -79,9 +85,10 @@ describe('normalizeSiteSettings —— 形状永远完整', () => {
   })
 
   it('可选字段：空串 / 空白 → null（"没有"只有一种表示）', () => {
-    const s = normalizeSiteSettings({ announcement: '  ', icpNumber: '', copyright: '   ' })
+    const s = normalizeSiteSettings({ announcement: '  ', icpNumber: '', policeNumber: '   ', copyright: '   ' })
     expect(s.announcement).toBeNull()
     expect(s.icpNumber).toBeNull()
+    expect(s.policeNumber).toBeNull()
     expect(s.copyright).toBeNull()
     // 前端据此"整块不渲染"，而不是渲染一个空条
   })
@@ -125,12 +132,78 @@ describe('站点设置的常量', () => {
     expect(hasIcp(DEFAULT_SITE_SETTINGS)).toBe(false)
   })
 
-  it('表单长度上限与后端 DTO 的注解一致（50 / 500 / 50 / 200）', () => {
+  it('表单长度上限与后端 DTO 的注解一致（50 / 500 / 50 / 50 / 200）', () => {
     expect(SETTING_LIMITS).toEqual({
       siteName: 50,
       announcement: 500,
       icpNumber: 50,
+      policeNumber: 50,
       copyright: 200,
     })
+  })
+})
+
+// =====================================================================
+// 公安网安备案：链接怎么拼
+//
+// 【这一组守的是"备案号能不能点得对"】
+//   两类备案的链接规则完全不同：ICP 是一个固定地址（谁的号都链到同一个查询页），
+//   而公安备案的查询页要**带上这个站的备案编号**。编号又不是照着号码原样抄 ——
+//   备案号是「川公网安备 51090002000169号」，前面是省份简称、后面带个「号」字，
+//   平台要的参数只是中间那串数字。
+//   拼错的后果很隐蔽：页脚照样显示、链接照样能点，只是点开是……
+//   一个查不到东西的页面（或者干脆是平台首页）。所以这几条要钉住。
+// =====================================================================
+describe('公安备案的查询链接（policeQueryUrl）', () => {
+  it('从备案号里取数字部分拼进 code 参数', () => {
+    // 真实形态：省份简称 + 空格 + 数字 + 「号」
+    expect(policeQueryUrl('川公网安备 51090002000169号'))
+      .toBe('https://beian.mps.gov.cn/#/query/webSearch?code=51090002000169')
+    // 没有空格、或者站长自己多打了几个字符，结果必须一样（只认数字）
+    expect(policeQueryUrl('川公网安备51090002000169号'))
+      .toBe('https://beian.mps.gov.cn/#/query/webSearch?code=51090002000169')
+    expect(policeQueryUrl('  川公网安备 51090002000169号  '))
+      .toBe('https://beian.mps.gov.cn/#/query/webSearch?code=51090002000169')
+  })
+
+  it('号里一个数字都没有时，回落到平台首页（而不是拼出一个空 code 的死链）', () => {
+    // 合规要求是"页脚要能链到公安备案平台"，落到首页仍然满足这一点；
+    // 而 `?code=` 空参数的地址点开只有一片空白，比首页更糟
+    for (const raw of ['川公网安备号', 'abc', '', '   ']) {
+      expect(policeQueryUrl(raw)).toBe(POLICE_LINK)
+    }
+    // 传 null/undefined 也不能抛异常（归一化虽然会给 null，但这个函数是公开的纯函数）
+    expect(policeQueryUrl(null)).toBe(POLICE_LINK)
+    expect(policeQueryUrl(undefined)).toBe(POLICE_LINK)
+  })
+
+  it('两个备案体系的平台地址是【两个】常量，不能混用', () => {
+    // ICP → 工信部（固定地址）；公安 → 公安部平台（要带编号）。
+    // 它们长得像，但换错了就是"点开查不到这个站的备案"，而且页面上完全看不出来
+    expect(ICP_LINK).toBe('https://beian.miit.gov.cn/')
+    expect(POLICE_LINK).toBe('https://beian.mps.gov.cn/')
+    expect(policeQueryUrl('川公网安备 51090002000169号')).not.toContain('miit.gov.cn')
+  })
+})
+
+describe('页脚那一行该不该渲染（hasFooterMeta）', () => {
+  it('三项里有任何一项就渲染整行', () => {
+    expect(hasFooterMeta(normalizeSiteSettings({ copyright: '© 2026 某某' }))).toBe(true)
+    expect(hasFooterMeta(normalizeSiteSettings({ icpNumber: '京ICP备12345678号-1' }))).toBe(true)
+    expect(hasFooterMeta(normalizeSiteSettings({ policeNumber: '川公网安备 51090002000169号' }))).toBe(true)
+  })
+
+  it('三项都没有（含空串、空白）→ 整行不渲染', () => {
+    // 这一条是"上线这个功能不改变站点外观"的护栏：默认值下一个字都不该多出来
+    expect(hasFooterMeta(DEFAULT_SITE_SETTINGS)).toBe(false)
+    expect(hasFooterMeta(normalizeSiteSettings({ copyright: '  ', icpNumber: '', policeNumber: '   ' }))).toBe(false)
+  })
+
+  it('两类备案各自独立：填了公安备案号不代表 ICP 那项也算有', () => {
+    // 【为什么这条值得单写】页脚那一行是个"三项并列、各自 v-if"的结构，
+    // 很容易写成"有备案号就都显示"，于是没填 ICP 的站页脚会多出一个空链接
+    const onlyPolice = normalizeSiteSettings({ policeNumber: '川公网安备 51090002000169号' })
+    expect(hasPolice(onlyPolice)).toBe(true)
+    expect(hasIcp(onlyPolice)).toBe(false)
   })
 })

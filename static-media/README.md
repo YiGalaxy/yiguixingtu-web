@@ -11,6 +11,14 @@
 | `bg-star.mp4` | 全站背景视频 | `app/app.vue` 的 `<video>` |
 | `bg-music.mp3` | 背景音乐的音源 | `app/app.vue` 里**唯一**的那个 `<audio>`（2026-09-11 从首页卡片挪进外壳：页面会随路由卸载，放在卡片里等于"一离开首页音乐就断"，而且音乐页出现后会变成两个播放器抢同一首歌。首页卡片与音乐页现在都只是它的遥控器） |
 | `cover-1.png` | 唱片的**封面回落图**（音频里没有内嵌 ID3 封面时用它） | `app/pages/music.vue`，经 `MEDIA_FILES.musicCover` 取地址 |
+| `beian.png` | 页脚**公安网安备案**那一项前面的官方图标（蓝底警徽，36×40） | `app/app.vue` 的页脚，经 `MEDIA_FILES.policeIcon` 取地址 |
+
+> ⚠️ **`beian.png` 为什么也在这里，而不是 `public/`**：它和备案号是**一起换的**
+> （备案号是站点主体相关的信息，换主体/换域名时两者同时失效）。
+> 放进 `public/` 就等于"改一次备案展示就要重新构建并上传一次前端镜像"，
+> 而这台服务器构建前端很贵（见 `Dockerfile` 里那段内存上限的说明）。
+> 它只有 1.4 KB，放在这里既不占构建产物，也能和备案材料一起管理。
+> （本地开发时 `/media/` 由 Nitro 的开发路由提供，`.png` 已在扩展名白名单里，不需要额外改动。）
 
 > ⚠️ **`cover-1.png` 在 `public/` 里也有一份**（同名同内容，逐字节一致），
 > 那不是重复放错了：`public/` 那份是**文章卡片的封面兜底图**，它要跟着构建产物走
@@ -72,14 +80,17 @@ Nuxt 会把 `public/` 下的**所有**文件原样拷进 `.output/public`，
    ```bash
    # 在服务器上（或本机传到服务器）
    sudo mkdir -p /var/www/media
-   # 必需的三个（背景视频 + 背景音乐 + 唱片封面回落图）
-   sudo cp static-media/bg-star.mp4 static-media/bg-music.mp3 static-media/cover-1.png /var/www/media/
+   # 必需的四个（背景视频 + 背景音乐 + 唱片封面回落图 + 公安备案图标）
+   sudo cp static-media/bg-star.mp4 static-media/bg-music.mp3 static-media/cover-1.png static-media/beian.png /var/www/media/
    # 可选的一个（歌词）。**不放也不会报错**：歌词区显示「暂无歌词」，其余功能照常
    sudo cp static-media/bg-music.lrc /var/www/media/   # 有这个文件时才执行
    sudo chmod 644 /var/www/media/*
    ```
    ⚠️ `cp` 会把本目录的 `README.md` 也一起复制过去（`static-media/*` 通配）——
    无害但没必要，所以上面的命令是逐个点名而不是用 `*`。
+   ⚠️ **漏传 `beian.png` 的表现很隐蔽**：页脚那行备案信息照常显示、链接也能点，
+   只是图标位置是一个破图（浏览器的小裂图）。备案的合规要求是"备案号**与图标**一起展示"，
+   所以它算"必需的四个"之一。
 
 2. 在 Nginx 里把 `/media/` 这个前缀指到那个目录（**要放在反代到 Nuxt 的
    `location /` 之前，否则请求会被转发给 Node**）：

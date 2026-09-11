@@ -66,6 +66,16 @@ export const MEDIA_FILES = Object.freeze({
    *   （见音乐页的 .mp-cover-ph）。
    */
   musicCover: 'cover-1.png',
+  /**
+   * 公安网安备案的那张小图标（蓝底警徽，36×40）。
+   * 【为什么它也走 /media/ 而不是 public/】和前两个文件是同一条理由，
+   *   但这里还多一层：**它必须和备案号一起换**。备案号是站点主体相关的信息，
+   *   页脚那两项永远是一起改的；把图标放进构建产物，等于"改一次备案展示
+   *   就要重新构建并上传一次前端镜像"（这台服务器构建前端很贵）。
+   * 【它从哪来】备案通过后由公安部平台提供，本项目放在 static-media/beian.png，
+   *   部署时随 static-media/ 一起上传到 /var/www/media/（见 static-media/README.md）。
+   */
+  policeIcon: 'beian.png',
 })
 
 /**

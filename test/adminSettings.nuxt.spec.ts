@@ -39,6 +39,7 @@ const SETTINGS = {
   announcement: '今晚 22:00 例行维护',
   commentEnabled: true,
   icpNumber: '京ICP备12345678号-1',
+  policeNumber: '川公网安备 51090002000169号',
   copyright: '© 2026 亿轨星途',
   pageSize: 12,
   updateTime: '2026-09-11T16:00:00',
@@ -71,7 +72,7 @@ const mountPanel = async () => {
 const noticeOf = (w) => w.find('.st-notice')
 
 describe('设置面板 —— 读取与回显', () => {
-  it('挂载时读一次 GET /setting，并把六个字段都填进表单', async () => {
+  it('挂载时读一次 GET /setting，并把七个字段都填进表单', async () => {
     const w = await mountPanel()
 
     expect(callsTo('/setting')).toHaveLength(1)
@@ -80,6 +81,8 @@ describe('设置面板 —— 读取与回显', () => {
     const values = inputs.map(i => i.element.value)
     expect(values).toContain('亿轨星途')
     expect(values).toContain('京ICP备12345678号-1')
+    // 两类备案号是两个独立的输入框（它们是两个备案体系，不能合成一栏）
+    expect(values).toContain('川公网安备 51090002000169号')
     expect(values).toContain('© 2026 亿轨星途')
     // 公告是 textarea、每页条数是 el-input-number，值不在 input 的值列表里
     expect(w.find('textarea').element.value).toBe('今晚 22:00 例行维护')
@@ -114,6 +117,7 @@ describe('设置面板 —— 保存', () => {
       announcement: '今晚 22:00 例行维护',
       commentEnabled: true,          // ⚠️ 布尔，不是 0/1（库里存 0/1，接口层是布尔）
       icpNumber: '京ICP备12345678号-1',
+      policeNumber: '川公网安备 51090002000169号',
       copyright: '© 2026 亿轨星途',
       pageSize: 12,
     })
@@ -168,6 +172,19 @@ describe('设置面板 —— 备案号与页脚那一块', () => {
     const link = w.findAll('a').find(a => a.attributes('href')?.includes('beian.miit.gov.cn'))
     expect(link, '面板里应当说明"会自动链接到工信部备案系统"').toBeTruthy()
     // 外链一律带 target=_blank + rel=noopener（否则新开的页面能通过 window.opener 操作本页）
+    expect(link.attributes('target')).toBe('_blank')
+    expect(link.attributes('rel')).toContain('noopener')
+  })
+
+  it('公安备案号那一栏：说明里指向【公安部】平台，而不是工信部那个', async () => {
+    // 【为什么这条要单独钉】两类备案的平台地址长得像（beian.miit.gov.cn / beian.mps.gov.cn），
+    // 复制粘贴时最典型的错误就是把公安那一栏也写成工信部的地址 ——
+    // 表现是"链接能点、页面也在，只是查的是另一个体系的备案"，肉眼几乎发现不了
+    const w = await mountPanel()
+
+    const link = w.findAll('a').find(a => a.attributes('href')?.includes('beian.mps.gov.cn'))
+    expect(link, '公安备案号那一栏的说明里应当有指向公安部平台的链接').toBeTruthy()
+    expect(link.attributes('href')).not.toContain('miit.gov.cn')
     expect(link.attributes('target')).toBe('_blank')
     expect(link.attributes('rel')).toContain('noopener')
   })

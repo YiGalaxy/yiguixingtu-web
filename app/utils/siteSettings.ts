@@ -41,11 +41,41 @@ export const DEFAULT_PAGE_SIZE = 12
  */
 export const ICP_LINK = 'https://beian.miit.gov.cn/'
 
+/**
+ * 公安备案要链到的平台：公安部「全国互联网安全管理服务平台」。
+ *
+ * 【为什么和 ICP 那个常量分成两个，而不是共用一个"备案链接"】
+ *   它们是**两个不同的备案体系**，由不同机关发证、查询入口也完全不同：
+ *     · ICP 备案 → 工信部，一个固定的查询页，谁的号都链到同一个地址
+ *     · 公安网安备案 → 公安部平台，查询要**带上这个站的备案编号**
+ *   所以 ICP 只需要一个常量，公安这边还需要下面那个"按号拼地址"的函数。
+ */
+export const POLICE_LINK = 'https://beian.mps.gov.cn/'
+
+/**
+ * 由公安备案号拼出它的查询链接。
+ *
+ * 【为什么要从号里"抠出数字"】公安备案号是「川公网安备 51090002000169号」这种形态：
+ *   前面的省份简称与后面的「号」都只是给人看的，平台查询页要的参数是**中间那串数字**
+ *   （`#/query/webSearch?code=51090002000169`）。让站长再单独填一遍数字，
+ *   只会多出"两个字段对不上"的可能，所以这里从号里取数字部分。
+ *
+ * 【一个数字都没有时怎么办（比如站长手滑填了乱码）】
+ *   回落到平台首页，而不是拼出一个 `code=` 空参数的死链 ——
+ *   合规要求是"页脚要能链到公安备案平台"，落到平台首页仍然满足这一点，
+ *   而空 code 的地址点开只会是一片空白。
+ */
+export const policeQueryUrl = (policeNumber: string): string => {
+  const code = String(policeNumber ?? '').replace(/\D/g, '')
+  return code ? `${POLICE_LINK}#/query/webSearch?code=${code}` : POLICE_LINK
+}
+
 /** 表单里各字段的长度上限，与后端 DTO 的 @Size、数据库列长度三处一致 */
 export const SETTING_LIMITS = {
   siteName: 50,
   announcement: 500,
   icpNumber: 50,
+  policeNumber: 50,
   copyright: 200,
 } as const
 
@@ -59,6 +89,8 @@ export interface SiteSettings {
   commentEnabled: boolean
   /** ICP 备案号：null 表示页脚不显示备案信息 */
   icpNumber: string | null
+  /** 公安网安备案号：null 表示页脚不显示公安备案那一项（与 icpNumber 各自独立） */
+  policeNumber: string | null
   /** 页脚版权：null 表示页脚不显示版权行 */
   copyright: string | null
   /** 每页文章条数：永远在 1~50 之间 */
@@ -76,6 +108,7 @@ export const DEFAULT_SITE_SETTINGS: SiteSettings = {
   announcement: null,
   commentEnabled: true,
   icpNumber: null,
+  policeNumber: null,
   copyright: null,
   pageSize: DEFAULT_PAGE_SIZE,
 }
@@ -119,10 +152,27 @@ export const normalizeSiteSettings = (raw: unknown): SiteSettings => {
       ? src.commentEnabled
       : DEFAULT_SITE_SETTINGS.commentEnabled,
     icpNumber: text(src.icpNumber),
+    policeNumber: text(src.policeNumber),
     copyright: text(src.copyright),
     pageSize: toPageSize(src.pageSize),
   }
 }
 
-/** 备案信息是否该显示（页脚那一块要同时有号才有意义，见 AppFooter 的用法） */
+/** ICP 备案信息是否该显示（有号才显示，空串与 null 都算没有） */
 export const hasIcp = (settings: SiteSettings): boolean => settings.icpNumber !== null
+
+/** 公安网安备案信息是否该显示（与 ICP 各自独立：填了哪个显示哪个） */
+export const hasPolice = (settings: SiteSettings): boolean => settings.policeNumber !== null
+
+/**
+ * 页脚最底下那一行（版权 / ICP / 公安备案）**整行**该不该渲染。
+ *
+ * 【为什么要把"三选一"抽成函数，而不是在模板里写 `a || b || c`】
+ *   这一行是"有一项就渲染整行、一项都没有就整行不存在"的结构，
+ *   而"哪些项算有"这件事已经被归一化统一成了"非 null"。
+ *   把它写进模板的话，下一个加字段的人（比如再加个"增值电信业务经营许可证号"）
+ *   很容易只加 `<a>` 却忘了改那个 `||` —— 表现是"填了但不显示"，而且不报任何错。
+ *   抽成函数之后，新字段只要进这里一次，模板那边不用动。
+ */
+export const hasFooterMeta = (settings: SiteSettings): boolean =>
+  hasIcp(settings) || hasPolice(settings) || settings.copyright !== null
