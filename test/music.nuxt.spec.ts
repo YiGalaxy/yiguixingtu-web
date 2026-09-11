@@ -497,11 +497,11 @@ describe('音乐页 · 封面与控制条', () => {
     expect(audio.volume).toBeCloseTo(0.6)
   })
 
-  it('⚠️ 进度条「已播放」那一截要有颜色：轨道上的 --mp-played 跟着播放进度走', async () => {
+  it('⚠️ 进度条「已播放」那一截要有颜色：轨道上的 --mp-fill 跟着播放进度走', async () => {
     // 【钉的是用户报的那个 bug】"已经播放部分的进度条没有颜色"。
     //   根因：原生 `<input type="range">` 在 Chrome / Edge / Safari 下**没有"已播放"
     //   这个元素**（只有 Firefox 提供 `::-moz-range-progress`），所以只能在轨道底色上
-    //   按进度**硬切**一条渐变 —— 而那个分界点就是这里绑的 `--mp-played`。
+    //   按进度**硬切**一条渐变 —— 而那个分界点就是这里绑的 `--mp-fill`。
     //   它没绑上、或者绑成了 NaN / undefined，表现恰恰就是"滑块左右一个颜色"。
     //   ⚠️ 断言的是**内联样式里那个 CSS 变量**：happy-dom 不做布局、也不求值渐变，
     //   真正的视觉观感只能人工确认（和"唱片转不转"是同一条限制，如实写在这里）。
@@ -512,16 +512,66 @@ describe('音乐页 · 封面与控制条', () => {
     const range = () => wrapper.find('input[aria-label="播放进度"]')
 
     // 还没开始播：0%（不是 NaN、也不是 100% —— 时长未知时若给 100，整条轨道都会是"已播放"色）
-    expect(range().attributes('style')).toMatch(/--mp-played:\s*0%/)
+    expect(range().attributes('style')).toMatch(/--mp-fill:\s*0%/)
 
     await playTo(wrapper, 30)
-    expect(range().attributes('style')).toMatch(/--mp-played:\s*25%/)
+    expect(range().attributes('style')).toMatch(/--mp-fill:\s*25%/)
 
     await playTo(wrapper, 90)
-    expect(range().attributes('style')).toMatch(/--mp-played:\s*75%/)
+    expect(range().attributes('style')).toMatch(/--mp-fill:\s*75%/)
 
     await playTo(wrapper, 120)
-    expect(range().attributes('style')).toMatch(/--mp-played:\s*100%/)
+    expect(range().attributes('style')).toMatch(/--mp-fill:\s*100%/)
+  })
+
+  it('⚠️ 音量条也要有「已填充」的颜色：--mp-fill 跟着音量走（静音时归零）', async () => {
+    // 【为什么这条要单独钉】两条滑块共用一个类，而"颜色该画在哪儿"这件事第一版搞错了
+    //   （画在 `input` 自己的 `background` 上，被原生轨道的默认底色**整个盖住**），
+    //   表现就是**进度条和音量条一起没颜色** —— 用户两条都报了。
+    const wrapper = await mountPlayer()
+    const vol = () => wrapper.find('input[aria-label="音量"]')
+
+    // 音量默认 1 → 整条都是"已填充"色
+    expect(vol().attributes('style')).toMatch(/--mp-fill:\s*100%/)
+
+    const slider = wrapper.find('input[aria-label="音量"]')
+    slider.element.value = '0.4'
+    await slider.trigger('input')
+    await flushPromises()
+    // ⚠️ 这里是**取整**后的 40%：`0.4 * 100` 在 JS 里是 40.00000000000001，
+    //    直接拼进 CSS 会得到一个又长又丑的值（能跑，但不该这么写）
+    expect(vol().attributes('style')).toMatch(/--mp-fill:\s*40%/)
+
+    // 静音时那一截归零 —— 否则"静音了但条还是满的"看起来像没静音成功
+    await wrapper.find('.mp-vol-btn').trigger('click')
+    await flushPromises()
+    expect(vol().attributes('style')).toMatch(/--mp-fill:\s*0%/)
+  })
+
+  it('⚠️ 时长读到 NaN 的那一次_should保持上一个有效时长（否则进度条会自己跑到最右并锁死）', async () => {
+    // 【用户报的第三个症状】"几秒的时间里拉到了最后，然后就拖动不了了"。
+    //   浏览器在**音源切换 / 尚未就绪 / 加载失败**时会发一次 duration 为 NaN 的
+    //   `durationchange`（换歌、接口回来之后换 src、音频 404 都会触发）。
+    //   旧写法把它收成 0 ⇒ 进度条的 `max` 从 180 变成 1，而 `value`（当前秒数）
+    //   还是刚才那几秒 ⇒ **滑块被浏览器夹到最右端**；
+    //   同时 `:disabled="duration <= 0"` 把它置灰 ⇒ **拖不动了**。
+    //   三个症状（没颜色、跑到最右、拖不动）其实是同一处引发的。
+    const wrapper = await mountPlayer()
+    await defineDuration(wrapper, 180)
+    const range = () => wrapper.find('input[aria-label="播放进度"]')
+
+    expect(range().attributes('max')).toBe('180')
+    expect(range().attributes('disabled')).toBeUndefined()
+
+    await playTo(wrapper, 5)
+    expect(range().attributes('max')).toBe('180')
+
+    // 浏览器发来的那一次"读不到时长"
+    await defineDuration(wrapper, NaN)
+
+    // 必须**保持** 180：清零会让 max 变成 1、滑块被夹到最右、并且被 disabled 锁死
+    expect(range().attributes('max')).toBe('180')
+    expect(range().attributes('disabled')).toBeUndefined()
   })
 })
 

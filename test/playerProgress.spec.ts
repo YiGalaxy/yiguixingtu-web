@@ -25,7 +25,7 @@ describe('playedPercent —— 已播放百分比', () => {
 
   it('⚠️ 总时长还不知道时给 0（不是 NaN，也不是 100）', () => {
     // 【为什么这条最要紧】时长要等 loadedmetadata 才读得到；在那之前如果算出 NaN，
-    //   拼出来的是 `--mp-played: NaN%` → 整条 background 声明失效 →
+    //   拼出来的是 `--mp-fill: NaN%` → 整条 background 声明失效 →
     //   连"未播放"那截灰色轨道都一起没了（比原来的样子更糟）
     for (const total of [0, -1, NaN, Infinity, -Infinity, null, undefined, 'abc']) {
       expect(playedPercent(10, total)).toBe(0)

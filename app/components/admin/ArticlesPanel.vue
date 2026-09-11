@@ -34,8 +34,10 @@
   <!-- 表格 -->
   <div class="panel glass">
     <!-- 列宽合计 70+210+84+76+164+186 = 790px。
-         这个数字必须 ≤ 表格可用宽度（窄窗口下约 810px），
-         否则右侧 fixed 的「操作」列会压住「更新时间」—— 用户表那次的坑。 -->
+         这个数字只是"常见桌面宽度下一屏能看全"的经验值 ——
+         ⚠️ 它【不再】是硬约束：2026-09-11 去掉了「操作」列的固定列（fixed），
+         整张表改为一起横向滚动（滚动条常显），所以列再多、窗口再窄，
+         也不会出现"某一列压住相邻列"，最多是要横向拉一下。 -->
     <el-table
       ref="artTableRef" v-loading="loading" :data="articles"
       empty-text="还没有文章，点右上角「新建文章」开始写吧"
@@ -68,7 +70,7 @@
         <template #default="{ row }">{{ formatDateTime(row.updateTime) }}</template>
       </el-table-column>
 
-      <el-table-column label="操作" width="186" fixed="right">
+      <el-table-column label="操作" width="186">
         <template #default="{ row }">
           <el-button size="small" @click="editDialog?.openEdit(row)">编辑</el-button>
           <el-button

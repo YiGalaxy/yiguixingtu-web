@@ -64,7 +64,7 @@
            往后推（哪天文案变长又会折行）。flex-wrap: nowrap 是结构性的保证：
            这一行永远不折，列宽不够时由表格横向滚动，而不是把按钮挤到第二行。
            （两个动作放得下，所以不需要像评论管理那样把危险动作收进「更多」下拉。） -->
-      <el-table-column label="操作" width="160" fixed="right">
+      <el-table-column label="操作" width="160">
         <template #default="{ row }">
           <div class="fp-acts">
             <el-button size="small" @click="openEdit(row)">编辑</el-button>

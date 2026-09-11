@@ -33,10 +33,11 @@
           {{ row.articleCount ?? 0 }}
         </template>
       </el-table-column>
-      <!-- 固定列宽度只放一个「编辑」一个「删除」，170px 够；
-           列宽合计 90+130+170=390，加上名字那列的 min-width 也不会超过表格可用宽度，
-           右侧 fixed 的「操作」列不会压到别的列（用户表那次踩过的坑） -->
-      <el-table-column label="操作" width="170" fixed="right">
+      <!-- 操作列宽度只放一个「编辑」一个「删除」，170px 够；
+           列宽合计 90+130+170=390，很窄，常见宽度下一屏就能看全。
+           ⚠️ 2026-09-11 起这里【没有】固定列了：即使窗口更窄、需要横向滚动，
+           也只是整张表一起滚（滚动条常显），不会出现"某一列压住相邻列"。 -->
+      <el-table-column label="操作" width="170">
         <template #default="{ row }">
           <el-button size="small" @click="openTagEdit(row)">编辑</el-button>
           <el-button size="small" type="danger" @click="removeTag(row)">删除</el-button>

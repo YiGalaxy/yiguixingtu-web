@@ -37,9 +37,10 @@
       ref="tableRef" v-loading="loading" :data="users" empty-text="暂无用户数据"
       :default-sort="{ prop: 'createTime', order: 'descending' }"
       @sort-change="onSortChange">
-      <!-- 列宽合计必须 ≤ 表格可用宽度，否则 el-table 会横向溢出，
-           而右侧 fixed 的「操作」列会被钉在容器右边缘、压住「创建时间」。
-           当前合计：76+104+94+86+86+164+200 = 810px
+      <!-- 列宽合计 76+104+94+86+86+164+200 = 810px，常见桌面宽度下一屏能看全。
+           ⚠️ 它【不再】是硬约束：2026-09-11 去掉了「操作」列的固定列（fixed），
+           窗口更窄时整张表一起横向滚动（滚动条常显），
+           不会再有"压住创建时间"那种情况 —— 那一列现在和其它列长得一样。
            注：ID 列不能更窄了 —— 表头「ID」+ 排序箭头实测需要 39px，
            64px 的列只剩 1px 余量，换个缩放比例就可能被切掉，所以留到 76px。 -->
       <el-table-column prop="id" label="ID" width="76" sortable="custom" />
@@ -66,7 +67,7 @@
         <template #default="{ row }">{{ formatDateTime(row.createTime) }}</template>
       </el-table-column>
 
-      <el-table-column label="操作" width="200" fixed="right">
+      <el-table-column label="操作" width="200">
         <template #default="{ row }">
           <el-button size="small" :disabled="row.id === myId" @click="openEdit(row)">编辑</el-button>
           <el-button

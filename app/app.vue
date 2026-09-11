@@ -527,11 +527,27 @@ const onMusicTime = () => {
   reportMusic({ progress: percent })
 }
 
-/** 时长：只在"有限且为正"时采纳。读不出来就一直保持 0，界面显示 `--:--`（比显示 NaN 好） */
+/**
+ * 时长：只在"有限且为正"时采纳。
+ *
+ * ⚠️ 【读不到时**保持上一个有效值**，而不是清零 —— 这一条是用户报的
+ *    "进度条在几秒内自己跑到最右、然后拖不动了"的根因】
+ *   浏览器在**音源切换 / 尚未就绪 / 加载失败**时，会发一次 `duration` 为 `NaN`
+ *   的 `durationchange`（换歌、接口回来之后换 `src`、音频 404 都会触发）。
+ *   原来的写法把它收成 `0` ⇒ 进度条的 `max` 从 180 变成 1，
+ *   而 `value`（当前秒数）还是刚才那几秒 ⇒ **滑块被浏览器夹到最右端**；
+ *   同时音乐页那个 `:disabled="duration <= 0"` 把它置灰 ⇒ **"拖不动了"**。
+ *   三个症状（没颜色、跑到最右、拖不动）其实是同一处。
+ *
+ *   语义上"保持上一个有效值"也更准：`0` 的含义是"**这一首**还没读到时长"
+ *   （换歌时由下面那个 watch 显式清零），而不是"刚刚读了一次没读到"。
+ *   读不出来时显示 `--:--` 的诉求也没丢：初始值本来就是 0。
+ */
 const onMusicDuration = () => {
   const el = audioRef.value
   if (!el) return
-  musicDuration.value = Number.isFinite(el.duration) && el.duration > 0 ? el.duration : 0
+  const seconds = el.duration
+  if (Number.isFinite(seconds) && seconds > 0) musicDuration.value = seconds
 }
 
 // 真实事件回写共享状态：浏览器可能在别的地方把音频暂停/播放了

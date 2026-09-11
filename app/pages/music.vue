@@ -102,7 +102,7 @@
         <input
           class="mp-range"
           type="range"
-          :style="{ '--mp-played': played + '%' }"
+          :style="{ '--mp-fill': played + '%' }"
           min="0"
           :max="duration > 0 ? duration : 1"
           step="0.1"
@@ -122,6 +122,7 @@
         <input
           class="mp-range"
           type="range"
+          :style="{ '--mp-fill': Math.round((muted ? 0 : volume) * 100) + '%' }"
           min="0"
           max="1"
           step="0.01"
@@ -628,26 +629,38 @@ useSeoMetaFor(() => ({
 .mp-play:hover { filter: brightness(1.08); }
 .mp-seek { flex: 1; display: flex; align-items: center; gap: 12px; min-width: 220px; }
 .mp-time { min-width: 44px; text-align: center; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
-/* 进度条轨道：左侧（**已播放**）金→青渐变，右侧（未播放）是原来的浅灰。
-   【为什么要自己画"已播放"这一截】原生 `<input type="range">` 在 Chrome / Edge /
-     Safari 下**没有"已播放部分"这个元素**（只有 Firefox 有 `::-moz-range-progress`），
-     不画的话滑块左右两边一模一样 —— 拖得动，但看不出播到哪儿了（用户报的就是这个）。
-   【怎么画的】在轨道底色上按进度**硬切**一条渐变：`--mp-played` 由 music.vue
-     按当前进度写进来（值的算法见 app/utils/playerProgress.ts）。
-     渐变里同一位置给两个颜色 = 硬边（没有过渡），这正是进度条要的分界线。
-   【⚠️ 那个 var() 的兜底值 0% 不能省】万一样式变量没绑上，整条 background 会失效，
-     轨道直接变成透明 —— 连"未播放"的底色都没了。给个 0% 兜底，最差也是"全灰轨道"。 */
-.mp-range { flex: 1; height: 6px; border-radius: 999px; appearance: none; -webkit-appearance: none; outline: none;
+/* 两条滑块（播放进度 + 音量）共用的外观。左侧（**已填充**）金→青渐变，右侧是浅灰。
+   【为什么要自己画"已填充"这一截】原生 `<input type="range">` 在 Chrome / Edge /
+     Safari 下**没有"已填充部分"这个元素**（只有 Firefox 有 `::-moz-range-progress`），
+     不画的话滑块左右两边一模一样 —— 拖得动，但看不出播到哪儿了 / 音量到多少。
+   【怎么画的】在轨道上按比例**硬切**一条渐变（同一位置给两个颜色 = 硬边，没有过渡，
+     这正是要的分界线）。那个百分比由模板按各自的语义写进 `--mp-fill`：
+       · 播放进度条 → 已播放百分比（算法见 app/utils/playerProgress.ts）
+       · 音量条     → 当前音量百分比（静音时是 0）
+   【⚠️ 关键：颜色必须画在 ::-webkit-slider-runnable-track 上】
+     这是第一版写错的地方 —— 把渐变写在 `input` 自己的 `background` 上，
+     在 Chrome/Edge/Safari 下**一点颜色都看不到**：原生 range 的轨道是
+     `::-webkit-slider-runnable-track` 这个伪元素画的，它自带默认底色，
+     会把 input 的 background **整个盖住**。
+     用户报的"进度条没有颜色"**和**"音量条也没有颜色"是同一个原因。
+     下面 input 上那层浅灰底不是装饰，是**兜底**：万一伪元素规则没生效，
+     至少还是一条灰轨道，而不是完全看不见。
+   【⚠️ var() 的兜底 0% 不能省】变量没绑上时整条 background 会失效；
+     给 0% 兜底，最差也是"整条都是未填充色"，不会出现透明轨道。 */
+.mp-range { flex: 1; height: 6px; border-radius: 999px; background: rgba(255, 255, 255, .12); appearance: none; -webkit-appearance: none; outline: none; }
+.mp-range::-webkit-slider-runnable-track {
+  border-radius: 999px;
   background: linear-gradient(90deg,
     var(--accent) 0,
-    var(--cyan) var(--mp-played, 0%),
-    rgba(255, 255, 255, .12) var(--mp-played, 0%),
-    rgba(255, 255, 255, .12) 100%); }
-/* Firefox：它有原生的"已播放"伪元素，用它比渐变更准（也不必读 --mp-played）。
-   ⚠️ 这两条要成对写：只写 progress、不写 track 的话，轨道会**露出上面那条渐变**，
-   于是"已播放"被画两遍、颜色叠得更深。 */
-.mp-range::-moz-range-track { height: 6px; border-radius: 999px; background: rgba(255, 255, 255, .12); }
-.mp-range::-moz-range-progress { height: 6px; border-radius: 999px; background: linear-gradient(90deg, var(--accent), var(--cyan)); }
+    var(--cyan) var(--mp-fill, 0%),
+    rgba(255, 255, 255, .12) var(--mp-fill, 0%),
+    rgba(255, 255, 255, .12) 100%);
+}
+/* Firefox：它有原生的"已填充"伪元素，用它比渐变更准（也不必读 --mp-fill）。
+   ⚠️ 这两条要成对写：只写 progress、不写 track 的话，轨道会露出默认底色，
+   于是"已填充"被画两遍、颜色叠得更深。 */
+.mp-range::-moz-range-track { border-radius: 999px; background: rgba(255, 255, 255, .12); }
+.mp-range::-moz-range-progress { border-radius: 999px; background: linear-gradient(90deg, var(--accent), var(--cyan)); }
 /* 滑块的圆点：Chrome/Safari 走 -webkit- 伪元素，Firefox 走 -moz- 那条 */
 .mp-range::-webkit-slider-thumb {
   -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%;

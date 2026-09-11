@@ -64,7 +64,7 @@
       </el-table-column>
       <!-- 操作列 flex + nowrap：按钮永远排一行，列宽不够时由表格横向滚动
            （理由同收藏管理：靠调大列宽只是把折行问题往后推） -->
-      <el-table-column label="操作" width="160" fixed="right">
+      <el-table-column label="操作" width="160">
         <template #default="{ row }">
           <div class="mp-acts">
             <el-button size="small" @click="openEdit(row)">编辑</el-button>
