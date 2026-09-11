@@ -513,6 +513,14 @@ let lastProgressValue = 0
 const onMusicTime = () => {
   const el = audioRef.value
   if (!el) return
+  // 【兜底再读一次时长 —— 不依赖事件】
+  //   某些浏览器/某些时刻 `loadedmetadata` 与 `durationchange` 给出来的 duration 是
+  //   NaN 或 Infinity（首次访问、还没缓冲够时很常见），而这两个事件**不一定再来一次**
+  //   ⇒ 时长就一直是 0 ⇒ 音乐页那个进度条的 max 变成 1、滑块被夹到最右并且被禁用
+  //   （用户报的"进度条迅速跳完、然后拖不动"）。
+  //   `timeupdate` 每 250ms 就来一次，用它兜底最省事，而且不会漏 ——
+  //   一旦读到有效值就不再重复读（`musicDuration.value <= 0` 这个判断就是干这个的）。
+  if (musicDuration.value <= 0) onMusicDuration()
   // 秒数写的是**本地 ref**（只有音乐页在读），不必节流；
   // 共享状态里的百分比才需要（见上面那段）
   if (Number.isFinite(el.currentTime)) musicCurrent.value = el.currentTime

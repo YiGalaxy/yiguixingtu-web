@@ -573,6 +573,46 @@ describe('音乐页 · 封面与控制条', () => {
     expect(range().attributes('max')).toBe('180')
     expect(range().attributes('disabled')).toBeUndefined()
   })
+
+  it('⚠️ 时长还没读出来时_should显示「未知」而不是把滑块顶到最右（"迅速跳完+拖不动"的根因）', async () => {
+    // 【用户报的现象】第一次打开网站 → 进音乐页 → 点播放 → 进度条几秒内跳完、然后拖不动。
+    //   机制：时长还没读出来时，进度条的 `max` 退化成兜底值 **1**，而 `value` 绑的是当前秒数
+    //   —— 播放一秒后 value 就超过 max ⇒ 浏览器**把滑块夹到最右端**；
+    //   同时 `:disabled="duration <= 0"` 又把它置灰 ⇒ 表现就是"跳完了、而且拖不动"。
+    //   ⇒ 修法：时长未知时把 value 也一起收成 0，让它老老实实待在左边。
+    const wrapper = await mountPlayer()
+    const range = () => wrapper.find('input[aria-label="播放进度"]')
+
+    // happy-dom 里 el.duration 是 NaN ⇒ 页面读到的时长是 0（= 还不知道）
+    expect(range().attributes('disabled')).toBeDefined()
+
+    await playTo(wrapper, 5)   // 播放推进到第 5 秒
+    // ★ 关键两条：位置必须还是 0、填充也必须是 0 —— 而不是被顶到最右并"填满"
+    expect(range().attributes('value')).toBe('0')
+    expect(range().attributes('max')).toBe('1')
+    expect(range().attributes('style')).toMatch(/--mp-fill:\s*0%/)
+  })
+
+  it('★ 时长晚一点才读出来_should自己补上并且恢复可拖动（不依赖那两个事件）', async () => {
+    // 【为什么这条最要紧】`loadedmetadata` / `durationchange` 在某些时刻给出的是 NaN 或
+    //   Infinity（首次访问、还没缓冲够时很常见），而且**不一定再来一次** ——
+    //   只靠事件的话进度条会永远停在"未知"、永远拖不动。
+    //   所以 timeupdate（每 250ms 一次）里加了一次兜底补读。
+    const wrapper = await mountPlayer()
+    const range = () => wrapper.find('input[aria-label="播放进度"]')
+
+    await playTo(wrapper, 3)
+    expect(range().attributes('max')).toBe('1')       // 还没读到 ⇒ 未知状态
+
+    // 【故意不触发 durationchange / loadedmetadata】只把属性值挂上去，
+    // 模拟"事件错过、或者当时给的是 NaN"那种情况
+    Object.defineProperty(audioEl(wrapper), 'duration', { value: 120, configurable: true })
+    await playTo(wrapper, 3)                          // 下一次 timeupdate 顺手补上
+
+    expect(range().attributes('max')).toBe('120')     // ★ 补上了
+    expect(range().attributes('value')).toBe('3')     // ★ 位置也跟上了（不再固定在 0）
+    expect(range().attributes('disabled')).toBeUndefined()
+  })
 })
 
 describe('外壳里的播放器 · 状态回写', () => {

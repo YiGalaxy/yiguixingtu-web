@@ -104,9 +104,9 @@
           type="range"
           :style="{ '--mp-fill': played + '%' }"
           min="0"
-          :max="duration > 0 ? duration : 1"
+          :max="sliderMax"
           step="0.1"
-          :value="seekValue"
+          :value="sliderValue"
           :disabled="duration <= 0"
           aria-label="播放进度"
           @input="onSeekInput"
@@ -529,12 +529,48 @@ const onSeekCommit = () => {
  * （理由见上面那段）。进度条的颜色必须跟着手指一起走，否则会出现
  * "滑块已经拖到 2/3 了、左边那一截还停在原处"这种割裂感。
  *
+ * ⚠️ 【为什么时长未知时必须返回 0】见下面 sliderMax / sliderValue 那段 ——
+ *   时长未知时 max 会退化成 1，如果这里还照算，进度条会"瞬间填满"，
+ *   看起来像"这首歌播完了"（用户报的正是这个现象）。
+ *
  * ⚠️ 【为什么得自己算这个值 —— 这就是用户报的那个 bug 的根因】
  *   原生 `<input type="range">` 在 Chrome / Edge / Safari 下**没有"已播放部分"
  *   这个元素**（只有 Firefox 提供 `::-moz-range-progress`）。不自己画的话，
  *   滑块左右两边是同一个颜色：拖得动、但看不出播到哪儿了。
  */
-const played = computed(() => playedPercent(seekValue.value, duration.value))
+const played = computed(() => (duration.value > 0 ? playedPercent(seekValue.value, duration.value) : 0))
+
+/**
+ * 进度条的最大值。
+ *
+ * ⚠️ 【它永远不能小于当前值】这是"进度条迅速跳完、然后拖不动"的根因所在：
+ *   时长还没读出来时 `max` 用的是兜底值 **1**，而 `value`（当前秒数）一秒后就超过 1
+ *   ⇒ 浏览器**把滑块夹到最右端**，同时 `:disabled="duration <= 0"` 又把它置灰 ⇒
+ *   看起来就是"跳完了、而且拖不动"。
+ *   ⇒ 所以时长未知时，把 value 也一起收成 0（见 sliderValue），让它老老实实待在左边。
+ */
+const sliderMax = computed(() => (duration.value > 0 ? duration.value : 1))
+
+/**
+ * 进度条显示的位置：时长未知时一律**显示 0**。
+ * 【为什么不是"照实显示当前秒数"】那正是上面那个 bug：一个 max=1 的滑块里塞 3.2 秒，
+ *   浏览器只能把它画到最右端。宁可显示"还不知道进度"（0 + 灰色 + 禁用），
+ *   也不要显示一个"已经播完"的假状态。
+ */
+const sliderValue = computed(() => (duration.value > 0 ? Math.min(seekValue.value, duration.value) : 0))
+
+/**
+ * 进度条被禁用时，把"正在拖动"这个标记清掉。
+ *
+ * ⚠️ 【为什么必须清】拖动过程中一旦时长掉到 0（换歌会把时长清零、元数据也可能读不到），
+ *   那个 input 会变成 disabled ⇒ **`change` 事件在禁用元素上不会再触发** ⇒
+ *   `draggingSeek` 永远停在 true ⇒ `watch(currentTime)` 从此不再回写 `seekValue`
+ *   ⇒ 之后即使时长恢复了，进度条也**再也拖不动**（用户报的后半句）。
+ *   这是"状态标记只能由一个事件翻转"的经典坑，所以这里补一条兜底把它放掉。
+ */
+watch(duration, (value) => {
+  if (value <= 0) draggingSeek.value = false
+})
 
 const onVolumeInput = (event) => {
   const value = Number(event?.target?.value)
