@@ -661,9 +661,13 @@ describe('外壳里的播放器 · 状态回写', () => {
 
     expect(music.playing.value).toBe(false)
     expect(music.progress.value).toBe(0)
-    // 停下**不代表"想听"的意图变了**：`enabled` 仍然是 true ——
-    // 用户再点一下就能从这一首重新开始（页脚那个开关也仍写着"关闭背景音乐"）
-    expect(music.enabled.value).toBe(true)
+    // 【开关也一起关掉，理由见 app.vue 的 onMusicEnded】一轮播完 = 播放会话结束：
+    //   界面（▶）、状态（playing=false）、开关（enabled=false）三处必须一致，
+    //   否则用户点 ▶ 走的是 toggle —— 等于把开关关掉，屏幕上什么都不发生（要点两下）。
+    //   这一条是**在真实浏览器里发现的**，单测原先断言的是反过来的行为。
+    expect(music.enabled.value).toBe(false)
+    // 并且回到第一首：下次按播放从头放整张列表，而不是"又放一遍最后一首、放完立刻又停"
+    expect(music.trackIndex.value).toBe(0)
   })
 })
 

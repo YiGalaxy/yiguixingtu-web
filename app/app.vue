@@ -588,9 +588,19 @@ watch([musicMode, () => musicTracks.value.length], () => { shuffleBag = [] })
  *   去掉 `loop` 之后它就是"自动下一首"的全部实现。
  *
  * 【四种结果，逐个说清】
- *   · `index === null`      → 顺序播放放到了最后一首：**停下**。
- *     这里**只改状态、不动元素**：元素自己已经播完了，
- *     界面回到 ▶、进度归零，用户再点一下就从当前这首重新开始。
+ *   · `index === null`      → 顺序播放放到了最后一首：**停下**，
+ *     并且要把"这一轮播放"收拾成**下次点一下就能重新开始**的样子：
+ *       ① `setEnabled(false)`：把开关也关掉。
+ *          ⚠️ 这一条是**在真实浏览器里发现必须加的**：原来只把 `playing` 置 false、
+ *          `enabled` 留着 true，于是界面上按钮显示 ▶（没在响）而共享状态说"想听" ——
+ *          用户点 ▶ 走的是 `toggle`，等于**把开关关掉**，屏幕上什么都不会发生
+ *          （"点了没反应"），得再点一次才响。全站四个入口（页脚 ♣、⚙ 面板、
+ *          首页卡片、音乐页按钮）都是同一个坑。
+ *       ② `setTrack(0)` + `currentTime = 0`：**回到第一首**再停。
+ *          这样下次按播放是从头开始放整张列表，而不是"又放一遍最后一首、
+ *          放完立刻又停"（真实播放器也是这个行为）。
+ *          顺序不能反：先关开关再换歌 —— 反过来的话，换歌那一刻 `enabled` 还是 true，
+ *          上面那个 watch 会**立刻把第一首放起来**，白白响一下。
  *   · `index === 当前行号`  → 单曲循环（或者随机播放里只有一首歌）：
  *     把这一首从头再放。⚠️ 不能走 `setTrack` —— 下标没变它什么都不做，
  *     表现就是"单曲循环放完一首就哑了"。
@@ -612,7 +622,16 @@ const onMusicEnded = async () => {
   })
   shuffleBag = bag
 
-  if (!el || index == null) return
+  if (!el) return
+
+  // 顺序播放放完了整张列表：收干净（见上面 ① ② 的顺序说明）
+  if (index == null) {
+    music.setEnabled(false)
+    el.currentTime = 0
+    musicCurrent.value = 0
+    music.setTrack(0)
+    return
+  }
 
   if (index === musicActiveIndex.value) {
     // 这一首从头再放：位置归零、立刻接着播（等 watch 是等不到的，下标没变）

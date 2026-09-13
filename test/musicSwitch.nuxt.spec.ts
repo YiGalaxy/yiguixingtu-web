@@ -495,7 +495,7 @@ describe('播放模式 · 放完一首之后自动切', () => {
     expect(wrapper.find('.mp-title').text()).toBe('第二首')
   })
 
-  it('顺序播放_最后一首放完 should 停下（不循环回第一首 —— 那是另一个模式）', async () => {
+  it('顺序播放_最后一首放完 should 停下，并收拾成"再点一下就能重新开始"的样子', async () => {
     const wrapper = await mountPlayer()
     const music = useBackgroundMusic()
     await rows(wrapper)[2].trigger('click')               // 直接听最后一首
@@ -506,11 +506,27 @@ describe('播放模式 · 放完一首之后自动切', () => {
 
     expect(music.playing.value).toBe(false)
     expect(music.progress.value).toBe(0)
-    // 音源**没换**、位置**留在最后一首** —— 用户再点一下就从这一首重新开始，
-    // 而不是莫名其妙被送回第一首
-    expect(srcOf(wrapper)).toBe(API_TRACKS[2].url)
-    expect(music.trackIndex.value).toBe(2)
     expect(wrapper.find('.mp-play').text()).toBe('▶')
+
+    // ⚠️ 下面这两条是**在真实浏览器里发现必须补的**（真机验证脚本见提交说明，
+    //    起因是"停在最后一首"之后点 ▶ 什么都不发生）：
+    //   ① 开关也要一起关掉。否则按钮显示 ▶（没在响）而共享状态说"想听"，
+    //      而 ▶ 走的是 toggle —— 点下去等于**把开关关掉**，屏幕上没有任何反应，
+    //      用户得点第二下才响。全站四个入口都是同一个坑。
+    expect(music.enabled.value).toBe(false)
+
+    //   ② 回到第一首：下次按播放是**从头放整张列表**，
+    //      而不是"又放一遍最后一首、放完立刻又停"（真实播放器也是这个行为）
+    expect(music.trackIndex.value).toBe(0)
+    expect(srcOf(wrapper)).toBe(API_TRACKS[0].url)
+
+    // 于是"停下之后点一下"这条最自然的下一步真的能用（不是点了没反应）
+    await startPlaying(wrapper)
+    expect(music.playing.value).toBe(true)
+    expect(music.enabled.value).toBe(true)
+    expect(srcOf(wrapper)).toBe(API_TRACKS[0].url)
+    expect(audioEl(wrapper).currentTime).toBe(0)
+    expect(wrapper.find('.mp-play').text()).toBe('❚❚')
   })
 
   it('单曲循环（点按钮切到这一档）_放完 should 把这一首从头再放，不换音源', async () => {

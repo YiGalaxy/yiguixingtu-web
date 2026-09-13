@@ -250,11 +250,14 @@ describe('背景音乐 · 播放器住在外壳里', () => {
     // 卡片上的按钮显示的是"真的在响"，所以它回到 ▶
     expect(home.find('.mu-ctl .play').text()).toBe('▶')
 
-    // 而 `enabled`（用户想不想听）**没有变** —— ended 只说明"这一次放完了"，
-    // 没有改变用户的意图。所以页脚那个开关仍然写着"关闭背景音乐"。
-    // （这两个变量是刻意分开的：`enabled` = 想听，`playing` = 真的在响。）
-    expect(music.enabled.value).toBe(true)
-    expect(shell.find('.music-toggle').text()).toContain('关闭背景音乐')
+    // ⚠️ 【2026-09-13 这条的期望值反转了，理由在 app.vue 的 onMusicEnded 里】
+    //   原来这里断言 `enabled` 保持 true（"ended 只说明这次放完了，没改变用户意图"）。
+    //   真机验证时发现那样会让界面自相矛盾：按钮显示 ▶（没在响）而状态说"想听"，
+    //   于是用户点 ▶ 走的是 toggle —— 等于**把开关关掉**，屏幕上什么都不发生（要点两下）。
+    //   所以"一轮播完停下"现在会把开关一起关掉：界面、状态、页脚标签三处一致，
+    //   再点一下就能重新开始。
+    expect(music.enabled.value).toBe(false)
+    expect(shell.find('.music-toggle').text()).toContain('播放背景音乐')
   })
 })
 
