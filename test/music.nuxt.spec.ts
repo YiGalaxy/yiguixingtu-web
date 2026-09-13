@@ -657,7 +657,12 @@ describe('外壳里的播放器 · 状态回写', () => {
     music.progress.value = 42
 
     await wrapper.find('audio').trigger('ended')
-    await flushPromises()
+    // 等干净：`ended` 的处理函数是 async 的（里面 await play()），换音源那一步
+    // 自己还要等一次 nextTick —— 一次 flushPromises 不一定覆盖到最外层
+    for (let i = 0; i < 4; i++) {
+      await flushPromises()
+      await nextTick()
+    }
 
     expect(music.playing.value).toBe(false)
     expect(music.progress.value).toBe(0)

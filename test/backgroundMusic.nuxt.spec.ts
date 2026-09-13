@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
-import { ref } from 'vue'
+import { ref, nextTick } from 'vue'
 import { mockNuxtImport, mountSuspended } from '@nuxt/test-utils/runtime'
 import { flushPromises, enableAutoUnmount } from '@vue/test-utils'
 import AppShell from '~/app.vue'
@@ -243,7 +243,12 @@ describe('背景音乐 · 播放器住在外壳里', () => {
     music.progress.value = 42
 
     await shell.find('audio').trigger('ended')
-    await flushPromises()
+    // 等干净：`ended` 的处理函数是 async 的（里面 await play()），
+    // 而"换音源"那一步还要等一次 nextTick —— 一次 flushPromises 不一定覆盖到最外层
+    for (let i = 0; i < 4; i++) {
+      await flushPromises()
+      await nextTick()
+    }
 
     expect(music.playing.value).toBe(false)
     expect(music.progress.value).toBe(0)

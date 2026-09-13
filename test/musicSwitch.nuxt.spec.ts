@@ -465,16 +465,31 @@ describe('播放模式 · 放完一首之后自动切', () => {
   const modeBtn = (wrapper) => wrapper.find('.mp-mode')
   const srcOf = (wrapper) => wrapper.find('audio').attributes('src')
 
+  /**
+   * 把"点一下 → 事件 → async 处理 → watch → nextTick → play()"这一整串异步等干净。
+   *
+   * ⚠️ 【为什么不是只 `await flushPromises()` 一次】`ended` 的处理函数是 **async** 的
+   *   （里面 `await el.play()`），而"换音源"那一步自己还要等一次 `nextTick`
+   *   才把 `:src` 真的写进元素 —— 一次 flush 不一定覆盖到最外层。
+   *   本地跑十次都不红、CI 上偶发红，就是这类"等得不够"的典型症状。
+   */
+  const settle = async () => {
+    for (let i = 0; i < 4; i++) {
+      await flushPromises()
+      await nextTick()
+    }
+  }
+
   /** 开始播放（点了才会走"自动下一首"这条路：`enabled` 为真才真的 play） */
   const startPlaying = async (wrapper) => {
     await wrapper.find('.mp-play').trigger('click')
-    await flushPromises()
+    await settle()
   }
 
   /** 一首放完了 */
   const finishTrack = async (wrapper) => {
     await wrapper.find('audio').trigger('ended')
-    await flushPromises()
+    await settle()
   }
 
   it('顺序播放_放完一首 should 自动切到下一首，并接着播（不是切成暂停）', async () => {
@@ -596,7 +611,7 @@ describe('播放模式 · 放完一首之后自动切', () => {
     await startPlaying(wrapper)
 
     music.mode.value = 'repeat-one'      // 用户听完一半决定单曲循环
-    await flushPromises()
+    await settle()
     await finishTrack(wrapper)
 
     expect(srcOf(wrapper)).toBe(API_TRACKS[0].url)
