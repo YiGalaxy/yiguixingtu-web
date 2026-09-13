@@ -11,6 +11,36 @@ export default defineNuxtConfig({
   modules: ['@nuxt/eslint', '@element-plus/nuxt'],
 
   /**
+   * 【站点图标（2026-09-12 换掉）】
+   *
+   * 改之前：public/ 里那张 favicon.ico 是 Nuxt 脚手架自带的框架 logo
+   *   （绿色双峰 + Nuxt 品牌绿 #00DC82），而且 head 里**一条 link 都没有** ——
+   *   浏览器是靠自己"猜" /favicon.ico 才显示出来的。于是深蓝+金色的站点
+   *   顶着别人家的绿色 logo，标签页上非常出戏（用户就是这么报的）。
+   *
+   * 现在：图标是按本站主题画的（金色四角星 + 青色轨道环，配色直接取
+   *   --accent #f2c14e / --cyan #59d6e6 / --bg #0e1a36），生成脚本在
+   *   scripts/generate-icons.py（要调图形改那个脚本重跑，别手改二进制）。
+   *
+   * 【为什么是同一条 rel="icon" 写两遍（svg 在前、ico 在后）】
+   *   浏览器按顺序挑**第一个它认识的**：认识 SVG 的（Chrome/Edge/Firefox/Safari 现代版）
+   *   拿矢量图，怎么缩放都清晰；剩下的一律回落到 .ico。
+   *   两条都写、且 svg 在前，是"新浏览器拿最好的一份、老浏览器也不至于没图标"的标准写法。
+   *   apple-touch-icon 是另一回事：iOS 加书签/桌面时**只认它**，且不认 SVG。
+   */
+  app: {
+    head: {
+      // 移动端浏览器地址栏/状态栏跟着站点底色走（深蓝），不然是一片突兀的白
+      meta: [{ name: 'theme-color', content: '#0e1a36' }],
+      link: [
+        { rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' },
+        { rel: 'icon', type: 'image/x-icon', href: '/favicon.ico' },
+        { rel: 'apple-touch-icon', sizes: '180x180', href: '/apple-touch-icon.png' },
+      ],
+    },
+  },
+
+  /**
    * 【Element Plus 的按需引入配置】
    *
    * 改之前：app/plugins/element-plus.ts 里 `app.use(ElementPlus)` 全量注册，
