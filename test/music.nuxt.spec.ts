@@ -6,6 +6,9 @@ import AppShell from '~/app.vue'
 import MusicPage from '~/pages/music.vue'
 import IndexPage from '~/pages/index.vue'
 import { useBackgroundMusic } from '~/composables/useBackgroundMusic'
+// 播放模式的定义与名字：断言一律引用它，不写死 '顺序播放' 这种字符串
+// （改文案时两处一起改，不会出现"用例绿着、按钮上却是旧词"）
+import { DEFAULT_MUSIC_MODE, MUSIC_MODE_LABEL, nextMusicMode } from '~/utils/playMode'
 // 内置兜底那一首（接口没给曲目时列表里显示的那一条）。用它而不是写死字符串：
 // 断言要跟实现同源，改名字时两处一起改
 import { builtinTrack } from '~/utils/musicTracks'
@@ -143,6 +146,10 @@ beforeEach(() => {
   music.enabled.value = false
   music.playing.value = false
   music.progress.value = 0
+  music.trackIndex.value = 0
+  // 播放模式也要复位：它是 2026-09-13 新加的共享状态，
+  // 漏掉的话"上一个用例把模式切成了单曲循环"会直接影响下面所有涉及 ended 的断言
+  music.mode.value = DEFAULT_MUSIC_MODE
   Element.prototype.scrollIntoView = scrollSpy
   scrollSpy.mockClear()
 })
@@ -632,7 +639,15 @@ describe('外壳里的播放器 · 状态回写', () => {
     expect(music.progress.value).toBeCloseTo(10)
   })
 
-  it('audio 的 ended 事件_should把状态切回"没在播"（防御性路径，如实说明）', async () => {
+  it('audio 的 ended 事件_should交给播放模式决定下一首（顺序 + 只有一首 = 停下）', async () => {
+    // 【这条用例的背景变了，读之前先看这里】2026-09-13 之前 `<audio>` 带着 `loop`，
+    //   浏览器永远不会派发 `ended`，这条用例是"防御性"的（当时注释里如实写了）。
+    //   加了播放模式之后 `loop` 去掉了 —— `ended` 成了**自动下一首的主路径**，
+    //   由 app/utils/playMode.ts 的纯函数按模式决定放哪个（那三个分支的用例在
+    //   test/playMode.spec.ts，以及 test/musicSwitch.nuxt.spec.ts 里的"放完自动切歌"）。
+    //   这里这一条守的是**在音乐页这条链路上**：外壳收到 ended 之后状态是干净的。
+    //   默认假后端只给内置那一首（= 列表只有 1 首），默认模式是顺序播放
+    //   ⇒ "最后一首放完了"，正确结果是**停下**。
     const wrapper = await mountPlayer()
     const music = useBackgroundMusic()
 
@@ -642,13 +657,81 @@ describe('外壳里的播放器 · 状态回写', () => {
     music.progress.value = 42
 
     await wrapper.find('audio').trigger('ended')
+    await flushPromises()
+
     expect(music.playing.value).toBe(false)
     expect(music.progress.value).toBe(0)
+    // 停下**不代表"想听"的意图变了**：`enabled` 仍然是 true ——
+    // 用户再点一下就能从这一首重新开始（页脚那个开关也仍写着"关闭背景音乐"）
+    expect(music.enabled.value).toBe(true)
+  })
+})
 
-    // 【如实说明】生产代码里 `<audio>` 带 `loop`，浏览器**不会**派发 ended ——
-    // 这条断言是手工 dispatch 出来的，它证明的是"万一它触发了，状态有主"，
-    // 而不是"线上会走到这条路径"。留着它的理由写在 app.vue 那段注释里
-    //（哪天去掉 loop 支持"播完停"时，这条路径就是主要路径了）。
+// =====================================================================
+// 播放模式（2026-09-13 新功能）
+//
+// 【这一组守的是什么】三档模式（顺序播放 / 随机播放 / 单曲循环）的**界面与状态**：
+//   按钮上写着当前是哪一档、点一下按顺序循环切、切完"改的是共享状态"。
+//   ⚠️ "切完之后真的放了哪一首"不在这里测 —— 那是外壳 `ended` 里的事，
+//   用例在 test/musicSwitch.nuxt.spec.ts（假接口喂三首歌才分辨得出来）。
+//   这里用同一份假后端（只有内置那一首），专门守"按钮与状态"这一层。
+// =====================================================================
+describe('音乐页 · 播放模式', () => {
+  const modeBtn = (wrapper) => wrapper.find('.mp-mode')
+
+  it('默认_should是顺序播放，按钮上写着它的名字（不用图标，图标分不清这三档）', async () => {
+    const wrapper = await mountPlayer()
+
+    expect(modeBtn(wrapper).exists()).toBe(true)
+    expect(modeBtn(wrapper).text()).toBe(MUSIC_MODE_LABEL.sequence)
+    // 读屏软件听到的是"播放模式：顺序播放（点击切换）"，而不是一个光秃秃的"顺序播放"
+    expect(modeBtn(wrapper).attributes('aria-label')).toContain(MUSIC_MODE_LABEL.sequence)
+    expect(modeBtn(wrapper).attributes('aria-label')).toContain('播放模式')
+    // 悬停提示里把三档都列出来，用户不必靠"点两下试试"来搞清这个按钮
+    expect(modeBtn(wrapper).attributes('title')).toContain(MUSIC_MODE_LABEL.shuffle)
+    expect(modeBtn(wrapper).attributes('title')).toContain(MUSIC_MODE_LABEL['repeat-one'])
+  })
+
+  it('点一下_should按「顺序 → 随机 → 单曲循环 → 顺序」循环切（按钮文字、状态、类名三处同步）', async () => {
+    const wrapper = await mountPlayer()
+    const music = useBackgroundMusic()
+
+    let expected = DEFAULT_MUSIC_MODE
+    for (let i = 0; i < 3; i++) {
+      expected = nextMusicMode(expected)
+      await modeBtn(wrapper).trigger('click')
+
+      // ① 界面：按钮上的字就是当前这一档
+      expect(modeBtn(wrapper).text()).toBe(MUSIC_MODE_LABEL[expected])
+      // ② 状态：共享状态跟着变（外壳就是照它决定下一首的）
+      expect(music.mode.value).toBe(expected)
+      // ③ 类名也跟着变：三档各有颜色，不读文字也能看出"不是默认那一档"
+      expect(modeBtn(wrapper).classes()).toContain(`mp-mode--${expected}`)
+      expect(modeBtn(wrapper).attributes('aria-label')).toContain(MUSIC_MODE_LABEL[expected])
+    }
+
+    // 转了一圈回到起点（三档真的是循环的，不会卡在某一档）
+    expect(music.mode.value).toBe(DEFAULT_MUSIC_MODE)
+    expect(modeBtn(wrapper).text()).toBe(MUSIC_MODE_LABEL.sequence)
+  })
+
+  it('切模式_should不去动播放状态（不是"一切模式就暂停/重放当前这首"）', async () => {
+    const wrapper = await mountPlayer()
+    const music = useBackgroundMusic()
+
+    await wrapper.find('.mp-play').trigger('click')
+    await flushPromises()
+    const before = audioEl(wrapper)
+    before.currentTime = 30
+
+    await modeBtn(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(music.playing.value).toBe(true)
+    expect(music.enabled.value).toBe(true)
+    // 正在放的那一首没有被换掉、位置也没被归零
+    expect(audioEl(wrapper).currentTime).toBe(30)
+    expect(wrapper.find('audio').attributes('src')).toBe('/media/bg-music.mp3')
   })
 })
 

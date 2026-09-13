@@ -90,6 +90,24 @@
         :aria-label="playing ? '暂停' : '播放'"
         @click="toggle">{{ playing ? '❚❚' : '▶' }}</button>
 
+      <!-- 播放模式：**一个按钮循环切三档**（顺序播放 → 随机播放 → 单曲循环）。
+           【为什么把中文写在按钮上，而不是用一个图标】
+             这三档在两套常见的图标体系里几乎分不清（🔁 与 🔂 只差一个小角标，
+             "顺序"更是没有通行字形），而模式选错的表现是"歌莫名停了 / 一直在重放"，
+             用户根本不会想到是模式的问题 —— 写出来一眼就懂，
+             也和站内其它胶囊（首页的分类、标签）是同一套语言。
+           【点了会发生什么】只改共享状态里的 `mode`。真正"按模式决定下一首"的
+             是持有 `<audio>` 的外壳（`ended` 里调 app/utils/playMode.ts 的纯函数），
+             这一页一行播放逻辑都没有 —— 和播放键、进度条同一个道理。
+           【title 里为什么把三档都列一遍】否则用户只能靠"点两下试试"来搞清
+             这个按钮到底在几档之间切。 -->
+      <button
+        class="mp-mode"
+        :class="`mp-mode--${musicMode}`"
+        :aria-label="`播放模式：${modeLabel}（点击切换）`"
+        :title="`播放模式：${modeLabel} —— 点击切换（顺序播放 / 随机播放 / 单曲循环）`"
+        @click="cycleMode">{{ modeLabel }}</button>
+
       <div class="mp-seek">
         <span class="mp-time">{{ timeText(currentTime) }}</span>
         <!-- 进度条：原生 <input type="range">。
@@ -218,7 +236,15 @@
 //   · `toggle`  切换"想不想听"
 //   · `setTrack` / `setEnabled` 切到第几首 / "点了就播"
 //   · `trackIndex` 当前第几首（只用来设置，读的时候一律走下面的 activeIndex）
-const { playing, toggle, setTrack, setEnabled } = useBackgroundMusic()
+//   · `mode` / `cycleMode` 播放模式与它的切换（2026-09-13 加，按钮见模板里的 .mp-mode）
+const { playing, toggle, setTrack, setEnabled, mode: musicMode, cycleMode } = useBackgroundMusic()
+
+/**
+ * 当前播放模式在按钮上显示的名字。
+ * 【为什么还要兜一层】`mode` 是从 localStorage 读回来的，虽然 `loadPreference`
+ *   已经过滤过一遍，但"界面上不能出现 undefined"这条底线不该依赖别处的正确性。
+ */
+const modeLabel = computed(() => MUSIC_MODE_LABEL[musicMode.value] ?? MUSIC_MODE_LABEL[DEFAULT_MUSIC_MODE])
 
 // ---------- 曲目 ----------
 /**
@@ -663,6 +689,21 @@ useSeoMetaFor(() => ({
   font-size: 17px; font-weight: 800; cursor: pointer;
 }
 .mp-play:hover { filter: brightness(1.08); }
+
+/* 播放模式按钮：三档循环切，按钮上直接写当前那一档的名字。
+   三档各给一点颜色差别（顺序=中性、随机=青、单曲循环=金）——
+   不读文字也能看出"现在不是默认那一档"，省一次"我是不是点错了"的怀疑。
+   它不叫 .mp-play 那一套样式：那是按钮（圆形、实心渐变），这是胶囊（描边、文字）。 */
+.mp-mode {
+  flex-shrink: 0; padding: 7px 14px; border-radius: 999px; cursor: pointer;
+  font-size: 12px; font-weight: 600; letter-spacing: .5px; white-space: nowrap;
+  background: rgba(30, 47, 82, .66); border: 1px solid rgba(180, 210, 245, .18);
+  color: var(--muted); transition: color .2s, border-color .2s;
+}
+.mp-mode:hover { color: var(--ink); border-color: rgba(242, 193, 78, .45); }
+.mp-mode--shuffle { color: var(--cyan); border-color: rgba(89, 214, 230, .4); }
+.mp-mode--repeat-one { color: var(--accent); border-color: rgba(242, 193, 78, .45); }
+
 .mp-seek { flex: 1; display: flex; align-items: center; gap: 12px; min-width: 220px; }
 .mp-time { min-width: 44px; text-align: center; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 /* 两条滑块（播放进度 + 音量）共用的外观。左侧（**已填充**）金→青渐变，右侧是浅灰。

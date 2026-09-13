@@ -24,15 +24,30 @@
 //   · `playing`    —— 现在是不是真的在播
 //   · `progress`   —— 播放进度（0~100，给进度条用）
 //   · `trackIndex` —— 现在放的是第几首（曲目表下标，见 app/utils/musicTracks.ts，2026-09-11 加）
+//   · `mode`       —— 放完一首之后怎么走：顺序 / 随机 / 单曲循环（持久化，2026-09-13 加）
 //   真正持有 `<audio>` 的那个组件（现在**只有**应用外壳 app.vue 一处）负责
-//   "照着 `enabled` 去 play/pause、照着 `trackIndex` 换音源"，
+//   "照着 `enabled` 去 play/pause、照着 `trackIndex` 换音源、照着 `mode` 决定下一首"，
 //   并把真实状态写回 `playing` / `progress`。
 //   【为什么播放器只能有一处】页面会随路由卸载，播放器放页面里就"一离开音乐就断"；
 //   两个页面各放一个则会出现两个实例抢同一首歌、互相覆盖 `playing` / `progress`。
 // ============================================================
 
+import {
+  DEFAULT_MUSIC_MODE,
+  isMusicMode,
+  nextMusicMode,
+} from '~/utils/playMode'
+
 /** localStorage 的 key。改名等于把老用户的偏好丢掉，所以名字定死 */
 const STORAGE_KEY = 'bg-music-enabled'
+
+/**
+ * 播放模式（顺序 / 随机 / 单曲循环）的持久化 key。
+ * 【为什么模式要落盘，而下标不落盘】模式是**偏好**（"我习惯随机听"），
+ *   和音量是同一类东西；下标是**播放位置**（"现在放到哪了"），
+ *   回到第一首最不容易让人意外 —— 这一条与"音量持久化、播放位置不持久化"是同一个取舍。
+ */
+const MODE_STORAGE_KEY = 'bg-music-mode'
 
 export const useBackgroundMusic = () => {
   /**
@@ -67,16 +82,36 @@ export const useBackgroundMusic = () => {
    */
   const trackIndex = useState('bgMusicTrackIndex', () => 0)
 
+  /**
+   * 播放模式：顺序播放 / 随机播放 / 单曲循环（`MUSIC_MODES`，2026-09-13 加）。
+   *
+   * 【为什么它也在这一份状态里】"放完一首之后放谁"是**播放会话**的属性：
+   *   顺序往下走、随机抽、还是原地打转，三者互斥，只能有一个当前值。
+   *   真正执行的是持有 `<audio>` 的外壳（`ended` 事件里按这个值决定下一首），
+   *   音乐页只是它的一个遥控器 —— 和 `enabled` / `trackIndex` 完全同一个套路。
+   *
+   * 【默认值为什么是顺序播放】它是行为最可预测的一档，也最接近"没有模式这个概念"
+   *   之前的表现（当时靠 `<audio loop>` 一直循环当前这一首）。
+   */
+  const mode = useState('bgMusicMode', () => DEFAULT_MUSIC_MODE)
+
   /** 从 localStorage 读偏好。【只在客户端调用】服务端没有 localStorage */
   const loadPreference = () => {
     if (!import.meta.client) return
     try {
       enabled.value = localStorage.getItem(STORAGE_KEY) === '1'
+      // 【为什么要过一遍 isMusicMode】存进去的值可能来自旧版本（那时没有这个键）、
+      //   也可能是用户自己在 DevTools 里改的。认不出来的值一律回落到默认档 ——
+      //   直接塞进状态的话，`advancePlayback` 会走"随机播放"那条兜底分支，
+      //   而界面上写着"顺序播放"，两边对不上。
+      const savedMode = localStorage.getItem(MODE_STORAGE_KEY)
+      mode.value = isMusicMode(savedMode) ? savedMode : DEFAULT_MUSIC_MODE
     } catch {
       // 隐私模式 / 存储被禁用时 localStorage 会抛异常。
-      // 偏好读不到就用默认值（不播），**不能让整个站点挂掉** ——
+      // 偏好读不到就用默认值（不播、顺序播放），**不能让整个站点挂掉** ——
       // 背景音乐是可有可无的东西，它不该有能力影响页面能不能打开。
       enabled.value = false
+      mode.value = DEFAULT_MUSIC_MODE
     }
   }
 
@@ -89,6 +124,16 @@ export const useBackgroundMusic = () => {
     }
   }
 
+  /** 把模式落盘。与 savePreference 分开：一个管"想不想听"，一个管"怎么听" */
+  const saveModePreference = () => {
+    if (!import.meta.client) return
+    try {
+      localStorage.setItem(MODE_STORAGE_KEY, mode.value)
+    } catch {
+      // 同 savePreference：存不进去不影响本次会话
+    }
+  }
+
   /** 设置偏好并落盘（开关、卡片按钮都走这里，保证"改一处、三处都变"） */
   const setEnabled = (value) => {
     enabled.value = Boolean(value)
@@ -96,6 +141,21 @@ export const useBackgroundMusic = () => {
   }
 
   const toggle = () => setEnabled(!enabled.value)
+
+  /**
+   * 设成某一档模式（非法值直接忽略，**不写进状态也不落盘**）。
+   * 【为什么非法值不像 loadPreference 那样回落成默认档】那里是"读到的历史值不可信"，
+   *   只能选一个默认；这里是"调用方传错了"，默默改成别的档会掩盖 bug。
+   */
+  const setMode = (value) => {
+    if (!isMusicMode(value)) return
+    if (mode.value === value) return
+    mode.value = value
+    saveModePreference()
+  }
+
+  /** 按「顺序 → 随机 → 单曲循环 → 顺序」切下一档（音乐页那个按钮点一下就走这里） */
+  const cycleMode = () => setMode(nextMusicMode(mode.value))
 
   /**
    * 切到第几首。**只改下标 + 把进度清 0**，不碰 `enabled`/`playing`。
@@ -132,9 +192,12 @@ export const useBackgroundMusic = () => {
     playing,
     progress,
     trackIndex,
+    mode,
     loadPreference,
     setEnabled,
     toggle,
+    setMode,
+    cycleMode,
     setTrack,
     report,
   }

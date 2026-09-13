@@ -43,19 +43,19 @@
            那样确实能让"从不开音乐"的访客一个字节都不下，但会带来一个明确的体验退化：
            关掉再打开时元素被销毁重建，**播放位置会丢**（同一首歌从头开始）。
            暂停和"关掉"在用户眼里是同一件事，位置就不该丢。
-         【loop：为什么是"单曲循环"而不是"播完停下"】
-           这是**背景音乐**，曲目只有一首。播完就永久安静，用户会以为"音乐坏了/自己停了"，
-           而重新点一次播放是件很别扭的事（尤其用户根本不知道它播完了）。
-           代价是 `ended` 事件在浏览器里不会触发 —— 下面那个处理函数是**防御性**的：
-           它是为了"哪天去掉 loop（比如要支持'播完停'）时状态仍然有主"，
-           不是当前的主要路径（测试里对应那条用例也如实标注了这一点）。
+         【为什么不再带 loop（2026-09-13 改）】
+           原来是 `<audio loop>` —— 它让这一首**永远循环**，代价是浏览器
+           **永远不会派发 `ended`**，于是"下一个该放谁"这件事根本没有地方决定，
+           也谈不上顺序/随机/单曲循环（用户要的就是这三档）。
+           现在 `loop` 去掉了，`ended` 成为正常路径，由 `onMusicEnded` 按
+           `useBackgroundMusic().mode` 决定：往下走 / 随机抽 / 原地重放 / 播完停下。
+           算法在 `app/utils/playMode.ts`（纯函数，有单测），外壳只负责执行结果。
          【src 从哪来】和背景视频一样由 mediaUrl() 拼（前缀可配、名字来自 MEDIA_FILES），
            页面里不写死 /media/bg-music.mp3，理由见 app/utils/media.ts 的头注释。 -->
     <audio
       ref="audioRef"
       :src="bgMusicSrc"
       preload="metadata"
-      loop
       @timeupdate="onMusicTime"
       @durationchange="onMusicDuration"
       @loadedmetadata="onMusicDuration"
@@ -387,7 +387,7 @@ const policeIconSrc = mediaUrl(MEDIA_FILES.policeIcon)
  *   那是普通 fetch 请求、还带 Range 头（会触发 preflight），所以外链基本读不到封面：
  *   这种情况下用接口给的 `cover`，再没有就显示占位图案。
  */
-const { currentTrack } = useMusicTracks()
+const { tracks: musicTracks, currentTrack, activeIndex: musicActiveIndex } = useMusicTracks()
 const bgMusicSrc = computed(() => currentTrack.value.url)
 
 // ---------- <audio> 元素的引用与它的几个属性 ----------
@@ -562,13 +562,73 @@ const onMusicDuration = () => {
 // （系统媒体控制、来电、蓝牙断连），那时界面必须跟着变，而不是继续显示"正在播放"
 const onMusicPlay = () => reportMusic({ playing: true })
 const onMusicPause = () => reportMusic({ playing: false })
+
 /**
- * 【`loop` 生效时，浏览器不会触发这个事件】
- * 留着它是**防御性**的：哪天去掉 loop（比如要支持"播完停下"），
- * 状态仍然有主，不会停在"显示在播、其实已经结束"。测试里那一条是手工 dispatch
- * 出来的，注释里也如实写了这一点 —— 它不是当前的主要路径。
+ * 播放模式（顺序 / 随机 / 单曲循环）与"随机播放的洗牌袋"（2026-09-13 加）。
+ *
+ * 【袋子为什么住在这里，而不是放进共享状态】
+ *   它只有一个消费者 —— 下面这个 `ended` 处理函数。共享状态里的东西都是
+ *   "多个界面都要读的事实"（想不想听 / 在不在播 / 第几首 / 哪一档模式），
+ *   而袋子是**算法的中间结果**：没有任何界面需要知道"这一轮还剩哪几首没放"。
+ *   放进去只会让 `useState` 多一份要序列化、要清理、还要在每个用例开头复位的东西。
+ *
+ * 【为什么要监听变化把它清空】列表变了（后台删了/加了一首歌）之后，
+ *   旧袋子里的下标可能指向另一首歌（甚至越界）——`advancePlayback` 会过滤掉越界的，
+ *   但"下标语义变了"这件事过滤不掉。清空的代价只是这一轮重新洗牌。
  */
-const onMusicEnded = () => reportMusic({ playing: false, progress: 0 })
+const musicMode = music.mode
+let shuffleBag = []
+watch([musicMode, () => musicTracks.value.length], () => { shuffleBag = [] })
+
+/**
+ * 一首放完了：按当前模式决定接下来放什么。
+ *
+ * 【这条路径现在是**主路径**了】改之前 `<audio>` 带着 `loop`，
+ *   浏览器永远不会派发 `ended` —— 那时这个函数只是"防御性"的（见模板上的说明）。
+ *   去掉 `loop` 之后它就是"自动下一首"的全部实现。
+ *
+ * 【四种结果，逐个说清】
+ *   · `index === null`      → 顺序播放放到了最后一首：**停下**。
+ *     这里**只改状态、不动元素**：元素自己已经播完了，
+ *     界面回到 ▶、进度归零，用户再点一下就从当前这首重新开始。
+ *   · `index === 当前行号`  → 单曲循环（或者随机播放里只有一首歌）：
+ *     把这一首从头再放。⚠️ 不能走 `setTrack` —— 下标没变它什么都不做，
+ *     表现就是"单曲循环放完一首就哑了"。
+ *   · 其它                  → 只改共享状态里的下标，换音源与"接着播"由上面那个
+ *     watch 完成（和用户手点曲目列表走的是同一条路，两边行为不会不一致）。
+ *
+ * 【为什么 await play() 失败只报告 false，不再往下改别的】与那个 watch 里同款处理：
+ *   自动播放被浏览器拒绝时，"想听但没响"是诚实的状态。
+ */
+const onMusicEnded = async () => {
+  reportMusic({ playing: false, progress: 0 })
+
+  const el = audioRef.value
+  const { index, bag } = advancePlayback({
+    mode: musicMode.value,
+    current: musicActiveIndex.value,
+    total: musicTracks.value.length,
+    bag: shuffleBag,
+  })
+  shuffleBag = bag
+
+  if (!el || index == null) return
+
+  if (index === musicActiveIndex.value) {
+    // 这一首从头再放：位置归零、立刻接着播（等 watch 是等不到的，下标没变）
+    musicCurrent.value = 0
+    el.currentTime = 0
+    try {
+      await el.play()
+      reportMusic({ playing: true })
+    } catch {
+      reportMusic({ playing: false })
+    }
+    return
+  }
+
+  music.setTrack(index)
+}
 
 /** 元素上的音量/静音被别人改动时（系统控件、将来的其它入口）同步回界面 */
 const onMusicVolumeChange = () => {

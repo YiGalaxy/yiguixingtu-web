@@ -5,6 +5,7 @@ import { flushPromises, enableAutoUnmount } from '@vue/test-utils'
 import AppShell from '~/app.vue'
 import IndexPage from '~/pages/index.vue'
 import { useBackgroundMusic } from '~/composables/useBackgroundMusic'
+import { DEFAULT_MUSIC_MODE } from '~/utils/playMode'
 
 // =====================================================================
 // 背景音乐：**一份状态，三个界面**（页脚开关 / ⚙ 设置面板 / 首页音乐卡片）
@@ -52,6 +53,9 @@ beforeEach(() => {
   music.enabled.value = false
   music.playing.value = false
   music.progress.value = 0
+  // 播放模式也是全局共享的（2026-09-13 加）：不复位的话，
+  // 上一个用例留下的"单曲循环"会让下面涉及 ended 的断言跑出别的结果
+  music.mode.value = DEFAULT_MUSIC_MODE
 })
 
 const mountShell = async () => {
@@ -208,19 +212,25 @@ describe('背景音乐 · 播放器住在外壳里', () => {
     expect(shell.find('audio').attributes('preload')).toBe('metadata')
   })
 
-  it('那个 audio_should带 loop（背景音乐播完就永久安静会让人以为坏了）', async () => {
+  it('那个 audio_should【不】带 loop（放完要由播放模式决定下一首，见 2026-09-13 那次改动）', async () => {
     const shell = await mountShell()
 
-    expect(shell.find('audio').attributes('loop')).toBeDefined()
+    // 【这条用例在 2026-09-13 反转了，读之前先看这里】
+    //   加「顺序播放 / 随机播放 / 单曲循环」之前，这个 `<audio>` 带着 `loop`：
+    //   它让当前这一首永远循环，代价是浏览器**永远不会派发 `ended`** ——
+    //   也就是说"下一首放谁"根本没有地方可决定，加模式也就无从谈起。
+    //   去掉 `loop` 之后 `ended` 成了自动下一首的主路径（`app/utils/playMode.ts`）。
+    //   ⚠️ 所以这条用例现在守的是**反面**：谁要是为了"让音乐不要停"顺手把 loop 加回来，
+    //   三档模式会当场全部失效 —— 而且界面上看不出来（按钮照样切、歌就是不再往下走）。
+    expect(shell.find('audio').attributes('loop')).toBeUndefined()
   })
 
-  it('ended 事件_should把"在响"与进度一起归零（⚠️ 防御性路径：loop 生效时浏览器根本不派发它）', async () => {
-    // ⚠️⚠️ 【这条用例测的是什么，请别误读】
-    //   生产代码里那个 `<audio>` 带着 `loop` —— 浏览器**永远不会**派发 `ended`，
-    //   曲子会从头再放一遍。也就是说"播完自己回到 ▶"这件事**在线上不会发生**，
-    //   这条用例**不是**它的证据。
-    //   它证明的是：**哪天去掉 loop（比如要改成"播完停下"），状态仍然有主** ——
-    //   不会停在"界面显示在播、其实早就结束了"。app.vue 里那个处理函数的注释也是这么写的。
+  it('ended 事件_should把"在响"与进度一起归零（默认顺序播放 + 只有一首 = 放完停下）', async () => {
+    // 【这条用例的背景在 2026-09-13 变了】改之前 `<audio>` 带 `loop`，
+    //   浏览器**永远不会**派发 `ended`，这条用例是"防御性"的（当时注释里如实写了）。
+    //   加播放模式时 `loop` 去掉了，`ended` 成了主路径：外壳按模式决定下一首
+    //   （算法在 app/utils/playMode.ts，分支用例见 test/playMode.spec.ts）。
+    //   这里默认假后端只给内置那一首、模式是默认的顺序播放 ⇒ "最后一首放完了" ⇒ **停下**。
     const shell = await mountShell()
     const home = await mountSuspended(IndexPage, { global: { stubs: { NuxtLink: true } } })
     const music = useBackgroundMusic()
@@ -232,8 +242,8 @@ describe('背景音乐 · 播放器住在外壳里', () => {
     expect(music.playing.value).toBe(true)
     music.progress.value = 42
 
-    // 手工 dispatch 一次 ended（浏览器在 loop 生效时不会做这件事）
     await shell.find('audio').trigger('ended')
+    await flushPromises()
 
     expect(music.playing.value).toBe(false)
     expect(music.progress.value).toBe(0)
@@ -245,5 +255,98 @@ describe('背景音乐 · 播放器住在外壳里', () => {
     // （这两个变量是刻意分开的：`enabled` = 想听，`playing` = 真的在响。）
     expect(music.enabled.value).toBe(true)
     expect(shell.find('.music-toggle').text()).toContain('关闭背景音乐')
+  })
+})
+
+// =====================================================================
+// 播放模式 · 共享状态与持久化（2026-09-13 新功能）
+//
+// 【为什么这一组在"共享状态"这个文件里】模式是**全站一份**的状态
+//   （页脚开关、⚙ 面板、首页卡片、音乐页读的都是它），
+//   真正按它决定下一首的是外壳 —— 和 `enabled` 是同一个套路。
+//   "切完之后真的放了哪一首"在 test/musicSwitch.nuxt.spec.ts（那边假接口给三首歌），
+//   这里只守状态本身：默认值、循环切换、落盘、读回、脏值兜底。
+// =====================================================================
+describe('背景音乐 · 播放模式', () => {
+  it('默认_should是顺序播放（行为最可预测的那一档）', () => {
+    const { mode } = useBackgroundMusic()
+    expect(mode.value).toBe(DEFAULT_MUSIC_MODE)
+    expect(DEFAULT_MUSIC_MODE).toBe('sequence')
+  })
+
+  it('cycleMode_should按「顺序 → 随机 → 单曲循环 → 顺序」切，并落盘', () => {
+    const { mode, cycleMode } = useBackgroundMusic()
+
+    expect(localStorage.getItem('bg-music-mode')).toBeNull()   // 没动过就不写
+
+    cycleMode()
+    expect(mode.value).toBe('shuffle')
+    expect(localStorage.getItem('bg-music-mode')).toBe('shuffle')
+
+    cycleMode()
+    expect(mode.value).toBe('repeat-one')
+    expect(localStorage.getItem('bg-music-mode')).toBe('repeat-one')
+
+    cycleMode()
+    expect(mode.value).toBe('sequence')
+    expect(localStorage.getItem('bg-music-mode')).toBe('sequence')
+  })
+
+  it('setMode_should只认那三档（传别的什么都不改，也不落盘）', () => {
+    const { mode, setMode } = useBackgroundMusic()
+
+    setMode('repeat-one')
+    expect(mode.value).toBe('repeat-one')
+
+    for (const bad of ['loop-all', '', null, undefined, 0, {}, []]) {
+      setMode(bad)
+      // 【为什么不"顺手改成默认档"】调用方传错值是一个 bug，
+      //   默默改成别的档会把它藏起来；用户在界面上看到的是"点了没反应"，那才是对的。
+      expect(mode.value).toBe('repeat-one')
+    }
+    expect(localStorage.getItem('bg-music-mode')).toBe('repeat-one')
+  })
+
+  it('loadPreference_should把上次的模式一起读回来（换会话还记得）', () => {
+    const { mode, loadPreference } = useBackgroundMusic()
+
+    localStorage.setItem('bg-music-mode', 'shuffle')
+    loadPreference()
+    expect(mode.value).toBe('shuffle')
+
+    localStorage.setItem('bg-music-mode', 'repeat-one')
+    loadPreference()
+    expect(mode.value).toBe('repeat-one')
+  })
+
+  it('localStorage 里是认不出来的值（旧版本 / 手改过）_should回落到默认档而不是塞进状态', () => {
+    const { mode, loadPreference } = useBackgroundMusic()
+
+    // 【为什么必须过滤】不过滤的话 `mode` 会是一个谁也不认识的值：
+    //   按钮上写着"顺序播放"，而 `advancePlayback` 会走随机那一支 —— 两边对不上，
+    //   而且这种不一致只在"一首放完"时才暴露，极难查。
+    for (const bad of ['', 'loop-all', 'SEQUENCE', 'Sequence', '0']) {
+      localStorage.setItem('bg-music-mode', bad)
+      mode.value = 'shuffle'          // 先弄脏，确认它真的被覆盖了
+      loadPreference()
+      expect(mode.value).toBe(DEFAULT_MUSIC_MODE)
+    }
+  })
+
+  it('localStorage 不可用（隐私模式）_should退回默认档而不是把站点带崩', () => {
+    const { mode, loadPreference, cycleMode } = useBackgroundMusic()
+    const spy = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('denied') })
+    const spySet = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('denied') })
+
+    mode.value = 'repeat-one'
+    expect(() => loadPreference()).not.toThrow()
+    expect(mode.value).toBe(DEFAULT_MUSIC_MODE)
+
+    // 写不进去也不该抛（本次会话里模式仍然是对的）
+    expect(() => cycleMode()).not.toThrow()
+    expect(mode.value).toBe('shuffle')
+
+    spy.mockRestore()
+    spySet.mockRestore()
   })
 })

@@ -7,6 +7,7 @@ import MusicPage from '~/pages/music.vue'
 import IndexPage from '~/pages/index.vue'
 import { useBackgroundMusic } from '~/composables/useBackgroundMusic'
 import { builtinTrack } from '~/utils/musicTracks'
+import { DEFAULT_MUSIC_MODE } from '~/utils/playMode'
 
 // =====================================================================
 // 曲目列表 · 读接口 + 切歌
@@ -122,6 +123,9 @@ beforeEach(() => {
   music.playing.value = false
   music.progress.value = 0
   music.trackIndex.value = 0
+  // 播放模式同样是共享状态（2026-09-13 加）：不复位的话，
+  // 上一个用例把模式切成了随机，下一个用例的"下一首应该是第二首"就变成偶然事件
+  music.mode.value = DEFAULT_MUSIC_MODE
 })
 
 // useAsyncData 的结果按 key 缓存在 payload 里，**释放时机是组件卸载**；
@@ -439,6 +443,149 @@ describe('曲目列表 · 切歌时的封面', () => {
     const img = wrapper.find('.mp-cover')
     expect(img.exists()).toBe(false)          // 没有可以挂的地址 → 直接是占位
     expect(wrapper.find('.mp-cover-ph').exists()).toBe(true)
+  })
+})
+
+// =====================================================================
+// 播放模式 · 放完一首之后自动切（2026-09-13 新功能）
+//
+// 【为什么这一组必须在这个文件里】"下一首放谁"要**列表里真的有多首**才分辨得出来：
+//   本文件那份假接口给的是三首（第一首 / 第二首 / 第三首），而别的文件里
+//   默认只有内置那一首 —— 只有一首歌时，三档模式的表现几乎一样。
+//
+// 【这一组测的是完整链路】`<audio>` 派发 `ended` → 外壳按共享状态里的模式
+//   调 app/utils/playMode.ts 的纯函数 → 改下标 → watch 换音源并接着播。
+//   算法本身的边界（越界、脏袋子、只有一首歌……）在 test/playMode.spec.ts 里，
+//   这里只验证"接线接对了"。
+//
+// 【模式是怎么设的】大部分用例直接写共享状态（等价于用户点了几次按钮），
+//   唯独"单曲循环"那一条**点按钮**点到位 —— 顺手证明按钮 → 状态 → 行为这条链路是通的。
+// =====================================================================
+describe('播放模式 · 放完一首之后自动切', () => {
+  const modeBtn = (wrapper) => wrapper.find('.mp-mode')
+  const srcOf = (wrapper) => wrapper.find('audio').attributes('src')
+
+  /** 开始播放（点了才会走"自动下一首"这条路：`enabled` 为真才真的 play） */
+  const startPlaying = async (wrapper) => {
+    await wrapper.find('.mp-play').trigger('click')
+    await flushPromises()
+  }
+
+  /** 一首放完了 */
+  const finishTrack = async (wrapper) => {
+    await wrapper.find('audio').trigger('ended')
+    await flushPromises()
+  }
+
+  it('顺序播放_放完一首 should 自动切到下一首，并接着播（不是切成暂停）', async () => {
+    const wrapper = await mountPlayer()
+    const music = useBackgroundMusic()
+    await startPlaying(wrapper)
+    expect(srcOf(wrapper)).toBe(API_TRACKS[0].url)
+
+    await finishTrack(wrapper)
+
+    expect(srcOf(wrapper)).toBe(API_TRACKS[1].url)
+    expect(audioEl(wrapper).currentTime).toBe(0)          // 新的一首从头开始
+    expect(music.playing.value).toBe(true)                // 接着播
+    expect(music.enabled.value).toBe(true)
+    expect(wrapper.find('.mp-play').text()).toBe('❚❚')
+    // 列表高亮与唱片上的曲名都跟着走（三处说的是同一件事）
+    expect(currentRowText(wrapper)).toContain('第二首')
+    expect(wrapper.find('.mp-title').text()).toBe('第二首')
+  })
+
+  it('顺序播放_最后一首放完 should 停下（不循环回第一首 —— 那是另一个模式）', async () => {
+    const wrapper = await mountPlayer()
+    const music = useBackgroundMusic()
+    await rows(wrapper)[2].trigger('click')               // 直接听最后一首
+    await flushPromises()
+    expect(srcOf(wrapper)).toBe(API_TRACKS[2].url)
+
+    await finishTrack(wrapper)
+
+    expect(music.playing.value).toBe(false)
+    expect(music.progress.value).toBe(0)
+    // 音源**没换**、位置**留在最后一首** —— 用户再点一下就从这一首重新开始，
+    // 而不是莫名其妙被送回第一首
+    expect(srcOf(wrapper)).toBe(API_TRACKS[2].url)
+    expect(music.trackIndex.value).toBe(2)
+    expect(wrapper.find('.mp-play').text()).toBe('▶')
+  })
+
+  it('单曲循环（点按钮切到这一档）_放完 should 把这一首从头再放，不换音源', async () => {
+    const wrapper = await mountPlayer()
+    const music = useBackgroundMusic()
+    await startPlaying(wrapper)
+    await playTo(wrapper, 12)
+    expect(audioEl(wrapper).currentTime).toBe(12)
+
+    // 顺序 → 随机 → 单曲循环（点两下按钮，走的是用户真实的那条路）
+    await modeBtn(wrapper).trigger('click')
+    await modeBtn(wrapper).trigger('click')
+    await flushPromises()
+    expect(music.mode.value).toBe('repeat-one')
+
+    await finishTrack(wrapper)
+
+    expect(srcOf(wrapper)).toBe(API_TRACKS[0].url)        // 同一首
+    expect(audioEl(wrapper).currentTime).toBe(0)          // 从头
+    expect(music.playing.value).toBe(true)
+    expect(currentRowText(wrapper)).toContain('第一首')
+  })
+
+  it('随机播放_一轮之内不重复：连着放完两次，除起点外的两首各出现一次', async () => {
+    // 【这条守的是"随机"的定义】每首放完就 `Math.random()` 抽一个的写法，
+    //   会出现"刚放完 A 又抽到 A"（听着像卡住）和"某首歌一整晚都没轮到"。
+    //   洗牌袋保证一轮内不重复 —— 这个性质**不依赖运气**，所以断言是确定的。
+    const wrapper = await mountPlayer()
+    const music = useBackgroundMusic()
+    music.mode.value = 'shuffle'
+    await startPlaying(wrapper)
+
+    const visited = []
+    for (let i = 0; i < 2; i++) {
+      await finishTrack(wrapper)
+      visited.push(music.trackIndex.value)
+    }
+
+    expect([...visited].sort((a, b) => a - b)).toEqual([1, 2])   // 另外两首各一次
+    expect(visited[0]).not.toBe(0)                                // 不会原地重放
+    expect(visited[1]).not.toBe(visited[0])                       // 也不会连着放同一首
+    // 随机播放**不会停**（不管抽到哪一首，都真的换过去了）
+    expect(music.playing.value).toBe(true)
+  })
+
+  it('随机播放但列表只有一首_放完 should 原曲重放（否则"随机播放放完一首就哑了"）', async () => {
+    mockBackend({ '/music/list': () => Promise.resolve(body([API_TRACKS[0]])) })
+    const wrapper = await mountPlayer()
+    const music = useBackgroundMusic()
+    music.mode.value = 'shuffle'
+    await startPlaying(wrapper)
+    await playTo(wrapper, 9)
+
+    await finishTrack(wrapper)
+
+    expect(rows(wrapper)).toHaveLength(1)
+    expect(srcOf(wrapper)).toBe(API_TRACKS[0].url)
+    expect(audioEl(wrapper).currentTime).toBe(0)
+    expect(music.playing.value).toBe(true)
+  })
+
+  it('切模式_should在放完下一首时立刻生效（不用刷新、不用重播当前这首）', async () => {
+    // 【这条防的是"模式只在页面加载时读了一次"】共享状态是响应式的，
+    //   外壳那个 handler 每次都现读 `mode` —— 中途改就该中途生效。
+    const wrapper = await mountPlayer()
+    const music = useBackgroundMusic()
+    await startPlaying(wrapper)
+
+    music.mode.value = 'repeat-one'      // 用户听完一半决定单曲循环
+    await flushPromises()
+    await finishTrack(wrapper)
+
+    expect(srcOf(wrapper)).toBe(API_TRACKS[0].url)
+    expect(audioEl(wrapper).currentTime).toBe(0)
+    expect(music.playing.value).toBe(true)
   })
 })
 
