@@ -111,7 +111,8 @@ yiguixingtu-web
 │                                    #   图标由 scripts/generate-icons.py 生成（2026-09-12 换掉
 │                                    #   了脚手架自带那张），要改图形改脚本重跑，别手改二进制
 ├── scripts
-│   └── generate-icons.py            # 站点图标的生成脚本：按目标尺寸逐档栅格化 + 导出 SVG 版
+│   ├── generate-icons.py            # 站点图标的生成脚本：按目标尺寸逐档栅格化 + 导出 SVG 版
+│   └── verify-player.mjs            # 【不是单测】用 CDP 在真浏览器里验播放器三档模式（用法见下文）
 ├── static-media                     # 【不参与构建】背景视频 / 音乐，部署时上传到 /var/www/media/
 ├── nuxt.config.ts                   # Nuxt 配置（后端 API 地址、媒体前缀、站点地址、head 里的站点图标）
 └── .env.example                     # 环境变量示例
@@ -1675,11 +1676,13 @@ Vue 的 scoped 样式**只会把父组件的 scope 属性打在子组件的根�
   先换歌再关开关的话，换歌那一刻 `enabled` 还是 `true`，watch 会立刻把第一首放起来、白响一下。
 - **怎么验证"真的会换歌"**：`ended` 这条路径**只能在真浏览器里验**（happy-dom 不解码音频、
   没有时间线，单测里的 `ended` 是手工 dispatch 的），而"不 `loop` 时浏览器到底派不派发
-  `ended`"正是这个功能的关键假设。做法：headless Edge 带 `--remote-debugging-port`
-  + `--autoplay-policy=no-user-gesture-required` 打开线上 `/music`，用 CDP
-  `Runtime.evaluate` 把 `audio.currentTime` 拖到 `duration - 0.5`、等 `ended`，再读
-  `paused / currentSrc / 高亮行`。上面那个"点 ▶ 没反应"的坑就是这么发现的 ——
-  **纯前端交互里，"状态自相矛盾"这类问题单测很难覆盖，真机跑一遍很值**。
+  `ended`"正是这个功能的关键假设。仓库里有现成的脚本 **`scripts/verify-player.mjs`**：
+  先用 `--remote-debugging-port=9222` + `--autoplay-policy=no-user-gesture-required`
+  起一个 headless Edge 打开 `/music`，再跑这个脚本 —— 它用 CDP 把 `audio.currentTime`
+  拖到 `duration - 0.5`、等真实的 `ended`，然后逐条打印 PASS/FAIL
+  （三档模式 + 最后一首停下 + 停下之后再点 ▶ 能重新开始，共 17 条）。
+  ⚠️ 上面那个"点 ▶ 没反应"的坑就是这么发现的 ——
+  **纯前端交互里"状态自相矛盾"这类问题单测很难覆盖，真机跑一遍很值**。
   （人工版本写在「上线前的检查」第 16 条。）
 
 #### 🛠 站点设置（后台「设置」菜单，2026-09-11 新加）
