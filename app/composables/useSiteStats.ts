@@ -23,6 +23,16 @@
 //   这是首页首屏就会出现的东西，接口挂掉绝不能连累整页渲染：
 //   这里不抛异常，把 stats 留成 0、failed 置 true，由页面决定显示 0 还是占位符。
 //
+// ⚠️【做 SSR 的页面里，显示的数字必须从 useAsyncData 的 data 里读，不要读这里的 ref】
+//   这是 2026-09-12 修掉的一个真实线上 bug，现象是"首页那三个数字刷新一下先显示真值、
+//   随即变成 0"。原因是 useAsyncData 的 handler 只在**服务端**执行一次，结果写进 payload，
+//   浏览器水合时命中的是 payload 里那一份、handler 不会再跑 —— 所以只在这里的
+//   `stats.value = ...` 里更新的数字，在浏览器上永远停在水合前的初始值 0。
+//   正确写法见 app/pages/index.vue：`useAsyncData(key, () => load())` 之后从
+//   `asyncData.data` 里取那一份 `{ ok, data }`。
+//   这里的 stats / failed / load 适合"客户端自己调一次"的场景（后台概览就是），
+//   那类页面没有服务端渲染的那一份 payload，行为完全正常。
+//
 // 关键词：
 //   · GET /article/stats → { code, message, data: { articleCount, viewCount, categoryCount } }
 //   · 三个字段后端是 Long，JSON 里是数字；这里仍然做一次归一化，

@@ -379,8 +379,36 @@ const tagsAsync = useAsyncData('home-tags', async () => {
 // 留在 onMounted 里的话，服务端 HTML 上那三个数字会是 0 ——
 // 而"0 篇"是一个确定的答案，访客会以为站点真的没有文章，
 // 更糟的是它和旁边【已经渲染出来】的文章列表自相矛盾（列表里明明有文章）。
-const { stats: siteStats, failed: statsFailed, load: loadSiteStats } = useSiteStats()
+const { load: loadSiteStats } = useSiteStats()
 const statsAsync = useAsyncData('home-site-stats', () => loadSiteStats())
+
+/**
+ * 首屏那三个数字的显示来源 —— 【必须是 statsAsync.data，不能是 useSiteStats 内部的 ref】
+ *
+ * 【2026-09-12 修的就是这里。用户报的现象：首页「文章 / 浏览 / 分类」三个数字是 0，
+ *   刷新一下先闪出真实数字、随即又变回 0】
+ *
+ *   原因是 useAsyncData 的 handler **只在服务端跑一次**，结果写进 payload；
+ *   浏览器水合（hydration）时命中的是 payload 里那一份，handler **不会**再执行。
+ *   而 loadSiteStats() 属于"把数字写进组合式函数内部 ref"的写法 ——
+ *   于是浏览器上 `stats.value = ...` 这一行根本没跑过，那三个 ref 就停在水合前的初始值 0：
+ *   服务端渲染的 HTML 里明明写着 7 / 31 / 2（`curl https://www.yigalaxy.xin/ | grep pf-stats`
+ *   就能看到），Vue 一接管就被 0 覆盖 —— 这不是"接口慢"，接口一次都没被再请求。
+ *
+ *   改成从 statsAsync.data 里读之后，浏览器拿到的就是 payload 里那三个真实数字，
+ *   并且不会为了这三个数字多打一次 /article/stats。
+ *   （后台概览不做 SSR，是进页面时自己调 load()，那条路照旧 —— 所以组合式函数的
+ *     stats / failed / load 语义一行没动，useSiteStats 那 17 条用例仍在守着它们。）
+ */
+const statsResult = computed(() => statsAsync.data.value)
+
+/**
+ * 三个数字（模板里当普通对象用，computed 会自动解包）。
+ * 形状由 useSiteStats 的 normalizeSiteStats 保证：接口给 null / 负数 / 字符串都收成能显示的数量。
+ */
+const siteStats = computed(() => (statsResult.value?.ok
+  ? normalizeSiteStats(statsResult.value.data)
+  : EMPTY_SITE_STATS))
 
 /**
  * 站点设置（首页要用到两样：公告与每页条数）。
@@ -515,10 +543,15 @@ const tagCountTip = (t) => {
 
 /**
  * 数字的显示。
- * 【失败时为什么是「—」而不是 0】0 是一个"确定的答案"：访客会以为站点真的没有文章。
- * 「—」才是诚实的"暂时读不到"，也和 backend 挂掉时"文章列表为空"区分得开。
+ * 【为什么"还没取到"与"取不到"都显示「—」，而不是 0】
+ *   0 是一个"确定的答案"：访客会以为站点真的没有文章。
+ *   「—」才是诚实的"暂时读不到"，也和 backend 挂掉时"文章列表为空"区分得开。
+ *   （两个状态都收在这里：首屏是 SSR + 水合，数字到手就是真的，正常情况下访客
+ *    根本看不到「—」；它只在接口失败、或客户端切到首页的那一瞬间出现。）
  */
-const statText = (count) => (statsFailed.value ? '—' : count)
+const statsPending = computed(() => statsResult.value == null)
+const statsFailed = computed(() => (statsResult.value ? statsResult.value.ok !== true : false))
+const statText = (count) => ((statsPending.value || statsFailed.value) ? '—' : count)
 
 // 个人卡片上的三个数字：来源见上面的 useSiteStats（后端算好、前端只显示）
 

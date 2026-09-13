@@ -361,3 +361,75 @@ describe('首页 · 站点公告与每页条数', () => {
     expect(Number(sizeSentToArticleList())).toBe(12)
   })
 })
+
+// =====================================================================
+// 首页 · 个人卡片那三个数字（文章 / 浏览 / 分类）
+//
+// 【这一组是给一个真实线上 bug 补的回归用例，2026-09-12】
+//   用户报的现象：首页那三个数字是 0，**但刷新一下会先闪出真实数字、随即又变回 0**。
+//   根因：它们原来读的是 useSiteStats 内部的 ref，而 useSiteStats 是被
+//   `useAsyncData(key, () => loadSiteStats())` 调的 ——
+//   useAsyncData 的 handler **只在服务端跑一次**，浏览器水合时命中的是 payload
+//   里那一份、handler 不会再执行，于是 `stats.value = ...` 那行在浏览器上从没跑过，
+//   三个 ref 停在水合前的 0。服务端渲染的 HTML 里其实是正确数字（所以"先闪一下真的"）。
+//   修法：显示用的数字从 useAsyncData 的 data（= payload 里那一份）里取。
+//
+// 【怎么在测试里复现"水合"】payload 和 isHydrating 都是 Nuxt 应用上的普通字段，
+//   测试里可以直接摆成硬刷新那一刻的样子（下面第一条用例就是这么做的）：
+//   往 payload 里放一份服务端算好的结果 + isHydrating = true。
+//   这一刻 useAsyncData 只会去读 payload，**不会**执行 handler —— 所以那条用例里
+//   后端被故意设成"一律返回 0"：页面只要显示出真实数字，就一定是从 payload 来的。
+// =====================================================================
+
+describe('首页 · 个人卡片那三个数字', () => {
+  /** 三个数字按「文章 / 浏览 / 分类」的顺序读出来 */
+  const statNumbers = (wrapper) => wrapper.findAll('.pf-stats .st b').map(node => node.text())
+
+  /** 这一组必须自己收拾 payload：它被人为塞过东西，漏出去会污染后面的用例 */
+  const cleanupHydration = (nuxtApp) => {
+    delete nuxtApp.payload.data['home-site-stats']
+    nuxtApp.isHydrating = false
+  }
+
+  beforeEach(() => {
+    fetchMock.mockReset()
+  })
+
+  it('⚠️ 硬刷新（命中 payload）时_should显示服务端算好的数字，而不是 0', async () => {
+    const nuxtApp = useNuxtApp()
+    nuxtApp.payload.data['home-site-stats'] = {
+      ok: true,
+      data: { articleCount: 7, viewCount: 31, categoryCount: 2 },
+    }
+    nuxtApp.isHydrating = true
+    // 后端这一次故意返回 0：数字若来自"重新请求"，这里就会露馅
+    fetchMock.mockImplementation(() => Promise.resolve(body({ articleCount: 0, viewCount: 0, categoryCount: 0 })))
+
+    try {
+      const wrapper = await mountHome()
+
+      expect(statNumbers(wrapper)).toEqual(['7', '31', '2'])
+      // 顺带守住"不多打一次请求"：payload 里已经有了，没必要再问一次后端
+      expect(fetchMock.mock.calls.map(call => pathOf(call[0]))).not.toContain('/article/stats')
+    } finally {
+      cleanupHydration(nuxtApp)
+    }
+  })
+
+  it('客户端切到首页（没有 payload）时_should用请求回来的数字', async () => {
+    mockBackend() // 统计接口返回 articleCount 1 / viewCount 5 / categoryCount 1
+
+    const wrapper = await mountHome()
+
+    expect(statNumbers(wrapper)).toEqual(['1', '5', '1'])
+  })
+
+  it('统计接口挂了_should显示三个「—」，而不是三个 0', async () => {
+    mockEmptyBackend() // /article/stats 返回 code 500
+
+    const wrapper = await mountHome()
+
+    // 「0」是一个确定的答案，访客会以为站点真的没有文章；「—」才是"暂时读不到"
+    expect(statNumbers(wrapper)).toEqual(['—', '—', '—'])
+  })
+})
