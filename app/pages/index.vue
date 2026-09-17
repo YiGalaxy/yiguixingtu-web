@@ -155,10 +155,25 @@ v-for="t in tags" :key="t.id" class="tagp"
         {{ isFiltered ? '没有找到相关文章，换个关键词、分类或标签试试' : '还没有发布任何文章' }}
       </div>
       <div v-else class="waterfall">
-        <a
-v-for="(a, i) in articles" :key="a.id" href="#" class="af glass"
-           :class="{ big: i === 0 }"
-           @click.prevent="goArticle(a.id)">
+        <!-- 【为什么这里必须是真链接，而不是 href="#" + @click.prevent】
+             这块原来写的是 `<a href="#" @click.prevent="goArticle(a.id)">`，
+             于是 SSR 出来的 HTML 里【没有任何一条指向 /article/N 的地址】。后果有两层：
+               · 爬虫在首页摸不到任何一篇文章。首页是全站最重要的内链枢纽，
+                 而归档页的注释里已经写明了"内链是 crawl 的入口"—— 唯独首页漏了。
+               · 用户不能中键新开标签页、不能右键复制链接、悬停也看不到目标地址。
+             对照：归档页 / 详情页的标签用的是真 NuxtLink，只有这里是个例外。
+
+             ⚠️【为什么要显式写 :prefetch="false"】
+               NuxtLink 默认会在链接进入视口时预取目标路由，而预取会真的跑一次
+               目标页的 setup → 打一次 GET /article/{id} —— 后端的浏览量计数
+               恰好就挂在这个读接口上（ArticleServiceImpl.getPublishedDetail
+               里有一次 Redis INCR）。
+               结果是"用户只是滚动了首页，一批文章的浏览量就被凭空计了一次"。
+               关掉预取即可；链接本身照常是真链接，SEO 与中键打开的收益都还在。
+               （根治办法是把计数从读接口里拆出去，那是另一件事。） -->
+        <NuxtLink
+v-for="(a, i) in articles" :key="a.id" :to="`/article/${a.id}`" :prefetch="false" class="af glass"
+           :class="{ big: i === 0 }">
           <div class="af-cover"><img :src="coverOf(a, i)" :alt="a.title" loading="lazy" ></div>
           <div class="af-body">
             <span class="af-tag">{{ a.categoryName || '未分类' }}</span>
@@ -168,7 +183,7 @@ v-for="(a, i) in articles" :key="a.id" href="#" class="af glass"
                  点它 = 按这个标签筛一批文章：请求参数与地址栏都由 useArticleFilter 管，
                  这里只负责把 id 交出去。
                  【@click.stop.prevent 两个修饰符都不能省】
-                   · .prevent：它外面那层 <a href="#"> 否则会跳一下
+                   · .prevent：它外面那层是卡片链接（NuxtLink），不拦的话会跳走
                    · .stop：不拦下来的话事件冒泡到卡片，会变成"点标签 = 打开文章"，
                      用户想看同标签的其他文章，结果进了当前这篇的详情页 -->
             <div v-if="a.tags && a.tags.length" class="af-tags">
@@ -182,7 +197,7 @@ v-for="t in a.tags" :key="t.id" class="tg"
               <span class="af-go">阅读全文 ↗</span>
             </div>
           </div>
-        </a>
+        </NuxtLink>
       </div>
 
       <div v-if="hasMore && !loading" class="w-more">
@@ -584,15 +599,21 @@ watch([keyword, categoryId, tagId], () => {
  * 服务端只渲染第一页，也不需要进 payload；追加语义用一次普通请求最直白。
  */
 const loadMore = async () => {
-  page.value += 1
+  // 【页码必须等请求成功之后再推进 —— 这是正确性问题，不是风格问题】
+  //   原来写的是 `page.value += 1` 打头，失败时直接 return、页码不回退。
+  //   于是失败之后用户再点一次，"下一页"就从 2 跳成了 3 ——
+  //   第 2 页那 12 篇文章【永远不会出现】，而按钮还在
+  //   （hasMore 是按"已加载条数 < 总数"算的，所以它照样显示），
+  //   也没有任何提示留下（useApi 的 toast 三秒就消失了）。
+  //   改成"先算下一页 → 成功了再提交页码"：失败时页码原地不动，重试就是重试。
+  const next = page.value + 1
   loadingMore.value = true
-  const res = await requestArticles(page.value)
+  const res = await requestArticles(next)
   loadingMore.value = false
   if (!res.ok) return
+  page.value = next
   moreArticles.value = [...moreArticles.value, ...(res.data?.records ?? [])]
 }
-
-const goArticle = (id) => navigateTo('/article/' + id)
 
 // 时间只显示到"天"，卡片上不需要精确到秒
 const fmtDate = (t) => (t ? String(t).replace('T', ' ').slice(0, 10) : '')

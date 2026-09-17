@@ -40,7 +40,7 @@ v-for="t in articleTags" :key="t.id" class="doc-tag"
           <div class="doc-meta">
             <span>{{ fmtDate(article.createTime) }}</span>
             <span class="dot">·</span>
-            <span>{{ article.viewCount }} 次浏览</span>
+            <span>{{ viewCount }} 次浏览</span>
             <span v-if="article.isTop === 1" class="doc-top">置顶</span>
           </div>
           <img v-if="article.cover" class="doc-cover" :src="article.cover" :alt="article.title" >
@@ -293,6 +293,42 @@ const { data: commentRes, pending: commentsPending } = commentsAsync
 
 const article = computed(() => (res.value?.ok ? res.value.data : null))
 const errMsg = computed(() => res.value?.message || '它可能已被删除，或者还只是一篇没发布的草稿。')
+
+/**
+ * ================================================================
+ *  浏览量：读详情【不再计数】，改为在这里单独上报一次
+ * ================================================================
+ * 【为什么计数从详情接口里拆出来】
+ *   拆之前 GET /article/{id} 自己会做一次 Redis INCR，于是那个接口
+ *   "读起来有写副作用"，后果有三条：
+ *     · 它永远不能被任何一层缓存（HTTP 缓存 / CDN / SWR）—— 一缓存，
+ *       浏览量就停在某个值上不再增长
+ *     · 爬虫抓一次 = 一次浏览
+ *     · NuxtLink 的预取（链接进入视口就抓目标页）也会被算成浏览
+ *   现在改成页面真正挂载之后再上报：只有人真的打开了这一页，才算一次。
+ *
+ * 【为什么需要这个 override，而不是直接改 article】
+ *   article 是个只读 computed（从 useAsyncData 的结果派生），改不了。
+ *   而且 SSR 渲染出来的那个数字本来就不含本次访问 —— 它是"库里的快照 +
+ *   还没落库的增量"。挂载后上报，拿服务端返回的最新总数覆盖显示，
+ *   用户看到的就是含自己这一下的准确值（和拆之前的行为一致）。
+ */
+const viewCountOverride = ref(null)
+const viewCount = computed(() => viewCountOverride.value ?? article.value?.viewCount ?? 0)
+
+onMounted(async () => {
+  // 只有真的拿到文章才上报：草稿和已删除的文章这里 article 是 null，
+  // 后端那边也会抛 404 —— 不该为一次不存在的访问计数
+  // （后端的顺序也是"先校验可见性、再计数"，两边一致）
+  if (!article.value) return
+
+  const res = await request(`/article/${route.params.id}/view`, { method: 'POST' })
+  if (res.ok && typeof res.data === 'number') {
+    // 上报失败就保持原样显示（少算这一次浏览），不打扰用户 ——
+    // 浏览量是锦上添花的数据，不该因为它让页面报错
+    viewCountOverride.value = res.data
+  }
+})
 
 /**
  * 这篇文章身上的标签。

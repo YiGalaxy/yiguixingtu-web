@@ -322,6 +322,29 @@ const load = async () => {
   const res = await request('/admin/music/list')
   loading.value = false
   musics.value = asList(res)
+
+  // 【顺带把前台的共享缓存也刷掉 —— 这一步不能省】
+  //   上面那个请求拉的是 /admin/music/list，只更新本组件的表格；
+  //   而前台的播放器列表读的是【另一个】useAsyncData
+  //   （key = 'music-tracks'，见 app/composables/useMusicTracks.ts），
+  //   它被 app.vue 的播放器和首页的卡片共用 —— 后台改了数据不会让它自己失效。
+  //
+  //   不刷的后果很具体：后台删了一首歌，前台播放器里还在、甚至还在播；
+  //   而删除确认框上明明写着"删掉之后这首歌会立刻从前台播放器列表里消失"
+  //   （见本文件 remove() 里的文案）—— 在客户端上那句话就是假的。
+  //   站点设置那边早就是这么处理的（SettingsPanel 里的
+  //   refreshNuxtData('site-settings')），这里是同一套做法。
+  //
+  //   【为什么放在 load() 里，而不是各个写操作后面】
+  //     所有"数据变了"的路径走的都是 load()（保存成功、删除成功、以及 404 自愈），
+  //     放这里等于一次覆盖全部，将来新增写操作也不会漏。
+  //     手动点"刷新"按钮时顺带刷一次前台，同样是对的。
+  try {
+    await refreshNuxtData('music-tracks')
+  } catch {
+    // 刷新失败只影响"前台立刻看到变化"：数据和后台表格都已经是对的了，
+    // 不该因为这个给用户报"保存失败"（下次整页刷新照样会跟上）
+  }
 }
 
 const openCreate = () => {

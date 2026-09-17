@@ -1074,6 +1074,19 @@ onMounted(async () => {
     if (res.ok) user.value = res.data
   }
 
+  // 接住后台路由守卫发来的"请弹登录框"信号。
+  // 守卫【不能】直接调 openLogin() —— 那个函数改的是服务端内存里的 useState，
+  // 而守卫返回的 navigateTo 在 SSR 时是一条 302，state 根本不会随响应传给浏览器
+  // （完整推导见 app/middleware/admin.ts 的注释）。
+  // 所以那边把意图写进 query，在这里消费：
+  if (route.query.login === '1') {
+    openLogin()
+    // 抹掉这个参数 —— 否则用户在这个地址上再刷新一次就会又弹一遍
+    const rest = { ...route.query }
+    delete rest.login
+    navigateTo({ path: route.path, query: rest }, { replace: true })
+  }
+
   // 绑定"切到后台就暂停背景视频"
   document.addEventListener('visibilitychange', onVisibilityChange)
 })

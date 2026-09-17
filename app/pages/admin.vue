@@ -278,6 +278,21 @@ const fetchCategories = async () => {
   const res = await request('/category/list')
   if (!res.ok) return
   categories.value = Array.isArray(res.data) ? res.data : []
+
+  // 【顺带刷掉外壳导航用的那份共享缓存 —— 这一步不能省】
+  //   上面只更新了本页面自己的 categories ref；而站点的导航栏（app.vue 的一部分）
+  //   读的是另一个 useAsyncData（key = 'category-list'，见 useCategoryList.ts），
+  //   两者是【同一份数据的两个视图】。
+  //   ⚠️ 关键在于导航栏是【常驻】的：后台内部改完分类不会让它重新挂载，
+  //      所以它那份不会自己更新 —— 表现是新分类在导航的「文章」下拉里看不到，
+  //      而上面那段"新建后立刻能选到"的论证只覆盖了本页面的 ref。
+  //   （同目录的 SettingsPanel 早就是这么做的：save() 里刷 'site-settings'。
+  //     这里沿用同一套，不另造机制。）
+  try {
+    await refreshNuxtData('category-list')
+  } catch {
+    // 只影响"导航立刻跟上"，分类本身已经存好了，不该因此报成保存失败
+  }
 }
 
 /** 带 loading 的刷新（切到分类菜单时用；面板里那个「刷新」按钮走 fetchCategories 也够） */
