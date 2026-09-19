@@ -41,6 +41,7 @@ const SETTINGS = {
   icpNumber: '京ICP备12345678号-1',
   policeNumber: '川公网安备 51090002000169号',
   copyright: '© 2026 亿轨星途',
+  noticeText: '欢迎来到亿轨星途 · 好，支持，威武，有希望了！',
   pageSize: 12,
   updateTime: '2026-09-11T16:00:00',
 }
@@ -72,7 +73,7 @@ const mountPanel = async () => {
 const noticeOf = (w) => w.find('.st-notice')
 
 describe('设置面板 —— 读取与回显', () => {
-  it('挂载时读一次 GET /setting，并把七个字段都填进表单', async () => {
+  it('挂载时读一次 GET /setting，并把八个字段都填进表单', async () => {
     const w = await mountPanel()
 
     expect(callsTo('/setting')).toHaveLength(1)
@@ -84,6 +85,8 @@ describe('设置面板 —— 读取与回显', () => {
     // 两类备案号是两个独立的输入框（它们是两个备案体系，不能合成一栏）
     expect(values).toContain('川公网安备 51090002000169号')
     expect(values).toContain('© 2026 亿轨星途')
+    // 首页滚动文字：它与公告是首页顶部的两块，各自一个输入框
+    expect(values).toContain('欢迎来到亿轨星途 · 好，支持，威武，有希望了！')
     // 公告是 textarea、每页条数是 el-input-number，值不在 input 的值列表里
     expect(w.find('textarea').element.value).toBe('今晚 22:00 例行维护')
     // ⚠️ el-input-number 的数字在 <input> 的 value 里，**不在**文本节点里 ——
@@ -119,6 +122,7 @@ describe('设置面板 —— 保存', () => {
       icpNumber: '京ICP备12345678号-1',
       policeNumber: '川公网安备 51090002000169号',
       copyright: '© 2026 亿轨星途',
+      noticeText: '欢迎来到亿轨星途 · 好，支持，威武，有希望了！',
       pageSize: 12,
     })
   })

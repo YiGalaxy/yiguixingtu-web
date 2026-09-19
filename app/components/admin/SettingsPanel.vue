@@ -52,6 +52,21 @@
       <span class="af-hint">只有一行的短通知（最多 500 字）。要写长内容应该去发一篇文章。</span>
     </div>
 
+    <div class="af-row">
+      <span class="ed-label">滚动文字</span>
+      <el-input
+        v-model="form.noticeText"
+        placeholder="留空则首页不显示那条滚动的跑马灯"
+        :maxlength="SETTING_LIMITS.noticeText" show-word-limit />
+      <!-- 【为什么要在提示里点破"它和上面那条公告不是一回事"】
+           两者都在首页顶部、都是"一句话"，站长很容易以为改了公告就等于改了跑马灯。
+           说清之后他能自己判断该动哪一栏（也只在这一处说一次）。 -->
+      <span class="af-hint">
+        首页顶部那条<span class="st-em">一直滚动</span>的跑马灯（与上面的公告条是两块，同时存在）。
+        前缀的「·」是分隔符，写的时候自己带上。
+      </span>
+    </div>
+
     <div class="af-row st-switch-row">
       <span class="ed-label">评论</span>
       <el-switch v-model="form.commentEnabled" active-text="开启" inactive-text="关闭" />
@@ -186,6 +201,7 @@ const form = reactive({
   icpNumber: '',
   policeNumber: '',
   copyright: '',
+  noticeText: '',
   pageSize: DEFAULT_SITE_SETTINGS.pageSize,
 })
 
@@ -202,6 +218,7 @@ const fillForm = (data) => {
   form.icpNumber = s.icpNumber ?? ''
   form.policeNumber = s.policeNumber ?? ''
   form.copyright = s.copyright ?? ''
+  form.noticeText = s.noticeText ?? ''
   form.pageSize = s.pageSize
   updatedAt.value = data?.updateTime ? formatDateTime(data.updateTime) : ''
 }
@@ -262,6 +279,7 @@ const save = async () => {
         icpNumber: form.icpNumber,
         policeNumber: form.policeNumber,
         copyright: form.copyright,
+        noticeText: form.noticeText,
         pageSize: form.pageSize,
       },
     })
@@ -321,6 +339,10 @@ onMounted(load)
 
 /* 开关 / 数字框那两行：控件不拉伸，说明单独占一行 */
 .st-switch-row { align-items: flex-start; }
+
+/* 「一直滚动」这四个字要跳出来 —— 它是这两栏唯一的区别，
+   而"公告也会动"是最容易想当然的一种误解（见那一栏的提示语）。 */
+.st-em { color: var(--accent); font-weight: 600; }
 .st-switch-row .af-hint { margin-top: 6px; }
 .st-switch-row .el-switch, .st-switch-row .el-input-number { flex: 0 0 auto; }
 

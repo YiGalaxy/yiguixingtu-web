@@ -77,6 +77,7 @@ export const SETTING_LIMITS = {
   icpNumber: 50,
   policeNumber: 50,
   copyright: 200,
+  noticeText: 200,
 } as const
 
 /** 归一化之后的站点设置：**形状永远完整**，用的人不用再判空 */
@@ -93,6 +94,12 @@ export interface SiteSettings {
   policeNumber: string | null
   /** 页脚版权：null 表示页脚不显示版权行 */
   copyright: string | null
+  /**
+   * 首页顶部那条【滚动的跑马灯】的文字：null 表示整块不渲染。
+   * 与 announcement（不滚动的公告条）是两块独立的东西，同时存在、互不影响 ——
+   * 所以它俩各自判空，不共用"要不要显示顶部那一块"的判断。
+   */
+  noticeText: string | null
   /** 每页文章条数：永远在 1~50 之间 */
   pageSize: number
 }
@@ -110,6 +117,10 @@ export const DEFAULT_SITE_SETTINGS: SiteSettings = {
   icpNumber: null,
   policeNumber: null,
   copyright: null,
+  // 【为什么默认 null、而不是把旧的那句硬编码文案搬过来】
+  //   它现在是一个【站长自己决定说不说】的字段：留空 = 不显示。
+  //   在这里塞一句默认文案的话，"清空它"就永远做不到（清空后又被这里补回来）。
+  noticeText: null,
   pageSize: DEFAULT_PAGE_SIZE,
 }
 
@@ -154,6 +165,7 @@ export const normalizeSiteSettings = (raw: unknown): SiteSettings => {
     icpNumber: text(src.icpNumber),
     policeNumber: text(src.policeNumber),
     copyright: text(src.copyright),
+    noticeText: text(src.noticeText),
     pageSize: toPageSize(src.pageSize),
   }
 }

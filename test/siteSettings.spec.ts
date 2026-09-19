@@ -40,6 +40,7 @@ describe('normalizeSiteSettings —— 形状永远完整', () => {
       icpNumber: '京ICP备12345678号-1',
       policeNumber: '川公网安备 51090002000169号',
       copyright: '© 2026 某某',
+      noticeText: '欢迎来到某某博客',
       pageSize: 20,
     })
     expect(s).toEqual({
@@ -49,6 +50,7 @@ describe('normalizeSiteSettings —— 形状永远完整', () => {
       icpNumber: '京ICP备12345678号-1',
       policeNumber: '川公网安备 51090002000169号',
       copyright: '© 2026 某某',
+      noticeText: '欢迎来到某某博客',
       pageSize: 20,
     })
   })
@@ -132,14 +134,27 @@ describe('站点设置的常量', () => {
     expect(hasIcp(DEFAULT_SITE_SETTINGS)).toBe(false)
   })
 
-  it('表单长度上限与后端 DTO 的注解一致（50 / 500 / 50 / 50 / 200）', () => {
+  it('表单长度上限与后端 DTO 的注解一致（50 / 500 / 50 / 50 / 200 / 200）', () => {
     expect(SETTING_LIMITS).toEqual({
       siteName: 50,
       announcement: 500,
       icpNumber: 50,
       policeNumber: 50,
       copyright: 200,
+      noticeText: 200,
     })
+  })
+
+  it('首页滚动文字：留空是 null（不是空串）—— 它决定那一条跑马灯渲不渲染', () => {
+    // 【为什么这条要紧】它是"清空这个字段"能不能生效的分界：
+    //   归一化若把空串留下，v-if="settings.noticeText" 会因为空串是假值而恰好也能隐藏，
+    //   但语义就变成了"空串 = 没有"，与站内其它可选字段（null = 没有）不一致。
+    expect(normalizeSiteSettings({ noticeText: '  ' }).noticeText).toBeNull()
+    expect(normalizeSiteSettings({ noticeText: '欢迎来到某某博客' }).noticeText).toBe('欢迎来到某某博客')
+    expect(normalizeSiteSettings({}).noticeText).toBeNull()
+    // 它和公告【各自独立】：一个为 null 不影响另一个（两块同时存在于首页顶部）
+    expect(normalizeSiteSettings({ announcement: '今晚维护' }).noticeText).toBeNull()
+    expect(normalizeSiteSettings({ noticeText: '滚动' }).announcement).toBeNull()
   })
 })
 

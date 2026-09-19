@@ -293,8 +293,14 @@ describe('首页 · 内容真实性', () => {
 //   · 填了 → 顶部出现，而且是**纯文本插值**（它由管理员填写，仍按文本渲染）
 //   · 留空 → **整块不渲染**，首页外观与"上线这个功能之前"完全一样 ——
 //     这正是迁移里把公告留空的用意
-//   公告条与原来那条欢迎跑马灯是**两块**：跑马灯是站点自己的装饰文案，
+//   公告条与那条滚动跑马灯是**两块**：跑马灯是站点自己的装饰文案，
 //   公告是会变的通知。合并的话，一发公告欢迎语就没了（见 index.vue 里的说明）。
+//
+// 【跑马灯那两条的要点（2026-09 起）】
+//   那句文案原来是**硬编码在 index.vue 里**的，现在搬到了站点设置
+//   （site_setting.notice_text）。于是它多出了一种以前不可能的状态：留空。
+//   留空 = 整块不渲染（与公告同一套语义），而不是"回落到某句默认文案"——
+//   否则站长永远清不掉它。这也是迁移脚本刻意不给种子值的那个决定。
 // =====================================================================
 
 describe('首页 · 站点公告与每页条数', () => {
@@ -304,6 +310,7 @@ describe('首页 · 站点公告与每页条数', () => {
     commentEnabled: true,
     icpNumber: null,
     copyright: null,
+    noticeText: null,
     pageSize: 12,
   }
 
@@ -324,22 +331,47 @@ describe('首页 · 站点公告与每页条数', () => {
     return call?.[1]?.params?.size
   }
 
-  it('公告填了_首页顶部出现公告条，内容是纯文本', async () => {
-    withSettings({ ...BASE_SETTINGS, announcement: '今晚 22:00 例行维护' })
+  it('公告与滚动文字都填了_顶部两块都在，内容都是纯文本', async () => {
+    withSettings({
+      ...BASE_SETTINGS,
+      announcement: '今晚 22:00 例行维护',
+      noticeText: '欢迎来到测试站点',
+    })
     const wrapper = await mountHome()
 
     expect(wrapper.find('.announce').exists()).toBe(true)
     expect(wrapper.find('.announce').text()).toContain('今晚 22:00 例行维护')
-    // 原有的欢迎跑马灯照旧在（两块，不是同一块）
+    // 跑马灯是**另一块**，与公告互不影响（两者同时存在于首页顶部）
     expect(wrapper.find('.notice').exists()).toBe(true)
+    expect(wrapper.find('.notice').text()).toContain('欢迎来到测试站点')
   })
 
-  it('⚠️ 公告留空_整块不渲染（首页外观与"上线这个功能之前"一样）', async () => {
-    withSettings({ ...BASE_SETTINGS, announcement: '' })
+  it('⚠️ 公告留空_公告那块不渲染，但不影响滚动文字（两块各自判空）', async () => {
+    withSettings({ ...BASE_SETTINGS, announcement: '', noticeText: '欢迎来到测试站点' })
     const wrapper = await mountHome()
 
     expect(wrapper.find('.announce').exists()).toBe(false)
     expect(wrapper.find('.notice').exists()).toBe(true)
+  })
+
+  it('⚠️ 滚动文字留空_跑马灯整块不渲染（清空要真的能清掉，不能回落到某句默认文案）', async () => {
+    withSettings({ ...BASE_SETTINGS, noticeText: '' })
+    const wrapper = await mountHome()
+
+    expect(wrapper.find('.notice').exists()).toBe(false)
+  })
+
+  it('滚动文字_一个文案渲染两遍（无缝循环靠的是两份内容首尾相接）', async () => {
+    // 【为什么这条要断言份数】CSS 是把整条轨道从 translateX(0) 平移到 -50%，
+    //   所以轨道长度必须是内容的两倍：第一份移出视野时第二份正好接上。
+    //   只渲染一份的话，动画仍然会跑，但滚到底会空一段再跳回开头 ——
+    //   那种瑕疵在静态断言里抓不到，只能抓住"是不是两份"这个成因。
+    withSettings({ ...BASE_SETTINGS, noticeText: '欢迎来到测试站点' })
+    const wrapper = await mountHome()
+
+    const spans = wrapper.findAll('.notice-track span')
+    expect(spans).toHaveLength(2)
+    expect(spans[0].text()).toBe(spans[1].text())
   })
 
   it('每页条数_请求列表时带上设置里的 size（不是写死的 12）', async () => {
