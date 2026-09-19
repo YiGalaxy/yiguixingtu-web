@@ -60,7 +60,11 @@ v-for="t in articleTags" :key="t.id" class="doc-tag"
         <section v-if="attachments.length" class="doc-attach">
           <h2 class="doc-attach-title">附件（{{ attachments.length }}）</h2>
           <ul class="doc-attach-list">
-            <li v-for="item in attachments" :key="item.url">
+            <!-- 【key 为什么要带上下标】2026-09 上传改成内容寻址之后，
+                 同一个文件可以被挂两次（拿到的是同一个 url），
+                 只用 url 当 key 会出现重复 key 警告与错行复用。
+                 与后台弹窗里那一处保持一致（见 ArticleEditDialog.vue）。 -->
+            <li v-for="(item, index) in attachments" :key="`${item.url}-${index}`">
               <a class="doc-attach-item" :href="item.url" :download="item.name" target="_blank" rel="noopener">
                 <!-- 【为什么要有 title】文件名上限 100 字，而这一行是 ellipsis 截断的 ——
                      没有 title 的话，被截断之后读者**没有任何办法**看到全名

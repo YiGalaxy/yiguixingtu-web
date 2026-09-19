@@ -367,6 +367,71 @@ describe('文章附件 + 编辑器内插图', () => {
     expect(dialogOf(wrapper).vm.form.attachments).toEqual([ATTACHMENTS[0], ATTACHMENTS[2]])
   })
 
+  /**
+   * 【这个场景是 2026-09 才存在的】后端上传改成内容寻址（同一份内容只存一份文件，
+   * 文件名是内容的 SHA-256）之后，**同一个文件被挂两次会拿到完全相同的 url**。
+   * 改造前每次上传都生成新 UUID，url 天然唯一，所以这条路径以前根本不存在。
+   *
+   * 它危险的地方是"完全静默"：两处清单的 `:key` 原来都是 `item.url`，
+   * 重复 key 会让 Vue 复用错 DOM 行 —— 点「移除」删的是数组里的那一项，
+   * 界面上却可能只少了一处、或者少错了那一行。Vue 只会在控制台警告，
+   * 用户看到的是"点了移除，清单变得不对"。
+   */
+  const DUPLICATED_ATTACHMENTS = [
+    { name: '同一份资料（第一次挂）.pdf', url: '/uploads/attachment/2f/2f8e.pdf', size: 1024 },
+    { name: '另一份资料.docx', url: '/uploads/attachment/ab/other.docx', size: 2048 },
+    { name: '同一份资料（第二次挂）.pdf', url: '/uploads/attachment/2f/2f8e.pdf', size: 1024 },
+  ]
+
+  /**
+   * ⚠️ 【这条用例能测到什么、测不到什么 —— 核对过，别高估它】
+   *
+   *   能测到：同一个 url 出现两次时，清单照样渲染出两行（不会被"按 url 去重"的实现
+   *   悄悄合并掉一行），而且点某一行的「移除」删的是【那一行】对应的数组项。
+   *
+   *   **测不到**：`v-for` 的 `:key` 有没有重复。
+   *   两个方向都试过：把 `:key` 从 `${item.url}-${index}` 改回 `item.url`，
+   *   下面这些断言**仍然是绿的**；连"盯着 console.warn 找 Vue 的重复 key 警告"
+   *   也抓不到 —— Vue 的重复 key 检查只在 patchKeyedChildren 的"未知序列"那条
+   *   分支里跑，而"删掉中间一项"走的是"公共序列 + 卸载"那条，压根不会触发检查。
+   *
+   *   所以 `:key` 那一行是**预防性**改动（重复 key 是 Vue 的已知反模式，
+   *   在重排、或者更复杂的 patch 路径下会复用错 DOM 节点），
+   *   不是"修好了一个已经观察到的 bug"。这条用例守的是它上面那件事 ——
+   *   即"同一份文件挂两次"这个**行为**本身（去重之后它才成为可能）。
+   */
+  it('同一个文件挂了两次_should各自成行，移除中间那条不会连累另外两条', async () => {
+    mockBackend({
+      '/admin/article/12': body({ ...DETAIL_ARTICLE, attachments: DUPLICATED_ATTACHMENTS }),
+    })
+    const wrapper = await mountAdmin()
+    await openEdit(wrapper)
+
+    expect(attachRows(wrapper)).toHaveLength(3)
+    expect(dialogNames(wrapper)).toEqual(DUPLICATED_ATTACHMENTS.map(a => a.name))
+
+    // 只移除中间那一条（它的 url 与第三条相同，所以"按 url 过滤"的实现会把两条一起删掉）
+    const removeBtn = attachRows(wrapper)[1].findAll('.el-button').find(b => b.text() === '移除')
+    await removeBtn.trigger('click')
+    await flushPromises()
+
+    expect(attachRows(wrapper)).toHaveLength(2)
+    expect(dialogNames(wrapper)).toEqual(['同一份资料（第一次挂）.pdf', '同一份资料（第二次挂）.pdf'])
+    expect(dialogOf(wrapper).vm.form.attachments).toEqual([DUPLICATED_ATTACHMENTS[0], DUPLICATED_ATTACHMENTS[2]])
+  })
+
+  it('同一个文件挂了两次_文章页也要把两行都渲染出来（不是去重成一行）', async () => {
+    mockBackend({
+      '/article/12': body({ ...DETAIL_ARTICLE, attachments: DUPLICATED_ATTACHMENTS }),
+    })
+    const wrapper = await mountArticle()
+
+    // 后端把两条都返回了，前端就该显示两条 —— 界面上"看起来一样"的两行
+    // 是站长自己挂的两次，前端没有资格替他合并
+    expect(wrapper.findAll('.doc-attach-list li')).toHaveLength(3)
+    expect(pageNames(wrapper)).toEqual(DUPLICATED_ATTACHMENTS.map(a => a.name))
+  })
+
   it('保存_should把界面上的附件清单原样提交（顺序与每一项的内容都一致）', async () => {
     const wrapper = await mountAdmin()
     await openEdit(wrapper)

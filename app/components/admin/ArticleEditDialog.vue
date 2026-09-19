@@ -113,8 +113,12 @@
              新建文章时它还没有 id，上传即落库会产生一条挂不到任何文章的孤儿记录；
              所以这里与标签（tagIds）同一个思路：先攒在表单里，保存文章时整体提交，
              后端按提交内容【整体替换】这篇文章的附件。 -->
+        <!-- 【key 为什么要带上 index】2026-09 上传改成内容寻址之后，
+             同一个文件被选两次会拿到【完全相同的 url】—— 只用 url 当 key
+             会出现重复 key：Vue 会警告，而且列表 patch 时可能复用错行
+             （点"移除"删的是数组里的那一项，DOM 却只更新了一处）。 -->
         <ul v-if="form.attachments.length" class="af-attach-list">
-          <li v-for="(item, index) in form.attachments" :key="item.url">
+          <li v-for="(item, index) in form.attachments" :key="`${item.url}-${index}`">
             <span class="af-attach-name" :title="item.name">{{ item.name }}</span>
             <span class="af-attach-size">{{ formatFileSize(item.size) }}</span>
             <el-button link type="danger" @click="removeAttachment(index)">移除</el-button>
