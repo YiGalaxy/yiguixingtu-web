@@ -125,10 +125,19 @@ v-for="t in articleTags" :key="t.id" class="doc-tag"
           <div class="cm-form-title">发表评论</div>
 
           <div class="cm-fields">
+            <!-- 【登录之后这一栏变成只读】2026-09 起，登录用户的昵称由后端从账号里取，
+                 表单里填什么都会被忽略。所以这里不让改 —— 让用户改一个"改了也没用"
+                 的输入框，比不让改更让人困惑。
+                 后端那边是**同一套规则的另一端**：它真的会忽略表单里的昵称
+                 （不是"前端不给改所以安全了"—— 直接调接口照样能用账号身份发言）。 -->
             <label class="cm-field">
-              <span class="cm-label">昵称 <i>*</i></span>
+              <span class="cm-label">
+                昵称 <i v-if="!isLoggedIn">*</i>
+                <em v-else class="cm-account">用你的账号昵称</em>
+              </span>
               <input
 v-model="commentForm.nickname" type="text"
+                     :readonly="isLoggedIn" :class="{ 'is-locked': isLoggedIn }"
                      :maxlength="COMMENT_LIMITS.nickname" placeholder="怎么称呼你" >
             </label>
             <label class="cm-field">
@@ -164,7 +173,10 @@ v-model="commentForm.content" class="cm-textarea"
                然后很可能再发一遍 —— 于是同一条评论进了两次审核队列。
                所以这里三件事一起做：① 一句话说明 ② 把刚提交的那条显示出来
                ③ 挂上「待审核」标记，并说明它为什么不在上面的列表里。 -->
-          <p v-if="commentDone" class="cm-alert ok">
+          <p v-if="commentPublished" class="cm-alert ok">
+            评论已发布，已出现在上面的评论列表里。
+          </p>
+          <p v-else-if="commentDone" class="cm-alert ok">
             {{ COMMENT_PENDING_NOTICE }} —— 站长审核通过后才会出现在上面的评论列表里。
           </p>
         </form>
@@ -396,13 +408,41 @@ const commentForm = reactive({ nickname: '', email: '', content: '' })
 const commentError = ref('')
 /** 提交成功的提示：必须明确告诉用户"在等审核"，否则他会以为没发出去 */
 const commentDone = ref(false)
+/** 管理员那条路径的提示：他的评论是**直接发布**的，文案完全不同（见 submitComment） */
+const commentPublished = ref(false)
 const commentSubmitting = ref(false)
 /** 本次会话里提交成功的评论（都是待审核状态，单独显示，不混进公开列表） */
 const myPending = ref([])
 
+// ---------- 登录态：决定昵称从哪来（与后端同一套规则） ----------
+/**
+ * 【为什么要在这里读登录态】2026-09 起，注册用户与管理员发评论时，
+ *   昵称由后端从账号里取，表单里那个字段会被忽略。前端照着同一条规则把这一栏锁上，
+ *   用户才不会白填一个"填了也没用"的输入框。
+ *
+ * ⚠️ 【它不是安全边界】真正的规则在后端（CommentServiceImpl.create 第 3 步）：
+ *   直接调接口、或者把只读属性改掉，后端照样以账号身份记录这条评论。
+ *   这里只是让界面和规则一致。
+ */
+const { user } = useAuth()
+const isLoggedIn = computed(() => !!user.value)
+
+/**
+ * 登录后把账号昵称填进表单（只读，见模板）。
+ *
+ * 【为什么要 watch 而不是挂载时赋一次】`user` 是客户端异步取的
+ *   （app.vue 挂载后打 /auth/me 才填上），SSR 时它还是 null。
+ *   只在 setup 里赋一次的话，刷新页面进来的登录用户会看到一个空的昵称框。
+ *   用 immediate 让"已经登录着"的情况也能立刻生效。
+ */
+watch(user, (u) => {
+  if (u) commentForm.nickname = u.nickname || u.username || ''
+}, { immediate: true })
+
 const submitComment = async () => {
   commentError.value = ''
   commentDone.value = false
+  commentPublished.value = false
 
   // 先跑本地校验（纯函数，有单测）：能当场说清的错就不必走一次网络
   const problem = validateCommentForm(commentForm)
@@ -424,12 +464,21 @@ const submitComment = async () => {
   commentSubmitting.value = false
 
   if (res.ok) {
-    // 【为什么把返回的这条放进 myPending 而不是刷新列表】
-    //   刚提交的评论 status=0（待审核），而公开列表接口只返回已通过的 ——
-    //   刷新列表也看不到它。所以直接把接口返回的这条显示出来（它带着 status:0），
-    //   用户才看得见"我的话确实提交成功了"。
-    myPending.value = [res.data, ...myPending.value]
-    commentDone.value = true
+    // 【成功之后分两条路，看后端给回来的 status】
+    //   · 0 待审核（游客与注册用户）：公开列表接口只返回已通过的，刷新也看不到它，
+    //     所以直接把接口返回的这一条显示在"仅你可见"那块里 ——
+    //     否则用户看到的就是"我发的评论没了"，然后很可能再发一遍。
+    //   · 1 已发布（管理员）：它【现在就在】公开列表里，刷新一下就能看到，
+    //     再往"仅你可见"里塞一条反而会让人以为"我的评论只有我自己看得见"。
+    //     文案也要跟着换（见模板里 commentPublished 那一段）。
+    if (res.data?.status === COMMENT_STATUS.APPROVED) {
+      commentPublished.value = true
+      // 刷新公开列表，让刚发的那条出现（不刷新的话要手动重载页面才看得到）
+      await commentsAsync.refresh()
+    } else {
+      myPending.value = [res.data, ...myPending.value]
+      commentDone.value = true
+    }
     // 只清内容，昵称与邮箱留着：同一个人常常连着说几句
     commentForm.content = ''
     return
@@ -649,6 +698,11 @@ const fmtTime = (t) => (t ? String(t).replace('T', ' ').slice(0, 16) : '')
 }
 .cm-field input:focus, .cm-textarea:focus { border-color: rgba(242,193,78,.6); }
 .cm-field input::placeholder, .cm-textarea::placeholder { color: var(--muted); }
+/* 登录后昵称栏变成只读（值来自账号）。
+   灰一点 + 光标改成默认箭头：不然鼠标移上去是个"I"形光标，
+   看着像能编辑、点下去却打不出字 —— 那种"看起来能改其实不能"最招人试。 */
+.cm-field input.is-locked { opacity: .75; cursor: default; }
+.cm-label .cm-account { color: var(--accent); font-size: 12px; }
 /* resize: vertical —— 只让用户往高里拖，横向拖会把 860px 的排版拖坏 */
 .cm-textarea { margin-top: 12px; width: 100%; resize: vertical; line-height: 1.7; box-sizing: border-box; }
 

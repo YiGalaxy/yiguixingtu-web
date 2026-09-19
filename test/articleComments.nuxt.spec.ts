@@ -28,8 +28,19 @@ import { flushPromises, enableAutoUnmount } from '@vue/test-utils'
 //   所以假实现要 reject 一个带 status / data 的异常对象。
 // =====================================================================
 
-const { fetchMock } = vi.hoisted(() => ({ fetchMock: vi.fn() }))
+const { fetchMock, authState } = vi.hoisted(() => ({
+  fetchMock: vi.fn(),
+  // 「当前登录用户」。默认是 null（游客）—— 与真实站点上"大多数访客没登录"一致。
+  // 需要登录场景的用例在【挂载之前】把它设好（页面 setup 时读一次并预填昵称）
+  authState: { user: null },
+}))
 mockNuxtImport('$fetch', () => fetchMock)
+// useAuth 换成只读的假实现：本文件只关心"页面拿到的是谁"，
+// 而真的 useAuth 会去读 cookie、打登录接口 —— 那属于它自己的用例（useAuth.nuxt.spec.ts）
+mockNuxtImport('useAuth', async () => {
+  const { computed } = await import('vue')
+  return () => ({ user: computed(() => authState.user) })
+})
 
 // 正文渲染交给 md-editor-v3，这里换成空组件：本组只关心评论区
 // （理由与 seo.nuxt.spec.ts 相同，顺带避开那条与本次改动无关的 prop 类型警告）
@@ -115,6 +126,8 @@ const submit = async (wrapper) => {
 describe('文章详情 · 评论区', () => {
   beforeEach(() => {
     fetchMock.mockReset()
+    // 默认游客：不复位的话，上一个用例设的"已登录"会漏到下一个用例
+    authState.user = null
     mockBackend()
   })
 
@@ -265,6 +278,82 @@ describe('文章详情 · 评论区', () => {
     // ④ 内容清空、昵称留着（同一个人常常连着说几句）
     expect(wrapper.find('.cm-textarea').element.value).toBe('')
     expect(wrapper.findAll('.cm-field input')[0].element.value).toBe('路过的读者')
+  })
+
+  // ---------------------------------------------------------------
+  //  登录态：注册用户与管理员走的是【另一条路径】（2026-09 新增）
+  //
+  //  后端规则：登录用户的昵称取账号昵称（表单里那个忽略），管理员直接发布。
+  //  前端要跟着做两件事：把昵称栏锁上、按返回的 status 给不同的话。
+  // ---------------------------------------------------------------
+
+  it('已登录_昵称自动填成账号昵称且不让改（改一个"改了也没用"的框比不让改更让人困惑）', async () => {
+    authState.user = { id: 1, username: 'admin', nickname: '站长小亿', role: 'ADMIN' }
+
+    const wrapper = await mountArticle()
+
+    const nicknameInput = wrapper.findAll('.cm-field input')[0]
+    expect(nicknameInput.element.value).toBe('站长小亿')
+    // readonly 而不是 disabled：disabled 的输入框在表单序列化与可访问性上都更差
+    expect(nicknameInput.attributes('readonly')).toBeDefined()
+    expect(nicknameInput.classes()).toContain('is-locked')
+    // 必填星号也要跟着去掉（这一栏已经不是用户要填的东西了）
+    expect(wrapper.find('.cm-label i').exists()).toBe(false)
+    expect(wrapper.find('.cm-account').text()).toContain('账号昵称')
+  })
+
+  it('游客_昵称栏照旧可以编辑（默认路径不能被上面那条改动带偏）', async () => {
+    const wrapper = await mountArticle()
+
+    const nicknameInput = wrapper.findAll('.cm-field input')[0]
+    expect(nicknameInput.element.value).toBe('')
+    expect(nicknameInput.attributes('readonly')).toBeUndefined()
+    expect(wrapper.find('.cm-label i').exists()).toBe(true)
+  })
+
+  it('★ 管理员发评论_后端直接发布：提示「已发布」并刷新公开列表，不塞进「仅你可见」', async () => {
+    authState.user = { id: 1, username: 'admin', nickname: '站长小亿', role: 'ADMIN' }
+    mockBackend({
+      '/comment': body({
+        id: 302, articleId: 12, nickname: '站长小亿', content: '谢谢支持',
+        // 管理员那条是【已通过】的，前台立刻可见
+        status: 1, createTime: '2026-09-10T14:00:00',
+      }),
+    })
+    const wrapper = await mountArticle()
+    const listCallsBefore = fetchMock.mock.calls.filter(c => pathOf(c[0]) === '/comment/list').length
+
+    await wrapper.find('.cm-textarea').setValue('谢谢支持')
+    await submit(wrapper)
+
+    // ① 文案必须是"已发布"：管理员看到"等待审核"会以为自己的回复还要等
+    const alert = wrapper.find('.cm-alert.ok')
+    expect(alert.text()).toContain('已发布')
+    expect(alert.text()).not.toContain('等待审核')
+
+    // ② 【不许】塞进「仅你可见」——它已经在公开列表里了，
+    //    再显示一遍会让人以为"我的评论只有我自己看得见"
+    expect(wrapper.find('.cm-mine').exists()).toBe(false)
+
+    // ③ 列表被重新拉了一次（不刷新的话，要手动重载页面才看得到自己刚发的）
+    const listCallsAfter = fetchMock.mock.calls.filter(c => pathOf(c[0]) === '/comment/list').length
+    expect(listCallsAfter).toBe(listCallsBefore + 1)
+  })
+
+  it('注册用户发评论_仍然走待审核（只有管理员免审，别把这条放宽到所有登录用户）', async () => {
+    authState.user = { id: 7, username: 'reader', nickname: '老读者', role: 'GUEST' }
+    mockBackend({
+      '/comment': body({
+        id: 303, articleId: 12, nickname: '老读者', content: '受教了',
+        status: 0, createTime: '2026-09-10T15:00:00',
+      }),
+    })
+    const wrapper = await mountArticle()
+    await wrapper.find('.cm-textarea').setValue('受教了')
+    await submit(wrapper)
+
+    expect(wrapper.find('.cm-alert.ok').text()).toContain('等待审核')
+    expect(wrapper.find('.cm-mine').text()).toContain('受教了')
   })
 
   it('提交成功的响应里 createTime 是 null（联调实测就是这个形状）_should显示「刚刚」而不是空着一块', async () => {

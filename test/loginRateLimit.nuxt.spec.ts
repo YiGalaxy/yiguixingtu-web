@@ -103,6 +103,18 @@ const clickLogin = async (wrapper) => {
   await flushPromises()
 }
 
+/**
+ * 数一数【登录请求】发了几次。
+ *
+ * 【为什么不直接 fetchMock.toHaveBeenCalledTimes】整个外壳挂载时还会打别的接口
+ *   （/auth/me、以及 2026-09 加的访问上报 /visit），那些与"登录有没有重复发"
+ *   毫无关系。按总数断言的话，任何一次"给外壳加一个后台请求"都会让这条用例变红，
+ *   而它其实什么都没坏 —— 那种红最难判断（看起来像登录坏了，实际不是）。
+ *   按路径数才是这条用例真正要问的问题。
+ */
+const loginCallCount = () =>
+  fetchMock.mock.calls.filter(call => String(call[0]).includes('/auth/login')).length
+
 describe('登录被限流 · 按钮冷却', () => {
   beforeEach(() => {
     fetchMock.mockReset()
@@ -156,14 +168,14 @@ describe('登录被限流 · 按钮冷却', () => {
     await openLoginDialog(wrapper)
     await fillLoginForm(wrapper, 'admin', '123456')
     await clickLogin(wrapper)
-    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(loginCallCount()).toBe(1)
 
     await clickLogin(wrapper)
     await clickLogin(wrapper)
 
     // disabled 的按钮点不动，所以请求数不变
     expect(loginButtonEl(wrapper).disabled).toBe(true)
-    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(loginCallCount()).toBe(1)
   })
 
   it('冷却期间按回车提交_should 被拦下并提示还要等多久（回车绕得过 disabled）', async () => {
@@ -179,7 +191,7 @@ describe('登录被限流 · 按钮冷却', () => {
     await flushPromises()
 
     expect(warningSpy).toHaveBeenCalledWith(expect.stringContaining('秒后再试'))
-    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(loginCallCount()).toBe(1)
   })
 
   it('倒计时结束之后_should 按钮恢复可点（冷却不是永久锁死）', async () => {

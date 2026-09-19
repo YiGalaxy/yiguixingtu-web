@@ -361,17 +361,18 @@ describe('首页 · 站点公告与每页条数', () => {
     expect(wrapper.find('.notice').exists()).toBe(false)
   })
 
-  it('滚动文字_一个文案渲染两遍（无缝循环靠的是两份内容首尾相接）', async () => {
-    // 【为什么这条要断言份数】CSS 是把整条轨道从 translateX(0) 平移到 -50%，
-    //   所以轨道长度必须是内容的两倍：第一份移出视野时第二份正好接上。
-    //   只渲染一份的话，动画仍然会跑，但滚到底会空一段再跳回开头 ——
-    //   那种瑕疵在静态断言里抓不到，只能抓住"是不是两份"这个成因。
+  it('滚动文字_只渲染一份（跑完全程靠的是实测位移，不是两份首尾相接）', async () => {
+    // 【为什么只渲染一份】另一条路是"复制两份、平移到 -50%"那种无缝循环，
+    //   但它要求"一份的宽度 ≥ 容器宽度"，否则接缝处会露出空白。
+    //   而这里的文案是站长自己填的，四个字也可能 —— 所以改成单份 + 实测距离。
+    //   位移与时长的计算在 app/utils/marquee.ts（有单独的单测），
+    //   这里只钉住"页面上是几份、内容对不对"。
     withSettings({ ...BASE_SETTINGS, noticeText: '欢迎来到测试站点' })
     const wrapper = await mountHome()
 
-    const spans = wrapper.findAll('.notice-track span')
-    expect(spans).toHaveLength(2)
-    expect(spans[0].text()).toBe(spans[1].text())
+    const track = wrapper.findAll('.notice-track')
+    expect(track).toHaveLength(1)
+    expect(track[0].text()).toBe('欢迎来到测试站点')
   })
 
   it('每页条数_请求列表时带上设置里的 size（不是写死的 12）', async () => {

@@ -135,17 +135,18 @@ v-for="t in tags" :key="t.id" class="tagp"
          【2026-09 之前这句话是硬编码在这一行里的】站长想改一个字都得改代码、
          重新构建前端镜像 —— 而它恰恰是首页上最可能被改的文案。现在它与其他文案
          同一个待遇：后台改完即时生效。
-         【为什么同一个文案要写两遍】这是无缝循环的写法：整条轨道长度是内容的
-         两倍，动画从 translateX(0) 平移到 translateX(-50%) —— 第一份移出视野时
-         第二份正好接上，所以看不出"跳回去"的那一瞬间。只写一份的话，滚到底会
-         空一段再重来。⚠️ 两处必须一模一样，否则接缝处会露馅。
+         【动效是"从右边进来、走到左边出去、再从右边进来"】
+           一整句跑完一整程，而不是那种"永远有字在屏幕上流"的无缝循环。
+           距离是按【容器宽 + 文字宽】算的（见 measureNotice）：文字必须真的
+           完全走出左边才算跑完，所以两个宽度都得知道 —— 写死一个百分比的话，
+           文案短时右边会空出一段、文案长时又会在左边留个尾巴没走完。
+         【为什么只渲染一份】两份那种写法（各占 50%，平移 -50% 无缝衔接）
+           要求"一份的宽度 ≥ 容器宽度"，否则衔接处会露出空白。而这里的文案
+           是站长自己填的，长短不可控（四个字也可能）—— 所以改成单份 + 实测距离。
          【为什么它不做成纯文本插值以外的任何东西】与公告同一条理由：按文本渲染，
          少一类注入面。 -->
     <div v-if="settings.noticeText" class="notice glass">
-      <div class="notice-track">
-        <span>{{ settings.noticeText }}</span>
-        <span>{{ settings.noticeText }}</span>
-      </div>
+      <div ref="noticeTrack" class="notice-track" :style="noticeStyle">{{ settings.noticeText }}</div>
     </div>
 
     <!-- 文章瀑布流（带封面） -->
@@ -441,6 +442,48 @@ const siteStats = computed(() => (statsResult.value?.ok
  *   这里只是拿到它（外加那段 getCachedData 保证服务端也只打一次，见那个组合式函数的注释）。
  */
 const { settings, ready: settingsReady } = useSiteSettings()
+
+// ---------------------------------------------------------------------
+//  滚动跑马灯：实测距离，让那句文案真的"跑完全程"
+// ---------------------------------------------------------------------
+/**
+ * 跑马灯的位移与时长按【实测宽度】算，而不是写死百分比。
+ *
+ * 【为什么必须实测】起点要"完全在容器右边之外"、终点要"完全在左边之外"，
+ *   而这两个位置都取决于**文字有多宽** —— 而文字是站长自己填的：
+ *     · 只写四个字（约 60px）时，用 100% 那种百分比写法，它会从容器左边缘开始
+ *       （一上来就在屏幕上），根本没有"从右边进来"这一段
+ *     · 写满 200 字（约 3000px，比容器宽三倍）时，终点又会在左边留下一个尾巴
+ *   所以两个量都得量：容器宽度、以及这一行的文字宽度。
+ *
+ * 【为什么时长跟着距离走】速度保持恒定（约 90px/s）。写死时长的话，
+ *   文案一长就变成飞快掠过、一短就慢得像卡住 —— 而这句文案的长度由站长决定。
+ */
+const noticeTrack = ref(null)
+const noticeStyle = ref({})
+
+const measureNotice = () => {
+  const track = noticeTrack.value
+  // 文案留空时这一块整个不渲染（v-if），所以拿不到元素是正常的
+  if (!track) return
+  const box = track.parentElement
+  if (!box) return
+
+  // 计算规则在 utils/marquee.ts 里（纯函数、有单测）——
+  // 这里只负责"量"，不负责"算"
+  const style = noticeMarqueeStyle(box.clientWidth, track.scrollWidth)
+  if (style) noticeStyle.value = style
+}
+
+// 文案改了要重新量（后台改完即时生效，首页这一块会跟着变）
+watch(() => settings.value.noticeText, () => nextTick(measureNotice))
+
+// 窗口变宽变窄时容器宽度也变了，重量的时机与"首屏之后再量一次"合并处理
+onMounted(() => {
+  measureNotice()
+  window.addEventListener('resize', measureNotice)
+})
+onBeforeUnmount(() => window.removeEventListener('resize', measureNotice))
 
 /**
  * ⚠️ 【为什么要在这里【等】站点设置到位，而不是"先发请求、到了再重发"】
@@ -770,9 +813,29 @@ useSeoMetaFor(() => ({
 .announce .an-text { min-width: 0; word-break: break-word; }
 /* 公告与跑马灯叠在一起时把间距收一下（否则两个 20px 边距会变成 40px 的空档） */
 .announce + .notice { margin-top: 12px; }
-.notice-track { display: flex; width: max-content; white-space: nowrap; animation: marquee 20s linear infinite; }
-.notice-track span { color: #cfdcf0; font-size: 14px; letter-spacing: 1px; padding: 0 40px; }
-@keyframes marquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+/* 跑马灯轨道：位移与时长由 measureNotice 实测后写成 CSS 变量（见那段注释）。
+   ⚠️ 两个变量的兜底值是为【SSR 出来到水合完成】之间那一瞬间准备的：
+   容器是 max-width:1080 且居中，用视口宽度当作"推到屏幕右边之外"的近似，
+   绝大多数屏幕上都对；水合之后立刻换成实测值，所以那一下看不出来。
+   will-change: transform —— 这条动画一直在跑，提前告诉浏览器它可以走合成层，
+   免得每帧都触发一次重排（跑马灯最容易踩的性能坑）。
+   ⚠️ 向左推的是 transform 而不是 left：left 会触发布局，transform 不会。 */
+.notice-track {
+  width: max-content; white-space: nowrap;
+  color: #cfdcf0; font-size: 14px; letter-spacing: 1px; padding: 0 40px;
+  will-change: transform;
+  animation: marquee var(--mq-duration, 16s) linear infinite;
+}
+@keyframes marquee {
+  from { transform: translateX(var(--mq-from, 100vw)); }
+  to   { transform: translateX(var(--mq-to, -100vw)); }
+}
+/* 【无障碍】系统里开了"减少动态效果"时把动画停掉，让文字静静地待在原位。
+   滚动字幕属于纯装饰，停掉不损失任何信息（它本来就只是一句话），
+   而对前庭功能敏感的人来说，一直在动的文字是真的会让人不适。 */
+@media (prefers-reduced-motion: reduce) {
+  .notice-track { animation: none; transform: none; }
+}
 
 .waterfall-wrap { max-width: 1080px; margin: 0 auto; padding: 12px 32px 40px; }
 .w-head h2 { font-size: 24px; font-weight: 800; margin: 0 0 20px; }

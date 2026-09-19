@@ -1090,6 +1090,49 @@ onMounted(async () => {
   // 绑定"切到后台就暂停背景视频"
   document.addEventListener('visibilitychange', onVisibilityChange)
 })
+
+// ---------------------------------------------------------------------
+//  访问上报（后台「访问统计」的数据来源）
+// ---------------------------------------------------------------------
+/**
+ * 每次页面访问上报一次。
+ *
+ * 【为什么放在 app.vue 而不是各页面里】它是**全站的**行为：
+ *   首页、归档、音乐、项目、文章……每一页都算一次访问。
+ *   放在外壳里只有一处实现，将来加页面也不用记得补一行。
+ *   （文章详情页另有一个 POST /article/{id}/view，那个管的是"这篇文章被看了几次"，
+ *    与这里管"整站每天多少人看"是两件事，不合并。）
+ *
+ * 【为什么在客户端 watch 而不是 onMounted 里报一次】
+ *   这是个 SPA：站内点链接**不会重新挂载外壳**，onMounted 只会在首次进入时跑一次，
+ *   后面的翻页全都统计不到 —— 而那恰恰是"访问情况"的主要部分。
+ *   监听路由变化能覆盖首屏（immediate）与之后的每一次跳转。
+ *
+ * 【⚠️ 后台的访问不计入】自己的站长得天看后台，把那些算进去会把统计彻底带偏
+ *   （尤其是"访客构成"那张图，会变成"管理员 100%"）。
+ */
+/** 上一次报过的路径：避免同一路径的重复上报（比如 query 变化触发的重新求值） */
+let lastReportedPath = null
+
+const reportVisit = async (path) => {
+  // "哪些路径该报"这条规则在 utils/visitReport.ts 里（纯函数、有单测）——
+  // 后台不算访问、非站内路径不算访问，两条都在那里
+  if (!shouldReportVisit(path)) return
+  if (path === lastReportedPath) return
+  lastReportedPath = path
+  try {
+    await request('/visit', { method: 'POST', body: { path } })
+  } catch {
+    // 【为什么静默】统计是锦上添花的东西：断网、后端抖动、被限流……
+    //   任何一种失败都不该让用户看到一个红条。后端那边同样是吞掉异常只记日志。
+  }
+}
+
+if (import.meta.client) {
+  // 【为什么传给后端的是 route.path 而不是 fullPath】查询串里可能是搜索词之类的
+  //   用户输入，不该进统计表。后端也会再洗一遍（两道都在，是因为这道在前端更容易改）。
+  watch(() => route.path, (path) => { reportVisit(path) }, { immediate: true })
+}
 const switchToRegister = () => { loginVisible.value = false; registerVisible.value = true }
 const switchToLogin = () => { registerVisible.value = false; loginVisible.value = true }
 
