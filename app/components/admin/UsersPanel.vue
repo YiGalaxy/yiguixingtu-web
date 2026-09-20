@@ -37,7 +37,7 @@
       ref="tableRef" v-loading="loading" :data="users" empty-text="暂无用户数据"
       :default-sort="{ prop: 'createTime', order: 'descending' }"
       @sort-change="onSortChange">
-      <!-- 列宽合计 76+104+94+86+86+164+200 = 810px，常见桌面宽度下一屏能看全。
+      <!-- 列宽合计 76+104+94+150+86+86+164+200 = 960px，常见桌面宽度下一屏能看全。
            ⚠️ 它【不再】是硬约束：2026-09-11 去掉了「操作」列的固定列（fixed），
            窗口更窄时整张表一起横向滚动（滚动条常显），
            不会再有"压住创建时间"那种情况 —— 那一列现在和其它列长得一样。
@@ -46,6 +46,15 @@
       <el-table-column prop="id" label="ID" width="76" sortable="custom" />
       <el-table-column prop="username" label="用户名" min-width="104" sortable="custom" />
       <el-table-column prop="nickname" label="昵称" min-width="94" sortable="custom" />
+      <!-- 邮箱：2026-09 起注册必填，站长要联系用户时靠的就是它。
+           ⚠️ 【老账号这一列是空的】—— 这列是加字段时才有的，存量用户没有邮箱、
+           也补不出来（见 V18 迁移脚本）。所以空值必须显示成「—」：
+           留白看起来像"接口没返回"，而「—」明确表示"这个值就是没有"。
+           不加 sortable：后端 UserServiceImpl.applySort 是一份字段白名单，
+           要支持按邮箱排序得同时改那边（本期没做）。 -->
+      <el-table-column prop="email" label="邮箱" min-width="150" show-overflow-tooltip>
+        <template #default="{ row }">{{ row.email || '—' }}</template>
+      </el-table-column>
 
       <el-table-column prop="role" label="角色" width="86" sortable="custom">
         <template #default="{ row }">

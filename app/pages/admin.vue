@@ -719,6 +719,18 @@ onMounted(async () => {
 /* 底部的两个按钮靠右（「关闭」在最左，通过/拒绝跟在后面） */
 .cm-detail-modal .el-dialog__footer { display: flex; justify-content: flex-end; gap: 10px; }
 
+/* ==================== 访客 IP 弹窗（OverviewPanel 里的那个） ====================
+   同上：写全局是因为 el-dialog 会被 teleport 到 body，面板自己的 scoped 块
+   管不到弹窗容器。表格内容与底部那行说明的样式在 OverviewPanel 的 scoped 块里。 */
+.el-dialog.vs-ip-modal {
+  background: #16264a !important;
+  border: 1px solid rgba(150,190,240,.18) !important;
+  border-radius: 18px;
+}
+.vs-ip-modal .el-dialog__title { color: var(--ink) !important; }
+.vs-ip-modal .el-dialog__body { color: var(--ink) !important; padding-top: 8px; }
+.vs-ip-modal .el-dialog__footer { display: flex; justify-content: flex-end; }
+
 /* ==================== 弹窗高度自适应 ====================
    【为什么必须做这件事】
    原来的弹窗内容是写死高度的（表单 5 行 + 编辑器 460px ≈ 840px）。

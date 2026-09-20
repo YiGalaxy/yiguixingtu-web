@@ -286,7 +286,18 @@
         <el-form label-position="top" class="auth-form" @submit.prevent="onRegister">
           <el-form-item label="用户名"><el-input v-model="regForm.username" placeholder="设置用户名" size="large" /></el-form-item>
           <el-form-item label="昵称"><el-input v-model="regForm.nickname" placeholder="怎么称呼你" size="large" /></el-form-item>
-          <el-form-item label="密码"><el-input v-model="regForm.password" type="password" show-password placeholder="设置密码" size="large" /></el-form-item>
+          <!-- 邮箱必填：站长要联系注册用户（找回密码、发通知）时，这是他手里唯一的联系方式。
+               放在密码前面，是因为它是"这个账号是谁"的一部分，而密码是"怎么保护它"。
+               @keyup.enter 一起带上：用户在最后一个框里按回车提交是习惯动作，
+               漏掉它的话这一栏的回车会什么都不做（登录弹窗也有同样的接线）。 -->
+          <el-form-item label="邮箱">
+            <el-input
+              v-model="regForm.email"
+              placeholder="用来联系你，不会公开"
+              size="large"
+              @keyup.enter="onRegister" />
+          </el-form-item>
+          <el-form-item label="密码"><el-input v-model="regForm.password" type="password" show-password placeholder="设置密码" size="large" @keyup.enter="onRegister" /></el-form-item>
         </el-form>
         <el-button type="primary" class="auth-submit" :loading="regLoading" @click="onRegister">注 册</el-button>
         <div class="auth-row center"><el-link type="primary" underline="never" @click="switchToLogin">已有账号？去登录</el-link></div>
@@ -1044,7 +1055,11 @@ const openSettings = () => {
 const setMusicOn = (value) => music.setEnabled(value)
 
 const form = reactive({ username: '', password: '' })
-const regForm = reactive({ username: '', nickname: '', password: '' })
+// 邮箱是注册必填（后端 RegisterRequest 上 @NotBlank + @Email + @Pattern 三道）。
+// 【为什么前端也要判一遍】后端那道才是权威（前端绕得过去），但只靠它的话，
+// 用户填错要等一个来回才看到提示；而且后端返回的是"第一个字段的错误"，
+// 一次只能告诉他一个问题。前端先判，是让"哪里不对"当场就能改。
+const regForm = reactive({ username: '', nickname: '', email: '', password: '' })
 const loading = ref(false)
 const regLoading = ref(false)
 
@@ -1156,7 +1171,41 @@ const onLogin = async () => {
     ElMessage.success('登录成功'); loginVisible.value = false; navigateTo('/')
   } else { ElMessage.error(res.message) }
 }
+/**
+ * 邮箱长度上限。
+ * 三处必须一致：这里的预检、后端 RegisterRequest 上的 @Size(max = 100)、
+ * user.email 的列宽 varchar(100)（见 V18 迁移脚本）。
+ */
+const REG_EMAIL_MAX = 100
+
+/**
+ * 注册表单的预检，返回 '' 表示通过、否则是给用户看的原因。
+ *
+ * 【为什么现在才加】在这之前这个表单一个字的校验都没有 —— 全靠后端。
+ *   邮箱这次是**新加的必填项**，而它是三个字段里最容易填错的
+ *   （少个 @、域名没点、多打个空格），所以先判这一个。
+ *   顺带把「用户名/密码不能为空」也放进来：否则会出现
+ *   "邮箱判了、用户名没判"这种看起来像漏了一半的界面。
+ *
+ * 【为什么用 checkXxx 这两个纯函数，而不是直接写正则】它们是后台所有表单
+ *   共用的那一套（app/utils/contentForm.ts），口径已经和后端对齐过。
+ *   这里面最要紧的一条是 checkEmail 要求**域名里有点** ——
+ *   后端的 @Email 单独拦不住 `a@b`（实测），两边靠同一条规则保持一致。
+ *
+ * ⚠️ 前端校验只是为了"当场告诉他哪里不对"，**权威始终在后端**：
+ *   它可以被绕过，也不会因为这里判过了就不校验。
+ */
+const registerError = () => {
+  return checkRequiredText(regForm.username, '用户名', 64)
+    || checkRequiredText(regForm.password, '密码', 20)
+    || (regForm.password.length < 6 ? '密码长度需要在 6-20 之间' : '')
+    || checkRequiredText(regForm.email, '邮箱', REG_EMAIL_MAX)
+    || checkEmail(regForm.email, '邮箱', REG_EMAIL_MAX)
+}
+
 const onRegister = async () => {
+  const invalid = registerError()
+  if (invalid) return ElMessage.warning(invalid)
   regLoading.value = true
   const res = await register(regForm)
   regLoading.value = false

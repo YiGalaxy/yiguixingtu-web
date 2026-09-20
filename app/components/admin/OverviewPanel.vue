@@ -28,6 +28,16 @@
     <div class="panel-head">
       访问统计
       <span class="vs-days">
+        <!-- 下钻：上面那些图回答"这段时间怎么样"，点这里回答"都是谁"。
+             【为什么没有数据时是 disabled 而不是隐藏】隐藏会让这一块的高度随数据变，
+             而"这里本来有个按钮、只是现在点不了"比"按钮凭空消失"好理解 ——
+             何况旁边那三张饼图在没数据时也是整块换成了提示语。
+             【为什么是 disabled 而不是"点了给个空弹窗"】空弹窗要用户自己关掉，
+             是一次没有信息量的往返。 -->
+        <el-button
+          size="small"
+          :disabled="!visits || visits.totalPv === 0"
+          @click="openIpList">访客 IP</el-button>
         <el-radio-group v-model="visitDays" size="small" @change="loadVisits">
           <el-radio-button :value="7">近 7 天</el-radio-button>
           <el-radio-button :value="30">近 30 天</el-radio-button>
@@ -96,6 +106,35 @@
     </template>
   </div>
 
+  <!-- ==================== 访客 IP（下钻弹窗） ====================
+       【为什么单独一个接口、点开才拉】它带着访客的完整 IP（个人信息），
+       与上面那份统计报表分开是为了让"传输范围"和"实际看了多少"对齐 ——
+       合并进来的话每次打开概览都会把 IP 一起传到浏览器，哪怕没人点开。
+       （后端 AdminVisitController 的类注释里写了同一件事。） -->
+  <el-dialog v-model="ipVisible" title="访客 IP" width="min(620px, 92vw)" class="vs-ip-modal">
+    <p v-if="ipFailed" class="empty">访客数据读取失败（不影响其它统计）</p>
+    <template v-else>
+      <el-table v-loading="ipLoading" :data="ipRows" empty-text="这段时间还没有访客记录">
+        <el-table-column prop="ip" label="IP" min-width="140" />
+        <!-- 归属地：解析不出时为 null（老记录 / IPv6 / 畸形值），显示「—」 -->
+        <el-table-column prop="region" label="归属地" min-width="130">
+          <template #default="{ row }">{{ row.region || '—' }}</template>
+        </el-table-column>
+        <el-table-column prop="visits" label="访问次数" width="96" />
+        <el-table-column prop="lastVisit" label="最后访问" min-width="150">
+          <template #default="{ row }">{{ formatDateTime(row.lastVisit) }}</template>
+        </el-table-column>
+      </el-table>
+      <p class="vs-ip-note">
+        按访问次数排序，最多显示 {{ IP_LIMIT }} 个 IP（它回答"都是谁"，不是全量导出）。
+        访客 IP 与归属地属于个人信息，超过保留期会自动删除。
+      </p>
+    </template>
+    <template #footer>
+      <el-button @click="ipVisible = false">关闭</el-button>
+    </template>
+  </el-dialog>
+
   <div class="panel glass">
     <div class="panel-head">最近文章</div>
     <div v-if="articles.length === 0" class="empty">还没有文章，去「文章管理」写第一篇吧</div>
@@ -162,6 +201,46 @@ const loadVisits = async () => {
 }
 
 onMounted(loadVisits)
+
+// ---------------------------------------------------------------------
+//  访客 IP 列表（统计页下钻出来的那一层）
+// ---------------------------------------------------------------------
+
+/**
+ * 列表最多显示多少个 IP。
+ * ⚠️ 必须与后端 VisitLogServiceImpl.VISITOR_IP_LIMIT 保持一致 ——
+ * 不一致的话，下面那行小字会在被截断时说错话（说"最多 200 个"而实际给了 100 个）。
+ */
+const IP_LIMIT = 200
+
+const ipVisible = ref(false)
+const ipLoading = ref(false)
+const ipFailed = ref(false)
+const ipRows = ref([])
+
+/**
+ * 打开弹窗并拉数据。
+ *
+ * 【为什么是点开才拉】见模板里那段注释：这份列表带着完整 IP，
+ *   不与统计报表合并就是为了让数据的传输范围与使用范围对齐。
+ *
+ * 【为什么 days 用上面那个 visitDays】两个请求共用同一个天数选择器，
+ *   用户切到"近 7 天"再点开时看到的也是 7 天 —— 否则会出现
+ *   "曲线是 7 天的、列表是 30 天的"这种看起来像 bug 的错位。
+ */
+const openIpList = async () => {
+  ipVisible.value = true
+  ipLoading.value = true
+  ipFailed.value = false
+  const res = await request('/admin/stats/visits/ips', { params: { days: visitDays.value } })
+  ipLoading.value = false
+  if (!res.ok || !res.data) {
+    ipFailed.value = true
+    ipRows.value = []
+    return
+  }
+  ipRows.value = res.data
+}
 
 /** 首次来访占比：把它写在"新访客"数字旁边，比单看一个绝对值有信息量得多 */
 const newVisitorRatio = computed(() => {
@@ -288,8 +367,16 @@ const pieOption = (slices, labels) => ({
 }
 
 /* ---------- 访问统计 ---------- */
-/* 右上角的天数切换：与 panel-head 的标题同一行 */
-.vs-days { float: right; margin-top: -4px; }
+/* 右上角那组控件：与 panel-head 的标题同一行。
+   【为什么是 flex 而不是简单地并排写】「访客 IP」按钮与天数切换器是两组
+   独立的控件，靠 inline 元素之间的空白符对齐会随字号/缩放漂移，
+   而它们高度也不一样（按钮 24px 左右、radio-group 同样 small），
+   align-items:center 让它们在一条中线上。 */
+.vs-days { float: right; margin-top: -4px; display: flex; align-items: center; gap: 10px; }
+
+/* 访客 IP 弹窗底部那行说明（"最多 200 个""个人信息"）：
+   小字、灰色，不与表格抢注意力 —— 但必须在，见那两句话各自的理由 */
+.vs-ip-note { color: var(--muted); font-size: 12px; line-height: 1.7; margin: 12px 0 0; }
 
 /* 三个关键数字：与上面那四张卡片区分开 —— 那四个是"全站累计"，这三个是"这段时间" */
 .vs-nums { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 18px; }
