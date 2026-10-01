@@ -334,6 +334,18 @@ describe('useApi', () => {
     tokenRef.value = null
   })
 
+  it('HTTP 404 时保留状态码与后端文案，不误报网络异常', async () => {
+    fetchMock.mockRejectedValue({ status: 404, data: { code: 404, message: '文章不存在' } })
+
+    const { request } = useApi()
+    const res = await request('/article/999')
+
+    expect(res.ok).toBe(false)
+    expect(res.code).toBe(404)
+    expect(res.message).toBe('文章不存在')
+    expect(errorSpy).not.toHaveBeenCalledWith('网络异常，请稍后再试')
+  })
+
   // ---------------------------------------------------------------
   // 分支 ⑤：两种 429（这是后来的限流功能加上去的，也最容易混）
   //

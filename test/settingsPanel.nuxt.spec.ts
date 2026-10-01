@@ -197,13 +197,10 @@ describe('⚙ 站点设置面板', () => {
     expect(poster().exists()).toBe(true)
   })
 
-  it('静态背景底图_should指向 /media/ 下那张从视频里抽的帧', async () => {
-    // 地址只在 mediaUrl() 里拼一次（文件名登记在 MEDIA_FILES 里），所以这里断言最终值。
-    // 它和视频是同一段素材的两半（`bg-star.mp4` / `bg-star.jpg`）：必须一起传、一起换，
-    // 所以两者都走 /media/ 而不是打进构建产物。
+  it('静态背景底图_should使用首页夜景素材', async () => {
     const wrapper = await mountShell()
     const style = wrapper.find('.bg-poster').attributes('style') || ''
-    expect(style).toContain('/media/bg-star.jpg')
+    expect(style).toContain('/assets/homepage-night-reference.png')
   })
 
   it('重新打开背景视频_should把 cookie 删掉（"没设置"就等于默认开）', async () => {

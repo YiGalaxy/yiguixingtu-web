@@ -2,12 +2,14 @@
   <div class="admin">
     <!-- ==================== 左侧菜单 ==================== -->
     <aside class="side glass">
-      <div class="side-brand"><span class="mk">✦</span> {{ settings.siteName }} · 后台</div>
+      <div class="side-brand"><img class="mk" src="/assets/brand-minecraft-pixel.png" alt=""> {{ settings.siteName }} · 后台</div>
       <nav class="side-nav">
         <a
           v-for="m in menus" :key="m.key"
+          href="#"
+          role="button"
           :class="{ active: cur === m.key }"
-          @click="cur = m.key">
+          @click.prevent="cur = m.key">
           <!-- 文字单独包一层：待审核数量是个角标，混在文字里会让"菜单项的文字"
                断言（用例里按文字核对菜单）时有时无，读代码的人也不容易发现它是动态的 -->
           <span class="nv-label">{{ m.label }}</span>
@@ -258,8 +260,12 @@ const fetchArticles = async () => {
     },
   })
   artLoading.value = false
-  if (!res.ok) return
-  articles.value = res.data.records || []
+  if (!res.ok || !res.data) {
+    articles.value = []
+    artTotal.value = 0
+    return
+  }
+  articles.value = Array.isArray(res.data.records) ? res.data.records : []
   artTotal.value = Number(res.data.total) || 0
 }
 
@@ -404,15 +410,16 @@ onMounted(async () => {
    .admin / .side / .side-nav / .nv-* / .main 都是这个模板里的元素，
    scoped 生效；而面板、表格、弹窗的内容在子组件里（弹层还会被 teleport 到 body），
    父组件的 scoped 样式够不到它们 —— 那些统一放在下面的全局块里，见那里的说明。 */
-.admin { display: flex; gap: 24px; max-width: 1440px; margin: 0 auto; padding: 32px; min-height: 70vh; }
+.admin { position: relative; isolation: isolate; display: flex; gap: 24px; max-width: 1440px; margin: 0 auto; padding: 32px; min-height: 70vh; }
+.admin::before { content: ''; position: fixed; inset: 0; z-index: -2; pointer-events: none; background: linear-gradient(180deg, rgba(8, 15, 25, .52), rgba(8, 15, 25, .86)), url('/assets/admin-studio-bg.png') center / cover; opacity: .74; image-rendering: pixelated; }
 
 .side { width: 220px; flex-shrink: 0; border-radius: 20px; padding: 24px 18px; height: fit-content; }
 .side-brand { display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 15px; margin-bottom: 24px; }
-.side-brand .mk { color: var(--accent); }
+.side-brand .mk { width: 26px; height: 26px; object-fit: contain; image-rendering: pixelated; }
 .side-nav { display: flex; flex-direction: column; gap: 6px; }
 /* 菜单项本身是 flex：这样"待审核"的角标能被推到最右边，
    而不是紧贴着文字（贴着文字会让人以为数字是名字的一部分） */
-.side-nav a { padding: 10px 14px; border-radius: 12px; color: var(--muted); cursor: pointer; transition: background .2s, color .2s; display: flex; align-items: center; gap: 8px; }
+.side-nav a { width: 100%; padding: 10px 14px; border-radius: 12px; color: var(--muted); cursor: pointer; transition: background .2s, color .2s; display: flex; align-items: center; gap: 8px; text-decoration: none; }
 .side-nav a:hover { color: var(--ink); background: rgba(255,255,255,.05); }
 .side-nav a.active { color: var(--accent); background: rgba(242,193,78,.12); font-weight: 600; }
 .nv-label { flex: 1; }

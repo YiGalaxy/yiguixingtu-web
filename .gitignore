@@ -38,6 +38,9 @@ _commit_msg*.txt
 logs
 *.log
 
+# Browser/playtest artifacts
+output/
+
 # Misc
 .DS_Store
 .fleet

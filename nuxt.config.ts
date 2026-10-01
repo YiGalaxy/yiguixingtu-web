@@ -30,8 +30,8 @@ export default defineNuxtConfig({
    */
   app: {
     head: {
-      // 移动端浏览器地址栏/状态栏跟着站点底色走（深蓝），不然是一片突兀的白
-      meta: [{ name: 'theme-color', content: '#0e1a36' }],
+      // 移动端浏览器地址栏/状态栏跟随默认夜间主题。
+      meta: [{ name: 'theme-color', content: '#111a14' }],
       link: [
         { rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' },
         { rel: 'icon', type: 'image/x-icon', href: '/favicon.ico' },

@@ -1,57 +1,13 @@
 <template>
-  <div class="shell">
-    <!-- 背景视频：地址由 mediaUrl() 拼出来（前缀可配），页面里不写死 /bg-star.mp4。
-         这个文件不在 public/ 里 —— 线上由 Nginx 的 /media/ 提供、dev 由 Nitro 的
-         开发路由提供，理由见 app/utils/media.ts 与 static-media/README.md。
-
-         【v-if 而不是 v-show】⚙ 设置面板里关掉「背景视频」之后，这个元素要**从 DOM 里去掉**：
-         留着它（哪怕 display:none）浏览器照样会解码视频、照样占着显存。
-         v-if 会销毁元素，解码与下载一起停 —— 这才对得起"关掉更省电"那句话。 -->
-    <!-- 背景**底图**（静态）：背景视频被关掉 / 还没就位 / 加载失败时露出来的那一张
-         （文件与"为什么挑那一帧"见 MEDIA_FILES.backgroundPoster）。
-
-         【为什么它是常驻元素、没有 v-if】三种情况都要它在场：
-           · 用户在 ⚙ 设置里关掉了背景视频 —— 这时它就是页面背景，而不是一片纯色
-           · 视频正在下载 / 解码 —— 先出图，避免"先黑一下再出画面"
-           · 视频加载失败、或浏览器不支持 mp4 —— 兜底
-         它在 z-index 上比视频低一层（-11 对 -10），所以视频一旦就位就把它整个盖住，
-         连条件判断都不需要 —— 比"视频关掉时才把它插进来"少一处能写错的同步逻辑。 -->
+  <div class="shell" :data-theme="themeMode">
+    <!-- 视频关闭、加载中或失败时显示静态背景。v-if 会同时停止视频解码。 -->
     <div class="bg-poster" :style="bgPosterStyle"/>
     <video v-if="videoOn" ref="bgVideo" class="bg-video" autoplay muted loop playsinline preload="auto">
       <source :src="bgVideoSrc" type="video/mp4" >
     </video>
     <div class="bg-overlay"/>
 
-    <!-- ============ 背景音乐：全站**唯一**的 <audio> 实例（2026-09-11 从首页卡片挪到这里）============
-         【为什么必须放在外壳里】
-           改之前它住在首页那张音乐卡片里。而页面是随路由卸载的 ——
-           于是"在首页点了播放，点进归档/文章/音乐页"音乐立刻没了，回来还得再点一次。
-           背景音乐本来就该跨页面一直响：它的生命周期属于外壳，不属于某一页。
-           挪上来还顺手堵死了另一个更难查的问题：**同时存在两个播放器**。
-           留在页面里的话，"首页卡片一个 + 音乐页一个"就是两个 <audio> 抢同一首歌
-           （两个都在响、或者一个在响而另一个的进度条永远停在 0），
-           而共享状态里只有一份 playing/progress —— 两个实例会互相覆盖写，
-           用户看到的是"两个页面显示的进度不一样"。
-         【preload 为什么是 metadata 而不是 auto/none】
-           · `auto`：每个访客一进首页就开始下整首 2 MB 的 mp3 —— 而音乐**默认是关的**
-             （浏览器不许无手势自动播放），也就是说绝大部分人白下 2 MB。
-           · `none`：一个字都不读。后果是进度条拿不到总时长，一上来显示 `--:--`，
-             用户点了播放之后进度条还要等一次往返才开始动。
-           · `metadata`：只读文件头（几十 KB 以内），拿到总时长，不碰音频数据。
-             代价是"点播放到出声"多一次往返 —— 这个代价换掉 2 MB 的浪费，值。
-         【为什么不用 v-if="enabled" 进一步省掉这个元素】
-           那样确实能让"从不开音乐"的访客一个字节都不下，但会带来一个明确的体验退化：
-           关掉再打开时元素被销毁重建，**播放位置会丢**（同一首歌从头开始）。
-           暂停和"关掉"在用户眼里是同一件事，位置就不该丢。
-         【为什么不再带 loop（2026-09-13 改）】
-           原来是 `<audio loop>` —— 它让这一首**永远循环**，代价是浏览器
-           **永远不会派发 `ended`**，于是"下一个该放谁"这件事根本没有地方决定，
-           也谈不上顺序/随机/单曲循环（用户要的就是这三档）。
-           现在 `loop` 去掉了，`ended` 成为正常路径，由 `onMusicEnded` 按
-           `useBackgroundMusic().mode` 决定：往下走 / 随机抽 / 原地重放 / 播完停下。
-           算法在 `app/utils/playMode.ts`（纯函数，有单测），外壳只负责执行结果。
-         【src 从哪来】和背景视频一样由 mediaUrl() 拼（前缀可配、名字来自 MEDIA_FILES），
-           页面里不写死 /media/bg-music.mp3，理由见 app/utils/media.ts 的头注释。 -->
+    <!-- 全站唯一的播放器，挂在外壳上以跨路由保持状态。 -->
     <audio
       ref="audioRef"
       :src="bgMusicSrc"
@@ -66,31 +22,24 @@
 
     <header class="site-nav">
       <NuxtLink to="/" class="brand">
-        <span class="brand-mark">✦</span>
+        <span class="brand-mark" title="亿轨星途" aria-hidden="true"><img src="/assets/brand-minecraft-pixel.png" alt=""></span>
         <span class="brand-name">{{ settings.siteName }}</span>
       </NuxtLink>
       <nav class="nav-center">
-        <!-- 导航项来自 navItems（唯一一份定义，窄屏面板渲染的是同一个数组）。
-             这里不再一项项手写：手写两份迟早只剩一份是对的，而漏改**不会报错**。 -->
+        <!-- 桌面和移动端共用同一份导航数据。 -->
         <template v-for="item in navItems" :key="item.label">
-          <!-- 有子项的（目前只有「文章」）：桌面沿用 hover 展开的下拉，交互没动。
-               子项现在是**真链接**（NuxtLink）—— 它们指向 `/?categoryId=N`，
-               也就是首页那套筛选：能爬、可中键新开、点完 URL 与列表标题都会跟着变。 -->
+          <!-- 有子项时显示下拉菜单。 -->
           <div v-if="item.children" class="nv dd">
             <button class="nv-btn">{{ item.label }} <span class="caret">▾</span></button>
             <div class="dd-menu">
               <NuxtLink v-for="child in item.children" :key="child.label" :to="child.to">{{ child.label }}</NuxtLink>
             </div>
           </div>
-          <!-- 真链接：NuxtLink 渲染成 <a href>，可爬、可中键新开。
-               导航里现在**每一项**都是上面两种之一（下拉或真链接）——
-               F5 之后已经没有"点了弹开发中"的入口了，所以那个兜底分支被删掉了：
-               留着一个永远不会走到的分支，只会让人以为还有没做完的入口。 -->
           <NuxtLink v-else :to="item.to" class="nv">{{ item.label }}</NuxtLink>
         </template>
       </nav>
       <nav class="nav-right">
-        <!-- 汉堡按钮：只在窄屏出现（显隐由 CSS 负责，不用 JS 量宽度 —— 见 script 里的说明）。
+        <!-- 窄屏导航由 CSS 控制显示，ARIA 属性同步菜单状态。
              aria-expanded 让读屏软件知道"这个按钮是展开还是收起"，
              aria-controls 指向它控制的那个面板。 -->
         <button
@@ -102,15 +51,22 @@
           @click="toggleNav">
           <span class="burger-lines"><i /><i /><i /></span>
         </button>
+        <button
+          class="icon-btn theme-toggle"
+          :aria-label="themeMode === 'night' ? '切换到白天主题' : '切换到夜晚主题'"
+          :title="themeMode === 'night' ? '切换到白天主题' : '切换到夜晚主题'"
+          @click="toggleTheme">
+          <span class="theme-glyph" :class="`is-${themeMode}`" aria-hidden="true" />
+        </button>
         <button class="icon-btn" aria-haspopup="dialog" aria-label="打开站点设置" title="站点设置" @click="openSettings">⚙</button>
         <template v-if="token">
           <!-- 登录状态提示：头像首字 + 昵称 + 角色标签 -->
           <div class="user-chip" :title="'当前登录：' + displayName">
-            <span class="uc-avatar">{{ avatarText }}</span>
+            <span class="uc-avatar"><img src="/assets/avatar-catgirl-pixel.png" alt=""></span>
             <span class="uc-name">{{ displayName }}</span>
             <span class="uc-role" :class="{ 'is-admin': isAdmin }">{{ isAdmin ? '管理员' : '游客' }}</span>
           </div>
-          <NuxtLink v-if="isAdmin" to="/admin" class="nav-admin">后台</NuxtLink>
+          <NuxtLink v-if="isAdmin" to="/admin" class="nav-admin" title="后台工作台"><span class="pixel-ui-icon icon-workbench" aria-hidden="true" /><span>后台</span></NuxtLink>
           <el-button type="primary" round class="nav-btn" @click="onLogout">退出</el-button>
         </template>
         <template v-else>
@@ -120,22 +76,14 @@
       </nav>
     </header>
 
-    <!-- ============ 窄屏导航面板（汉堡菜单） ============
-         只在 ≤1000px 用得到；桌面导航在上面那个 .nav-center 里照常显示。
-         · 用 v-show 而不是 v-if：面板常驻 DOM（所以 aria-controls 指向的那个 id 一直存在），
-           收起时是 display:none —— 读屏软件与 Tab 键都不会走到里面
-         · 遮罩点一下也能关（手机上最常见的关法）
-         · 面板里的链接是**同一个 navItems**，所以桌面与手机永远不会有"少一个入口"的差别 -->
+    <!-- 窄屏导航面板；遮罩和路由变化都会关闭它。 -->
     <div v-if="navOpen" class="nav-scrim" @click="closeNav" />
     <nav v-show="navOpen" id="site-mobile-nav" class="nav-mobile glass">
       <template v-for="item in navItems" :key="item.label">
         <div v-if="item.children" class="nm-group">
           <div class="nm-group-title">{{ item.label }}</div>
-          <!-- 与桌面下拉**同一批**子项，而且同样是真链接：手机上点完直接跳走，
-               顺手把面板收起来（不收的话跳完还挂着一块盖住半屏的面板） -->
           <NuxtLink v-for="child in item.children" :key="child.label" :to="child.to" class="nm-sub" @click="closeNav">{{ child.label }}</NuxtLink>
         </div>
-        <!-- 与桌面完全一样：下拉（分类）或真链接，没有第三种 -->
         <NuxtLink v-else :to="item.to" class="nm-item" @click="closeNav">{{ item.label }}</NuxtLink>
       </template>
     </nav>
@@ -146,17 +94,10 @@
     </main>
 
     <footer class="site-footer">
-      <!-- 【页脚为什么是"上下两行"】
-           第一行是"左边品牌 + 右边音乐开关"，第二行是**通栏居中**的版权与备案信息。
-           备案的展示位置在国内站点的惯例是"最底部一行、居中"：它是一条独立的合规声明，
-           和品牌名挤在同一栏里会让人以为它是品牌的一部分。
-           所以外层用 flex-direction: column —— 第一行的两样东西仍然靠 space-between
-           分居两侧，第二行自己居中，两边互不影响。
-           ⚠️ 三项都为空时第二行**整行不渲染**（不是渲染一个空条），
-              这样"上线这个功能"本身不改变站点外观。 -->
+      <!-- 页脚上方放品牌与音乐开关。 -->
       <div class="foot-top">
         <div class="foot-brand">
-          <span class="foot-mark">✦</span> {{ settings.siteName }}
+          <img class="foot-mark" src="/assets/brand-minecraft-pixel.png" alt=""> {{ settings.siteName }}
         </div>
 
         <button class="music-toggle" :class="{ on: musicEnabled }" :aria-label="musicEnabled ? '关闭背景音乐' : '播放背景音乐'" @click="toggleMusic">
@@ -165,13 +106,7 @@
         </button>
       </div>
 
-      <!-- 版权与两类备案号：**各自留空则各自不渲染**（后端的 null 就是这个语义）。
-           ⚠️ 这两类备案都是大陆站点的**合规要求**，必须真的出现在服务端渲染出的 HTML 里
-              （这也是这里用 useAsyncData 的原因）：
-                · ICP 备案号     → 链到工信部的备案查询页（ICP_LINK 写死）
-                · 公安网安备案号 → 链到公安部平台的查询页，**前面还要带那张官方图标**；
-                  链接由 policeQueryUrl() 按号拼（它从号里取数字部分），
-                  图标走 /media/beian.png（和备案号一起换，所以不进构建产物） -->
+      <!-- 空字段不渲染；备案信息需要保留在 SSR HTML 中。 -->
       <div v-if="footerMetaVisible" class="foot-meta">
         <span v-if="settings.copyright">{{ settings.copyright }}</span>
         <a
@@ -188,20 +123,8 @@
       </div>
     </footer>
 
-    <!-- ============ ⚙ 站点设置面板（右上角那个齿轮） ============
-         【为什么用 el-drawer 而不是自己搭一个浮层】抽屉自带这几件本来就该有的东西：
-         遮罩、Esc 关闭、锁住背景滚动、**焦点陷阱**（打开后按 Tab 不会跑到背后的页面上），
-         以及 role="dialog" + aria-modal。自己写一遍只会写得比它差。
-         窄屏导航那个面板是自己搭的（它更像"从导航条里滑出来的一块菜单"，
-         而这里是标准对话框语义），两者的取舍不同。
-
-         【为什么 size 写的是 min(380px, 88vw)】Element Plus 把 size 原样写进 width
-         （`addUnit()`：字符串就原样用），所以这里能直接给一个 CSS 表达式 ——
-         桌面 380px、窄屏不超过 88vw（手机上留一点边：让人看得出"背后还有一页"，
-         也暗示点遮罩能关掉）。
-
-         【为什么面板里的说明文字要写"只存在你这台设备上"】这两个开关都只改本机偏好，
-         既不上传也不跟随账号。不写清楚的话，用户会以为换台电脑登录就该还是关的。 -->
+    <!-- 站点设置使用抽屉，包含遮罩、Esc 和焦点管理。
+         组件负责遮罩、Esc、焦点管理和背景滚动锁定。 -->
     <el-drawer
       v-model="settingsOpen"
       class="settings-drawer"
@@ -238,7 +161,7 @@
 
     <el-dialog v-model="loginVisible" class="auth-modal" :show-close="false" width="400px" :close-on-click-modal="true">
       <div class="auth-card">
-        <div class="brand-line">✦ 亿轨星途</div>
+        <div class="brand-line"><img src="/assets/brand-minecraft-pixel.png" alt=""> 亿轨星途</div>
         <h2 class="auth-title">欢迎回来</h2>
         <p class="auth-sub">登录后，继续绘制你的星图</p>
         <el-form label-position="top" class="auth-form" @submit.prevent="onLogin">
@@ -246,29 +169,11 @@
           <el-form-item label="密码"><el-input v-model="form.password" type="password" show-password placeholder="请输入密码" size="large" @keyup.enter="onLogin" /></el-form-item>
         </el-form>
         <div class="auth-row">
-          <!-- 【原来是「记住密码」，现在是「记住用户名」】
-               改前的实现把**明文密码**写进了 rememberMe 这个 cookie（安全审查的 🔴）。
-               后端没有任何"用记住的密码自动登录"的接口，所以存这个密码
-               除了给自己留一个泄露点（XSS 读得到、随请求发给代理与日志）之外，
-               什么功能都没实现。现在只记住用户名，密码不落任何客户端存储。 -->
+          <!-- 仅保存用户名，密码不写入客户端存储。 -->
           <el-checkbox v-model="remember">记住用户名</el-checkbox>
-          <!-- 【为什么是 underline="never" 而不是 :underline="false"】
-               Element Plus 2.14 起，underline 这个 prop 的**布尔值**形态已经废弃，
-               每次渲染都会往控制台打一段 ElementPlusError（不影响功能，
-               但会把真正的报错淹掉）。新 API 是三个字符串：
-                 'never' 永不显示下划线 / 'hover' 悬停才显示 / 'always' 一直显示
-               两者行为**完全等价**：组件内部就是
-                 isBoolean(underline) ? (underline ? 'hover' : 'never') : underline
-               也就是说这里只是把"它替我们做的转换"写成了显式值。
-               旧对象配置 el-config-provider 的 link.underline 同理，也都换字符串。 -->
           <el-link type="primary" underline="never" @click="switchToRegister">去注册</el-link>
         </div>
-        <!-- 登录按钮：被限流之后 disabled + 显示倒计时。
-             为什么要禁用而不是只弹一句提示：被 429 拦下之后用户的第一个反应是
-             "再点一次"，而每点一次都会再撞一次限流（还占掉 1 分钟窗口里的一个位置），
-             点了没反应会让人以为按钮坏了。禁用 + 秒数把"要等一会儿"变成看得见的状态。
-             注意 disabled 只挡得住点击，挡不住"密码框回车提交"，
-             所以真正的拦截在 useAuth().login() 里面（那边也会拒绝）。 -->
+        <!-- 限流期间禁用提交按钮，回车提交也在登录逻辑中拦截。 -->
         <el-button
           type="primary"
           class="auth-submit"
@@ -280,7 +185,7 @@
 
     <el-dialog v-model="registerVisible" class="auth-modal" :show-close="false" width="400px" :close-on-click-modal="true">
       <div class="auth-card">
-        <div class="brand-line">✦ 亿轨星途</div>
+        <div class="brand-line"><img src="/assets/brand-minecraft-pixel.png" alt=""> 亿轨星途</div>
         <h2 class="auth-title">创建账号</h2>
         <p class="auth-sub">开始记录你的第一篇</p>
         <el-form label-position="top" class="auth-form" @submit.prevent="onRegister">
@@ -311,131 +216,68 @@ import { ElMessage } from 'element-plus'
 const { login, register, logout, token, user, coolingDown, cooldownLeft } = useAuth()
 const { loginVisible, registerVisible, openLogin, openRegister } = useAuthUi()
 const { request } = useApi()
+const themePreference = useCookie('site-theme', {
+  default: () => 'night',
+  maxAge: 60 * 60 * 24 * 365,
+  sameSite: 'lax',
+})
+const themeMode = computed(() => themePreference.value === 'day' ? 'day' : 'night')
+useHead(() => ({ htmlAttrs: { 'data-theme': themeMode.value } }))
+const toggleTheme = () => {
+  themePreference.value = themeMode.value === 'night' ? 'day' : 'night'
+}
 
 // ---------- 登录状态提示 ----------
 const isAdmin = computed(() => user.value?.role === 'ADMIN')
 const displayName = computed(() => user.value?.nickname || user.value?.username || '已登录')
-const avatarText = computed(() =>
-  String(user.value?.nickname || user.value?.username || '?').slice(0, 1).toUpperCase()
-)
-
 const bgVideo = ref()
 
-/**
- * =====================================================================
- *  背景音乐：**全站唯一那个播放器的家**（2026-09-11 从首页卡片挪到这里）
- * =====================================================================
- *
- * 【为什么挪到外壳】见模板里那段长注释（页面会随路由卸载 → 音乐跟着断；
- *   两个页面各自的 <audio> → 两个实例互相覆盖状态）。这里只说**分工**：
- *
- *   · `useBackgroundMusic()`（共享状态，本次一行未改）
- *       `enabled`  用户想不想听（持久化在 localStorage）
- *       `playing`  是不是真的在响（浏览器有自动播放限制，所以与 enabled 必须分开）
- *       `progress` 进度百分比（给进度条用）
- *     页脚开关、⚙ 设置面板、首页卡片、音乐页，四处用的都是这一份 ——
- *     这才是"点了播放，四处一起变"的原因。
- *
- *   · 本文件（外壳）
- *       真正持有 <audio>；照着 `enabled` 去 play/pause，并把**真实**状态写回 `playing`；
- *       另外管"播放器自身"的那几件事：当前秒数、总时长、音量、内嵌封面。
- *       为什么这些不放共享状态里：`currentTime` 每 250ms 就变一次，
- *       塞进 useState 等于让全站共享状态每秒抖四次（下面有节流实现与理由）；
- *       而音量、封面是"这台设备上这个元素"的属性，本来就只有播放器自己知道。
- *
- *   · 首页卡片 / 音乐页（页面）
- *       纯 UI：从共享状态读 `playing` / `progress`，点按钮调 `toggle`。
- *       **不再各自持有 <audio>**（这正是"一离开首页音乐就没了"的病根）。
- *       音乐页还要读秒数/时长/音量、要跳转进度，通过下面这个 `provide` 拿：
- *       页面是外壳里 `<NuxtPage/>` 渲染出来的**后代**，provide/inject 天然送到。
- *
- * 【为什么是 provide 一个"播放器对象"，而不是再开一份 useState】
- *   再开一份就是**第二份真相**：同一个当前秒数存两处，只要有一处忘了同步，
- *   音乐页上的时间就会慢慢跑偏（而且不报错）。这里传出去的只有
- *   "元素 + 它自己的几个属性 + 几个动作"，播放状态仍然只有共享状态那一份。
- *   【注入键 'bgMusicPlayer' 在 app/pages/music.vue 里按同一个字符串 inject ——
- *    这是两个文件之间唯一的约定，改一处必须改另一处，所以两边都写了注释。】
- *
- * 【为什么音乐页不直接用 useBackgroundMusic 里的 progress 就够，还要秒数】
- *   `progress` 是百分比，它是给"细长进度条"用的（四舍五入到小数点后两位没人看得出来）；
- *   而歌词高亮需要**秒**（要和歌词时间戳比较），时间文字也要显示 `1:23 / 3:05`。
- */
+// The shell owns the single audio element; pages consume shared state and injected controls.
 const music = useBackgroundMusic()
 const { enabled: musicEnabled, toggle: toggleMusic, report: reportMusic } = music
-// 偏好读一次就够（服务端读不到 localStorage，所以只能在客户端做）
+// Client-only preferences are restored after mount.
 onMounted(() => music.loadPreference())
 
-// 【背景视频的地址】在 setup 里算一次，模板里直接用。
-// 为什么不把 mediaUrl(...) 直接写进模板：模板里调用会在**每次渲染时**重新执行
-// （useRuntimeConfig 也就会被反复读），而它是个常量，没必要参与响应式。
-// 文件名来自 MEDIA_FILES 常量表，前缀来自运行时配置，这里是唯一的拼接点。
+// Resolve static media once so templates do not rebuild URLs on every render.
 const bgVideoSrc = mediaUrl(MEDIA_FILES.backgroundVideo)
 
-// 【背景底图的样式】也在这里算一次：模板里写 `:style="{ backgroundImage: ... }"`
-// 会在**每次渲染**时新建一个对象、并重新拼一遍字符串，而它是个常量。
-// 地址同样由 mediaUrl() 拼（文件名来自 MEDIA_FILES，前缀来自运行时配置）——
-// 所以哪天把媒体挪到 CDN，这里不用改。
-const bgPosterStyle = { backgroundImage: `url(${mediaUrl(MEDIA_FILES.backgroundPoster)})` }
+// Keep the poster style stable; mediaUrl still supports a CDN prefix.
+const bgPosterStyle = computed(() => ({
+  backgroundImage: `url(/assets/${themeMode.value === 'day' ? 'homepage-day-bg' : 'homepage-night-reference'}.png)`,
+}))
 
-// 【页脚那张公安备案图标的地址】同样在 setup 里算一次，理由与上面那条完全一样。
-// 它是"和备案号一起换"的文件（备案号变了图标也不会变，但两者永远一起改部署），
-// 所以登记在 MEDIA_FILES 里、走 /media/ 前缀，而不是打进构建产物。
+// Resolve the filing icon with the same media prefix.
 const policeIconSrc = mediaUrl(MEDIA_FILES.policeIcon)
 
-/**
- * 【音频地址：跟着当前曲目走】（2026-09-11 加曲目列表时改成 computed，
- * 同一天晚些时候又改成"读接口的曲目"）
- *   · 曲目列表来自 `GET /music/list`（见 app/composables/useMusicTracks.ts），
- *     接口挂了 / 站长还没上传 → 列表就是**内置那一首**（static-media/bg-music.mp3），
- *     所以这个 computed 任何情况下都能拿到一个地址；
- *   · 于是**换歌 = 改共享状态里的下标**，这个 computed 自己就会变成新地址，
- *     `<audio :src>` 跟着变 —— 页面里没有任何一处自己拼地址。
- * 【为什么不拼 /media/ 前缀】接口给的 `url` 已经是**完整地址或 `/` 开头**
- *   （`/uploads/xxx.mp3` 是后台上传的目录，和 `/media/` 不是一回事；
- *   将来也可能是完整外链）。所以这里直接用，只有内置那一首的地址是 mediaUrl() 拼的。
- * 【关于跨域，别写反】`<audio>` 播放**不需要** CORS —— 外链音频没有 CORS 头也照常能响。
- *   需要 CORS 的是我们"额外读文件头解析内嵌封面"那一步（下面 fetchMusicCover），
- *   那是普通 fetch 请求、还带 Range 头（会触发 preflight），所以外链基本读不到封面：
- *   这种情况下用接口给的 `cover`，再没有就显示占位图案。
- */
+// Track URLs come from the API; the built-in track is the fallback.
 const { tracks: musicTracks, currentTrack, activeIndex: musicActiveIndex } = useMusicTracks()
 const bgMusicSrc = computed(() => currentTrack.value.url)
 
-// ---------- <audio> 元素的引用与它的几个属性 ----------
-/** 模板里那个唯一 <audio> 的引用。所有对播放器的直接操作都从这里拿到元素 */
+// ---------- Player element state ----------
+/** The single audio element. */
 const audioRef = ref()
-/** 当前播放到第几秒。**本地 ref**（不是 useState）—— 只有音乐页在读它 */
+/** Current position in seconds. */
 const musicCurrent = ref(0)
-/** 总时长（秒）。**0 表示"还不知道"**：读元数据之前 duration 是 NaN，必须收成有限值 */
+/** Duration in seconds; zero means metadata is not ready. */
 const musicDuration = ref(0)
-/** 参考音量（0~1）。初值给 1，真的偏好等挂载后再从 localStorage 读（理由见下面那段） */
+/** Volume preference, restored on mount. */
 const musicVolume = ref(1)
-/** 静音开关。**不持久化**（理由见下面 VOLUME_STORAGE_KEY 的注释） */
+/** Session-only mute state. */
 const musicMuted = ref(false)
-/** 歌曲**内嵌**的封面地址（object URL）。空串 = 没读到，调用方用回落图 */
+/** Object URL for the embedded cover, when available. */
 const musicCoverUrl = ref('')
 
-/**
- * 音量的持久化 key。
- * 【为什么音量持久化、静音不持久化】
- *   音量是**长期偏好**：用户把音量调到 30% 是"我就想这么听"，下次进站还得是 30%。
- *   静音是**临时动作**：用户往往只是"先安静一下"（接个电话、开会），
- *   下次打开站点还是静音会让人以为"又坏了"。所以静音只活在本次会话里。
- * 【为什么服务端读不到（初值给 1）】localStorage 在服务端不存在，
- *   如果在这里同步读，服务端渲染出来是 1、客户端一挂载立刻变成 0.3 ——
- *   那正是 hydration 不一致（控制台一阵告警，滑块的初始位置还会闪一下）。
- *   所以和 `enabled` 一样：**挂载后在客户端读**。
- */
+/** Persistent volume key; mute remains session-only. */
 const VOLUME_STORAGE_KEY = 'bg-music-volume'
 
-/** 读上一次存的音量（只在客户端调用）。读不到 / 被禁 / 值不合法都回落到 1 */
+/** Read a valid persisted volume on the client. */
 const readStoredVolume = () => {
   if (!import.meta.client) return 1
   try {
     const raw = Number.parseFloat(localStorage.getItem(VOLUME_STORAGE_KEY) ?? '')
     return Number.isFinite(raw) && raw >= 0 && raw <= 1 ? raw : 1
   } catch {
-    // 隐私模式 / 存储被禁用：音量是可有可无的东西，读不到就用默认值，不影响页面能不能开
+    // Storage failures should not block playback.
     return 1
   }
 }
@@ -445,16 +287,11 @@ const persistVolume = () => {
   try {
     localStorage.setItem(VOLUME_STORAGE_KEY, String(musicVolume.value))
   } catch {
-    // 同上：存不进去就算了，本次会话里音量仍然是对的
+    // Keep the in-memory value when persistence is unavailable.
   }
 }
 
-/**
- * 把音量与静音**落实到元素上**。
- * 【为什么每次都要重新赋值】`el.volume` / `el.muted` 是元素的属性，
- *   我们的 ref 只是"界面上的那一份"。两者之间必须有一个明确的落点，
- *   否则会出现"滑块看着在 30%、声音还是满的"。
- */
+/** Apply reactive audio settings to the element. */
 const applyVolume = () => {
   const el = audioRef.value
   if (!el) return
@@ -467,20 +304,19 @@ const setMusicVolume = (value) => {
   const parsed = Number(value)
   if (!Number.isFinite(parsed)) return
   musicVolume.value = Math.min(1, Math.max(0, parsed))
-  // 拖音量 = 明确"我想听"：顺手取消静音。不这么做的话，
-  // 用户会遇到"我把音量拖上去了，怎么还是没声音"（因为 muted 还挂着）
+  // Changing volume is an explicit request to unmute.
   if (musicVolume.value > 0) musicMuted.value = false
   applyVolume()
   persistVolume()
 }
 
-/** 静音开关：只切换 muted，不动用户选的音量（取消静音后要回到原来的音量） */
+/** Toggle mute without changing the selected volume. */
 const toggleMusicMute = () => {
   musicMuted.value = !musicMuted.value
   applyVolume()
 }
 
-/** 进度百分比。duration 未知时返回 0（而不是 NaN —— NaN 写进进度条会变成非法宽度） */
+/** Progress percentage; zero until duration is known. */
 const progressOf = (el) => (el && el.duration ? (el.currentTime / el.duration) * 100 : 0)
 
 /**
@@ -854,107 +690,22 @@ const onLogout = async () => {
   navigateTo('/')
 }
 
-// =====================================================================
-//  导航（2026-09-11：窄屏从"整块隐藏"改成汉堡菜单）
-//
-//  【修的是什么】原来这里只有一行 CSS：
-//      `@media (max-width: 1000px) { .nav-center { display: none; } }`
-//    也就是说窄屏（手机、平板、或者只是把窗口拖窄）下**整个中间导航直接消失**，
-//    而且**没有任何替代入口** —— 手机上只剩左上角 Logo 和右边登录按钮，
-//    归档 / 音乐 / 关于 这些页面在手机上根本进不去。用户报的就是这个。
-//    注意它和"标签被挤窄"是两件事：这里不是挤，是**整块被藏掉**。
-//
-//  【做法】窄屏显示一个汉堡按钮（`.nav-burger`），点开一个面板，
-//    里面是**同一批导航项**。显隐一律由 CSS 媒体查询控制，
-//    **不用 JS 去量窗口宽度** —— SSR 首屏在服务端量不到宽度，
-//    用 JS 判断会出现"服务端渲染成桌面版、客户端立刻改成移动版"的一下闪烁，
-//    严重时还会 hydration 不一致。CSS 没有这个问题。
-// =====================================================================
+// Navigation data is shared by desktop and mobile menus; CSS handles breakpoints.
 
-/**
- * 导航项：**只有这一份定义**，桌面导航（≥1000px）与窄屏的汉堡面板都渲染它。
- *
- * 【为什么必须是一份】两处各写一遍的话，加一个入口就要改两个地方，
- *   而漏改的那一处**什么都不报**：桌面点得到、手机上就是没那个入口（或者反过来）。
- *   「文章」下拉里的分类也是一个道理：分类是从接口来的，两处各拉一遍迟早不一致。
- *
- * 【为什么是 computed】「文章」的子项**来自接口**（`GET /category/list`，见
- *   `useCategoryList`），分类变了导航要跟着变，所以这里不能是一个写死的数组。
- *
- * 字段含义：
- *   · `to`       —— 真链接（NuxtLink），可爬、可中键新开
- *   · `children` —— 有子项的（目前只有「文章」，桌面是 hover 展开的下拉，子项是真分类）
- *
- * 【`dev: true` 这个字段已经没有了】（2026-09-11）它原来标"还没做的入口"，
- *   点了弹一句「该页面开发中」。F5 把最后四个入口（收藏 / 项目 / 友链 / 关于）
- *   接成真页面之后，导航里**每一项都是真链接**，所以那个字段、那个兜底分支
- *   以及对应的 `onDev()` 一起删掉了 —— 留着一个永远不会走到的分支，
- *   只会让人以为还有没做完的入口。
- */
-const { categories: navCategories } = useCategoryList()
-
-/**
- * 站点设置（站点名 / 页脚版权与备案号）。
- *
- * 【为什么外壳也要读它】页眉的站名与页脚的备案号都属于"每一页都要显示的整站外壳"，
- * 而且**备案号是合规要求**：它必须出现在服务端渲染出的 HTML 里，
- * 所以这份数据走的是 useAsyncData（见 useSiteSettings 的注释），不是挂载后再取。
- * 首页与后台页读的是同一个 key 的那一份，不会各打一次 /setting。
- */
+/** Shared navigation entries. */
+/** Site settings are fetched once for the shared shell. */
 const { settings } = useSiteSettings()
 
-/**
- * 页脚最底下那一行（版权 / ICP 备案号 / 公安备案号）**整行**要不要渲染。
- *
- * 【为什么不是模板里写 `copyright || icpNumber || policeNumber`】
- *   这一行是"有一项就渲染整行、一项都没有就整行不存在"的结构，而"哪些项算有"
- *   已经由归一化统一成了"非 null"。把三选一留在模板里的话，下一个加字段的人
- *   （比如再添个"增值电信业务经营许可证号"）很容易只加了 `<a>` 忘了改那个 `||`——
- *   表现是"后台填了但页脚不显示"，而且不报任何错。抽成函数之后新字段只进这一处。
- */
+/** Show the footer metadata row only when at least one field is present. */
 const footerMetaVisible = computed(() => hasFooterMeta(settings.value))
-
-/**
- * 「文章」这一项：**有分类就是下拉（子项 = 真分类），一个都没有就退化成指向首页的链接**。
- *
- * 【为什么有分类时子项指向 `/?categoryId=N` 而不是给每个分类做一个页面】
- *   首页本来就是文章列表，而且它已经带着一整套分类筛选（点分类 → 请求参数、
- *   地址栏、列表标题三处同步）。给每个分类再做一个页面等于把同一件事做两遍，
- *   还会多出"两套筛选逻辑谁对"的问题。`?categoryId=` 这个地址是可分享、可爬、
- *   刷新后状态还在的。
- *
- * 【为什么没有分类时不是"空下拉"】空下拉点开是一片空白，用户只会觉得坏了。
- *   而首页是文章列表，正是这一项最合理的去处（接口挂了、或者站里还没建分类时都会走到这里）。
- *   过滤掉 `id` / `name` 缺项的脏数据，是因为它们会渲染出一个点不动的链接（`?categoryId=undefined`）。
- */
-const articleNavItem = () => {
-  const children = navCategories.value
-    .filter(c => c && c.id != null && c.name)
-    .map(c => ({ label: c.name, to: `/?categoryId=${c.id}` }))
-  return children.length ? { label: '文章', children } : { label: '文章', to: '/' }
-}
 
 const navItems = computed(() => [
   { label: '首页', to: '/' },
-  // 归档做成【顶层导航】而不是塞进「文章」下拉框里：那是独立的一页，
-  // 而「文章」下拉里是"按分类看"，两件事。混在一起用户根本分不清点哪个。
+  // Archive and article search are separate pages.
   { label: '归档', to: '/archive' },
-  articleNavItem(),
-  // 【音乐从 "首页的锚点" 变成了真页面】（2026-09-11）
-  //   改之前这一项指的是 '/#music' —— 首页那张卡片上的锚点。也就是说"音乐"
-  //   其实只是"滚到首页某个位置"，而首页那张卡片只有一个播放键：点进来的用户
-  //   看到的还是同一张卡片，感觉自己没进任何页面（这正是用户报的"音乐点进去没有东西"）。
-  //   现在它是一个**真页面** /music（旋转唱片 + 歌词 + 完整控制条），
-  //   NuxtLink 渲染成 <a href="/music">：可爬、可中键新开、刷新后还在这一页。
+  { label: '文章', to: '/articles' },
+  // Music is a real route rather than a home-page anchor.
   { label: '音乐', to: '/music' },
-  // 【收藏 / 项目 / 友链 / 关于：F5 的四页，2026-09-11 从"还没做"接成真页面】
-  //   在这之前它们都是 `dev: true` —— 点了只弹一句「该页面开发中」。
-  //   现在四个模块后端各有一张表、一套公开接口与后台管理面板，所以这里都是真链接。
-  //
-  // 【关于为什么不再指 '/#profile'】那是首页那张个人卡片的锚点。四页做完之后
-  //   "关于"有自己的一页（站长资料 + 自我介绍），首页那张卡片是**简述**，
-  //   点「关于」应该是去看完整的那一份，而不是滚回首页。
-  //   锚点本身留着（老的 `/#profile` 链接仍然落到那张卡片上），只是导航不再指向它。
   { label: '收藏', to: '/favorites' },
   { label: '项目', to: '/projects' },
   { label: '友链', to: '/links' },
@@ -1002,101 +753,53 @@ const setBodyLock = (locked) => {
 watch(navOpen, (open) => setBodyLock(open))
 onBeforeUnmount(() => setBodyLock(false))
 
-// =====================================================================
-//  ⚙ 站点设置面板（右上角那个齿轮，2026-09-11 新加）
-//
-//  【修的是什么】那个按钮原来写的是 `@click="onDev"` —— 点下去只弹一句
-//  「该页面开发中」。面板里现在有两个开关：背景视频、背景音乐。
-//
-//  【两个开关各自的状态放在哪，为什么不一样】
-//    · 背景视频 → **cookie**（`useCookie`）
-//    · 背景音乐 → localStorage（`useBackgroundMusic` 里）
-//    这不是随手选的，是因为两者的诉求不同：
-//
-//    视频这个偏好**必须在服务端渲染时就知道**。视频元素只要进了首屏 HTML，
-//    浏览器立刻就会去下 `bg-star.mp4`（`preload="auto"`）并开始解码 ——
-//    于是"特意把视频关掉"的用户每次打开页面都还会白下一段视频，
-//    还得看它闪一下再被抹掉，那个开关等于白关。localStorage 服务端读不到，
-//    cookie 能从请求头里读到，所以这里只能用 cookie。
-//
-//    音乐不需要这样：它无论如何都得等用户手势才能播（浏览器自动播放限制），
-//    服务端渲染成什么样都不影响结果 —— 那就不必让每个请求都多背一个 cookie。
-// =====================================================================
+// Video preference uses a cookie for SSR; music preference stays client-side.
 
-/**
- * 背景视频偏好。**null（cookie 不存在）= 默认开**，只有用户显式关掉才写 false。
- * 重新打开时写 null —— useCookie 收到 null 会把 cookie 删掉，
- * 这样"没设置"与"设置成开"不会变成两种表达同一件事的值。
- * maxAge 给 180 天：不给的话它是会话 cookie，用户关掉浏览器再进来视频又回来了。
- */
+/** Video is on by default; only an explicit off state is persisted. */
 const videoPref = useCookie('bg-video-enabled', { maxAge: 60 * 60 * 24 * 180 })
 const videoOn = computed(() => videoPref.value !== false)
 const setVideoOn = (value) => { videoPref.value = value ? null : false }
 
-/** 设置面板开着没有。只有 app.vue 用得到，所以不做成共享状态 */
+/** Local state for the settings drawer. */
 const settingsOpen = ref(false)
 
-/**
- * 打开设置面板。顺手把窄屏导航面板收起来 ——
- * 两个浮层叠在一起时，Esc 与点遮罩都只能关掉一个，剩下那个还盖着半屏，
- * 用户的感受就是"没关上"（设置那个齿轮在窄屏下也在导航条右侧，很容易两个都开着）。
- */
+/** Open settings and close the mobile navigation first. */
 const openSettings = () => {
   closeNav()
   settingsOpen.value = true
 }
 
-/**
- * 面板里的音乐开关：只把"用户的意图"写给共享状态。
- * 【为什么不能直接 v-model="musicEnabled"】那样只改了内存里那个 ref，
- * 不会落盘（写 localStorage 的动作在 useBackgroundMusic().setEnabled 里）——
- * 刷新一下偏好就没了，而这种"当时生效、下次失效"的 bug 极难被注意到。
- */
+/** Persist the music preference through the shared composable. */
 const setMusicOn = (value) => music.setEnabled(value)
 
 const form = reactive({ username: '', password: '' })
-// 邮箱是注册必填（后端 RegisterRequest 上 @NotBlank + @Email + @Pattern 三道）。
-// 【为什么前端也要判一遍】后端那道才是权威（前端绕得过去），但只靠它的话，
-// 用户填错要等一个来回才看到提示；而且后端返回的是"第一个字段的错误"，
-// 一次只能告诉他一个问题。前端先判，是让"哪里不对"当场就能改。
+// Keep the client-side checks aligned with the server DTO.
 const regForm = reactive({ username: '', nickname: '', email: '', password: '' })
 const loading = ref(false)
 const regLoading = ref(false)
 
-// 「记住用户名」：逻辑全在 useRememberedLogin 里（只记用户名、清理老 cookie、
-// 为什么不许存密码 —— 见那个文件的头注释）。这里只负责接线：
-//   remember —— 勾选框（v-model）
-//   rememberedUsername —— 挂载时回填输入框用
+// Remembered login stores only the username.
 const { remember, username: rememberedUsername, restore: restoreRemembered, save: saveRemembered, clear: clearRemembered } = useRememberedLogin()
 
 onMounted(async () => {
-  // 音量的偏好：和 `enabled` 一样只能在客户端读（服务端没有 localStorage），
-  // 读完立刻应用到元素上 —— 否则用户上次调的 30% 要等到他动一下滑块才生效
+  // Restore client-only audio preferences.
   musicVolume.value = readStoredVolume()
   applyVolume()
 
-  // 回填「记住的用户名」，并【顺手清理老版本留下的 cookie】：
-  // 只改代码是不够的 —— 老用户浏览器里那个带着明文密码的 rememberMe
-  // 不会自己消失，restore() 会在发现老格式时立刻把它改写成只含用户名的值。
-  // 注意这里【不再回填密码】：密码不回填、不存储，用户每次自己输。
+  // Restore the username and migrate any old cookie format.
   restoreRemembered()
   if (rememberedUsername.value) form.username = rememberedUsername.value
 
-  // 刷新页面后 useState('user') 会变回 null，但 cookie 里的 token 还在。
-  // 用 /auth/me 把用户信息补回来，顶部才能正确显示昵称和角色。
+  // Rehydrate the current user from the token after refresh.
   if (token.value && !user.value) {
     const res = await request('/auth/me')
     if (res.ok) user.value = res.data
   }
 
-  // 接住后台路由守卫发来的"请弹登录框"信号。
-  // 守卫【不能】直接调 openLogin() —— 那个函数改的是服务端内存里的 useState，
-  // 而守卫返回的 navigateTo 在 SSR 时是一条 302，state 根本不会随响应传给浏览器
-  // （完整推导见 app/middleware/admin.ts 的注释）。
-  // 所以那边把意图写进 query，在这里消费：
+  // Consume the middleware login hint on the client.
   if (route.query.login === '1') {
     openLogin()
-    // 抹掉这个参数 —— 否则用户在这个地址上再刷新一次就会又弹一遍
+    // Remove the hint so refresh does not reopen the dialog.
     const rest = { ...route.query }
     delete rest.login
     navigateTo({ path: route.path, query: rest }, { replace: true })
@@ -1216,9 +919,37 @@ const onRegister = async () => {
 
 <style>
 :root {
-  --bg: #0e1a36; --surface: #16264a; --surface-2: #1f345c;
-  --ink: #f6faff; --muted: #b6c8e0; --line: rgba(150,190,240,.14);
+  --bg: #111a14; --surface: #1a2920; --surface-2: #26392c;
+  --ink: #f1f5df; --muted: #c2cfb4; --line: rgba(187,207,157,.28);
   --accent: #f2c14e; --accent-strong: #ffd96b; --cyan: #59d6e6;
+  --grass: #71934d; --pixel-shadow: #0a120d; --panel: rgba(26,41,32,.96);
+  --nav-surface: #17251c; --world-wash: rgba(17,26,20,.70); --world-wash-bottom: rgba(17,26,20,.91);
+  --grid-ink: rgba(198,219,164,.055); --on-accent: #172016;
+  color-scheme: dark;
+  --el-color-primary: var(--accent);
+  --el-color-primary-light-3: #f7d678;
+  --el-color-primary-light-5: #f8df99;
+  --el-color-primary-dark-2: #c79425;
+  --el-bg-color: var(--surface);
+  --el-bg-color-overlay: var(--surface-2);
+  --el-fill-color-blank: var(--surface);
+  --el-border-color: var(--line);
+  --el-text-color-primary: var(--ink);
+  --el-text-color-regular: var(--muted);
+  --el-border-radius-base: 0px;
+  --el-border-radius-small: 0px;
+}
+:root[data-theme="day"] {
+  --bg: #d8e3ca; --surface: #f2f3e2; --surface-2: #e3ebd5;
+  --ink: #263723; --muted: #4d6046; --line: rgba(70,97,57,.4);
+  --accent: #9a6214; --accent-strong: #81500c; --cyan: #247d77;
+  --grass: #557a3e; --pixel-shadow: #829271; --panel: #f2f3e2;
+  --nav-surface: #edf1dc; --world-wash: rgba(239,244,221,.80); --world-wash-bottom: rgba(231,239,213,.92);
+  --grid-ink: rgba(48,79,38,.09); --on-accent: #fff8e6;
+  --el-color-primary-light-3: #c38a40;
+  --el-color-primary-light-5: #d2a467;
+  --el-color-primary-dark-2: #76490c;
+  color-scheme: light;
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--ink); font-family: "PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans SC","Segoe UI",system-ui,sans-serif; -webkit-font-smoothing: antialiased; overflow-x: hidden; }
@@ -1440,4 +1171,188 @@ body { margin: 0; background: var(--bg); color: var(--ink); font-family: "PingFa
 .auth-modal { animation: dialogIn .38s cubic-bezier(.16,.84,.28,1); }
 @media (prefers-reduced-transparency: reduce) { .auth-modal, .auth-form .el-input__wrapper { background: var(--surface); } }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+/* Shared voxel theme: the cookie selects a palette on <html> during SSR. */
+html { scroll-padding-top: 76px; }
+body { background: var(--bg); color: var(--ink); }
+html, body, .shell { cursor: url('/assets/cursor-creeper-arrow.png') 2 2, auto; }
+button:not(:disabled), a, [role="button"], input[type="button"], input[type="submit"] { cursor: url('/assets/cursor-creeper-pointer.png') 3 2, pointer; }
+input, textarea, select { cursor: text; }
+::selection { color: var(--on-accent); background: var(--accent); }
+.bg-overlay {
+  background:
+    linear-gradient(180deg, var(--world-wash), var(--world-wash-bottom)),
+    linear-gradient(to right, var(--grid-ink) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-ink) 1px, transparent 1px);
+  background-size: auto, 16px 16px, 16px 16px;
+}
+.bg-poster { z-index: -8; opacity: .96; image-rendering: pixelated; }
+.bg-overlay { z-index: -7; background-blend-mode: multiply, normal, normal; }
+.site-nav {
+  background: var(--nav-surface) !important;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  border-bottom: 3px solid var(--grass) !important;
+  box-shadow: 0 4px 0 var(--pixel-shadow) !important;
+}
+.site-nav::after {
+  height: 4px;
+  background: repeating-linear-gradient(90deg, #66894a 0 40px, #83a953 40px 56px, #d5b24d 56px 64px, #66894a 64px 104px);
+  animation: none;
+}
+.brand-mark {
+  border: 2px solid var(--accent-strong);
+  border-radius: 0 !important;
+  background: var(--accent) !important;
+  color: var(--on-accent);
+  box-shadow: 3px 3px 0 var(--pixel-shadow) !important;
+  animation: none;
+}
+.brand-mark img { width: 34px; height: 30px; object-fit: contain; image-rendering: pixelated; }
+.brand-name {
+  background: none !important;
+  -webkit-background-clip: border-box !important;
+  color: var(--ink) !important;
+  -webkit-text-fill-color: var(--ink);
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+}
+.nav-center .nv.router-link-active,
+.nav-center .nv.router-link-exact-active {
+  color: var(--ink);
+  background: var(--surface-2);
+  box-shadow: inset 0 -3px 0 var(--accent);
+}
+.nav-center .nv:hover, .nm-item:hover, .nm-sub:hover { background: var(--surface-2) !important; }
+.icon-btn { width: 44px; height: 44px; border-radius: 0 !important; }
+.nav-admin {
+  border: 2px solid var(--accent-strong);
+  border-radius: 0 !important;
+  background: var(--accent) !important;
+  color: var(--on-accent) !important;
+  box-shadow: 3px 3px 0 var(--pixel-shadow);
+}
+.nav-admin { gap: 7px; min-height: 40px; padding-inline: 10px; }
+.pixel-ui-icon { width: 22px; height: 22px; display: inline-block; background: url('/assets/pixel-ui-icon-atlas.png') 50% 50% / 300% 300% no-repeat; image-rendering: pixelated; }
+.icon-workbench { background-position: 50% 50%; }
+.uc-avatar { width: 34px; height: 34px; border-radius: 0 !important; overflow: hidden; border: 2px solid var(--accent); background: var(--surface-2); box-shadow: 2px 2px 0 var(--pixel-shadow); }
+.uc-avatar img { width: 100%; height: 100%; object-fit: cover; image-rendering: pixelated; }
+.foot-mark { width: 22px; height: 22px; object-fit: contain; image-rendering: pixelated; vertical-align: middle; }
+.brand-line { display: inline-flex; align-items: center; gap: 8px; }
+.brand-line img { width: 26px; height: 24px; object-fit: contain; image-rendering: pixelated; }
+.nav-ghost { background: var(--surface-2) !important; }
+.theme-glyph { position: relative; display: block; width: 18px; height: 18px; margin: auto; }
+.theme-glyph.is-day::before {
+  content: ''; position: absolute; inset: 6px; background: var(--accent);
+  box-shadow: 0 -6px 0 -2px var(--accent), 0 6px 0 -2px var(--accent), -6px 0 0 -2px var(--accent), 6px 0 0 -2px var(--accent), -4px -4px 0 -2px var(--accent), 4px -4px 0 -2px var(--accent), -4px 4px 0 -2px var(--accent), 4px 4px 0 -2px var(--accent);
+}
+.theme-glyph.is-night::before {
+  content: ''; position: absolute; inset: 1px 2px 2px 3px; background: var(--accent);
+  clip-path: polygon(0 0, 62% 0, 62% 16%, 40% 16%, 40% 32%, 24% 32%, 24% 68%, 40% 68%, 40% 84%, 62% 84%, 62% 100%, 0 100%);
+}
+body .shell .glass {
+  background: var(--panel) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  border: 2px solid var(--line) !important;
+  border-radius: 0 !important;
+  box-shadow: 4px 4px 0 var(--pixel-shadow), inset 2px 2px 0 rgba(241,245,223,.035) !important;
+}
+.shell .site-footer {
+  border-top: 3px solid var(--grass);
+  background: var(--nav-surface);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.music-toggle { border-radius: 0 !important; }
+body .shell :is(button, .el-button, [role="button"], .el-input__wrapper, .el-select__wrapper, .el-textarea__inner, .el-tag) {
+  border-radius: 0 !important;
+}
+body .shell :is(.el-input__wrapper, .el-select__wrapper, .el-textarea__inner) {
+  background: var(--surface) !important;
+  box-shadow: inset 0 0 0 2px var(--line) !important;
+}
+body .shell :is(.el-input__wrapper.is-focus, .el-select__wrapper.is-focused, .el-textarea__inner:focus) {
+  box-shadow: inset 0 0 0 2px var(--cyan) !important;
+}
+body .shell :is(input, textarea, select) { font-size: 16px !important; }
+body .shell .el-button--primary {
+  --el-button-bg-color: var(--accent);
+  --el-button-border-color: var(--accent);
+  --el-button-hover-bg-color: var(--accent-strong);
+  --el-button-hover-border-color: var(--accent-strong);
+  --el-button-text-color: var(--on-accent);
+  --el-button-hover-text-color: var(--on-accent);
+  box-shadow: 3px 3px 0 var(--pixel-shadow);
+}
+body .shell .el-button--primary:hover { transform: translate(1px, 1px); box-shadow: 2px 2px 0 var(--pixel-shadow); }
+body .shell .nav-btn { min-height: 40px; }
+.home .profile, .home .music { border-top: 4px solid var(--grass) !important; }
+.home .pf-name, .home .w-head h2, .home .mu-title, .shell :is(h1, h2, h3) {
+  font-family: ui-monospace, "Cascadia Code", Consolas, "Microsoft YaHei", monospace;
+  font-variant-numeric: tabular-nums;
+  text-wrap: balance;
+}
+.home .pf-avatar, .home .pf-avatar img, .home .mascot,
+.home .mu-disc, .home .mu-disc-img, .home .mu-disc-ph, .home .mu-disc-hole {
+  border-radius: 0 !important;
+}
+.home .pf-avatar, .home .mascot { box-shadow: 4px 4px 0 var(--pixel-shadow); }
+.home .pf-avatar img, .home .mascot img, .home .af-cover img { image-rendering: pixelated; }
+.home .mu-disc {
+  background: var(--surface-2) !important;
+  border: 3px solid var(--accent);
+  box-shadow: 3px 3px 0 var(--pixel-shadow), inset 2px 2px 0 rgba(241,245,223,.08);
+}
+.home .mu-disc-hole { border: 2px solid var(--accent); }
+.home .cat, .home .tagp, .home .more-btn, .home .notice,
+.home .announce, .home .af-tags .tg, .home .dock, .home .wpanel {
+  border-radius: 0 !important;
+}
+.home .cat, .home .tagp, .home .more-btn, .home .di { box-shadow: 2px 2px 0 var(--pixel-shadow); }
+.home .cat.on, .home .tagp.on, .home .mu-ctl .play, .home .mu-bar {
+  background: var(--accent) !important;
+  color: var(--on-accent) !important;
+}
+.home .af {
+  background: var(--surface-2) !important;
+  border: 2px solid var(--line) !important;
+  border-radius: 0 !important;
+  box-shadow: 4px 4px 0 var(--pixel-shadow) !important;
+}
+.home .af:hover { transform: translate(2px, 2px); box-shadow: 2px 2px 0 var(--pixel-shadow) !important; }
+.home .af-cover { border-bottom: 2px solid var(--line); }
+.home .af-tag { border-radius: 0 !important; }
+.home .af-meta { font-variant-numeric: tabular-nums; }
+body :is(.el-dialog, .el-message-box, .el-dropdown-menu, .el-popper, .el-message) { border-radius: 0 !important; }
+body .auth-modal {
+  background: var(--panel) !important;
+  border: 2px solid var(--line) !important;
+  box-shadow: 6px 6px 0 var(--pixel-shadow) !important;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+body .shell :focus-visible { outline: 3px solid var(--accent-strong); outline-offset: 3px; }
+.shell :is(.icon-btn, .nav-mobile .nm-item, .nav-mobile .nm-sub) { min-height: 44px; }
+@media (max-width: 900px) { .home .waterfall { columns: 2; } }
+@media (max-width: 820px) {
+  .home .waterfall { columns: 1; }
+  .shell .site-footer { padding: 26px 20px 30px; }
+}
+@media (max-width: 640px) {
+  .shell .site-nav { min-height: 60px; height: auto; padding: 8px 12px; gap: 6px; }
+  .shell .brand { min-width: 0; gap: 7px; }
+  .shell .brand-name { max-width: 118px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+  .shell .nav-right { gap: 4px; }
+  .shell .nav-right .el-button { min-height: 38px; padding-inline: 9px; }
+  .shell .user-chip { padding-right: 4px; }
+  .shell .uc-role { display: none; }
+  .home .search-wrap { padding: 24px 16px 8px; }
+  .home .toprow { padding: 16px; gap: 14px; }
+  .home .waterfall-wrap { padding: 12px 16px 32px; }
+  .home .pf-stats { justify-content: space-between; gap: 12px; }
+  .home .pf-stats .st b { font-size: 21px; }
+  .home .w-head h2 { font-size: 20px; }
+}
+@media (max-width: 380px) { .shell .brand-name { max-width: 88px; } }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
 </style>

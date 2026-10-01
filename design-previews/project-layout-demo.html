@@ -1,0 +1,419 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="night">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="亿轨星途像素风首页布局重构 HTML demo">
+    <link rel="icon" href="assets/brand-minecraft-pixel.png">
+  <title>亿轨星途 · 项目布局重构 Demo</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0d1727;
+      --bg-soft: #14243a;
+      --surface: rgba(14, 31, 53, .76);
+      --surface-solid: rgba(14, 31, 53, .94);
+      --surface-raised: rgba(39, 72, 102, .78);
+      --ink: #f3f4dc;
+      --muted: #9eb1c5;
+      --line: rgba(174, 208, 235, .22);
+      --accent: #f3c65e;
+      --accent-strong: #ffd979;
+      --cyan: #68d2d2;
+      --danger: #e9826e;
+      --shadow: #08101d;
+      --pixel: 4px;
+      --radius: 6px;
+      --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+      --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+      --motion-fast: 160ms;
+      --motion-ui: 220ms;
+    }
+    [data-theme="day"] {
+      color-scheme: light;
+      --bg: #dce6d3;
+      --bg-soft: #eef2dc;
+      --surface: rgba(243, 241, 218, .78);
+      --surface-solid: rgba(243, 241, 218, .96);
+      --surface-raised: rgba(227, 232, 201, .82);
+      --ink: #24372a;
+      --muted: #5f705e;
+      --line: rgba(53, 79, 49, .23);
+      --accent: #9a6417;
+      --accent-strong: #b17a22;
+      --cyan: #287f7b;
+      --shadow: #8c9b7b;
+    }
+    * { box-sizing: border-box; }
+    html { min-width: 320px; scroll-behavior: smooth; overflow-x: hidden; background: var(--bg); cursor: url("assets/cursor-creeper-arrow.png") 2 2, auto; }
+    body { cursor: url("assets/cursor-creeper-arrow.png") 2 2, auto; }
+    button:not(:disabled), a, [role="button"] { cursor: url("assets/cursor-creeper-pointer.png") 3 2, pointer; }
+    input, textarea { cursor: text; }
+    body { margin: 0; min-width: 320px; color: var(--ink); background: var(--bg); font: 16px/1.55 "Microsoft YaHei", "PingFang SC", sans-serif; overflow-x: hidden; }
+    body::before { content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none; opacity: .18; background-image: linear-gradient(to right, rgba(255,255,255,.08) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,.08) 1px, transparent 1px); background-size: 16px 16px; mix-blend-mode: soft-light; }
+    button, input { font: inherit; }
+    button, a { -webkit-tap-highlight-color: transparent; }
+    a { color: inherit; text-decoration: none; }
+    button { border: 0; cursor: pointer; }
+    :focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+    .skip { position: fixed; left: 12px; top: 12px; z-index: 1000; padding: 8px 12px; color: var(--shadow); background: var(--accent); transform: translateY(-160%); }
+    .skip:focus { transform: none; }
+
+    .shell { min-height: 100dvh; position: relative; isolation: isolate; }
+    .world-backdrop { position: fixed; inset: 0; z-index: -2; background: center / cover url("assets/village-night-bg.png"); }
+    [data-theme="day"] .world-backdrop { background-image: url("assets/village-day-bg.png"); }
+    .world-wash { position: fixed; inset: 0; z-index: -1; pointer-events: none; background: linear-gradient(180deg, rgba(8, 15, 29, .58), rgba(8, 15, 29, .84) 62%, rgba(8, 15, 29, .96)); }
+    [data-theme="day"] .world-wash { background: linear-gradient(180deg, rgba(232, 240, 219, .5), rgba(224, 234, 208, .78) 62%, rgba(219, 229, 205, .94)); }
+
+    .site-nav { position: sticky; top: 0; z-index: 50; display: flex; align-items: center; gap: 26px; min-height: 66px; padding: 10px clamp(16px, 4vw, 48px) 16px; background: #0b192c; border-bottom: 0; box-shadow: 0 6px 0 #5d432d, 0 10px 0 #6e9b48; animation: pixel-enter 420ms var(--ease-out) both; }
+    [data-theme="day"] .site-nav { background: #edf1dc; box-shadow: 0 6px 0 #8c6a42, 0 10px 0 #6f9c49; }
+    .brand { display: inline-flex; align-items: center; gap: 10px; min-width: max-content; font-weight: 900; letter-spacing: .04em; }
+    .brand-mark { width: 42px; height: 42px; display: grid; place-items: center; overflow: hidden; background: #0b2136; border: 2px solid var(--accent); box-shadow: 4px 4px 0 var(--shadow); }
+    .brand-mark img { width: 36px; height: 30px; object-fit: contain; image-rendering: pixelated; }
+    .brand-name { font-family: ui-monospace, Consolas, monospace; }
+    .nav-center { display: flex; align-items: center; gap: 4px; margin-left: auto; }
+    .nav-link, .nav-action { min-height: 42px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 8px 12px; color: var(--muted); border: 2px solid transparent; background: transparent; }
+    .nav-link, .nav-action { transition: color var(--motion-fast) ease, background-color var(--motion-fast) ease, border-color var(--motion-fast) ease, transform var(--motion-fast) var(--ease-out); }
+    .nav-link:hover, .nav-action:hover { color: var(--ink); background: var(--surface-raised); border-color: var(--line); }
+    .nav-link:active, .nav-action:active { transform: translate(2px, 2px); }
+    .nav-link.active { color: var(--accent); }
+    .nav-right { display: flex; align-items: center; gap: 8px; }
+    .nav-action { font-size: 14px; }
+    .pixel-icon { width: 22px; height: 22px; display: inline-block; flex: 0 0 22px; background: url("assets/pixel-ui-icon-atlas.png") 0 0 / 300% 300% no-repeat; image-rendering: pixelated; }
+    .icon-home { background-position: 0 0; }
+    .icon-article { background-position: 50% 0; }
+    .icon-project { background-position: 100% 0; }
+    .icon-about { background-position: 0 50%; }
+    .icon-admin { background-position: 50% 50%; }
+    .theme-icon { background-position: 0 100%; }
+    [data-theme="day"] .theme-icon { background-position: 100% 50%; }
+    .nav-action[data-panel="admin"] { color: var(--accent); }
+    [data-tip] { position: relative; }
+    [data-tip]::after { content: attr(data-tip); position: absolute; left: 50%; bottom: -9px; z-index: 90; padding: 5px 8px; color: var(--ink); background: var(--surface-solid); border: 2px solid var(--accent); box-shadow: 3px 3px 0 var(--shadow); font: 12px/1.2 "Microsoft YaHei", sans-serif; white-space: nowrap; opacity: 0; pointer-events: none; transform: translate(-50%, 100%) scale(.94); transition: opacity var(--motion-fast) ease, transform var(--motion-fast) var(--ease-out); }
+    [data-tip]:hover::after, [data-tip]:focus-visible::after { opacity: 1; transform: translate(-50%, 100%) scale(1); }
+    .login { color: var(--shadow); background: var(--accent); border-color: var(--shadow); box-shadow: 3px 3px 0 var(--shadow); font-weight: 800; }
+    .login:hover { color: var(--shadow); background: var(--accent-strong); }
+    .menu-button { display: none; }
+    .menu-button::before { content: ""; width: 20px; height: 14px; display: block; background: linear-gradient(var(--accent) 0 3px, transparent 3px 6px, var(--accent) 6px 9px, transparent 9px 11px, var(--accent) 11px 14px); image-rendering: pixelated; }
+
+    main { width: min(1080px, calc(100% - 32px)); margin: 0 auto; }
+    .search-area { padding: 34px 0 12px; animation: pixel-enter 420ms 50ms var(--ease-out) both; }
+    .search-row { display: flex; align-items: center; gap: 12px; }
+    .searchbox { flex: 1; min-height: 50px; display: flex; align-items: center; gap: 10px; padding: 0 16px; background: var(--surface); border: 1px solid var(--line); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .08); }
+    .searchbox input { width: 100%; min-width: 0; color: var(--ink); background: transparent; border: 0; outline: 0; font-size: 16px; }
+    .searchbox input::placeholder { color: var(--muted); }
+    .search-icon { width: 18px; height: 18px; flex: 0 0 auto; background: url("assets/pixel-icon-atlas-transparent.png") 50% 50% / 300% 300%; image-rendering: pixelated; opacity: .85; }
+    .search-clear { min-width: 38px; min-height: 38px; display: grid; place-items: center; color: var(--muted); background: transparent; transition: transform var(--motion-fast) var(--ease-out), color var(--motion-fast) ease; }
+    .search-clear span { position: relative; width: 17px; height: 17px; display: block; }
+    .search-clear span::before, .search-clear span::after { content: ""; position: absolute; left: 7px; top: 0; width: 3px; height: 17px; background: currentColor; transform: rotate(45deg); }
+    .search-clear span::after { transform: rotate(-45deg); }
+    .search-clear:hover { color: var(--accent); transform: scale(1.06); }
+    .filter-group { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    .filter { min-height: 38px; padding: 6px 13px; color: var(--muted); background: var(--surface); border: 2px solid var(--line); box-shadow: 3px 3px 0 var(--shadow); transition: color var(--motion-fast) ease, background-color var(--motion-fast) ease, border-color var(--motion-fast) ease, transform var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out); }
+    [data-theme="day"] .filter { background: var(--surface); }
+    .filter:hover, .filter.on { color: var(--shadow); background: var(--accent); border-color: var(--accent); }
+    .tag-filter { color: var(--cyan); border-style: dashed; }
+
+    .toprow { display: grid; grid-template-columns: 1.35fr 1fr; gap: 18px; padding: 18px 0 12px; animation: pixel-enter 420ms 100ms var(--ease-out) both; }
+    .panel { background: var(--surface); border: 2px solid var(--line); box-shadow: 6px 6px 0 var(--shadow); }
+    .profile { padding: 22px; }
+    .profile-head { display: flex; align-items: center; gap: 15px; }
+    .avatar { width: 68px; height: 68px; overflow: hidden; flex: 0 0 auto; border: 3px solid var(--accent); box-shadow: 4px 4px 0 var(--shadow); }
+    .avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .profile h1 { margin: 0; font: 900 24px/1.15 ui-monospace, Consolas, monospace; }
+    .profile-sub { margin: 5px 0 0; color: var(--muted); font-size: 14px; }
+    .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 22px; padding: 8px; background: rgba(7, 18, 32, .68); border: 2px solid var(--shadow); }
+    [data-theme="day"] .stats { background: rgba(212, 223, 189, .76); }
+    .stat { min-height: 66px; display: flex; flex-direction: column; justify-content: center; padding: 8px; background: var(--surface-raised); border: 2px solid var(--line); box-shadow: inset 2px 2px 0 rgba(255,255,255,.08); }
+    .stat b { display: block; color: var(--accent); font: 900 25px/1 ui-monospace, Consolas, monospace; }
+    .stat span { color: var(--muted); font-size: 13px; }
+    .music { padding: 20px; }
+    .eyebrow { margin: 0 0 12px; color: var(--accent); font: 800 11px ui-monospace, Consolas, monospace; letter-spacing: .14em; }
+    .music-main { display: flex; align-items: center; gap: 14px; }
+    .disc { width: 76px; height: 76px; flex: 0 0 auto; display: grid; place-items: center; background: repeating-radial-gradient(circle, #0b1425 0 2px, #1b3350 2px 4px); border: 3px solid var(--line); border-radius: 2px; box-shadow: 4px 4px 0 var(--shadow); animation: spin 18s linear infinite; animation-play-state: paused; }
+    .disc.playing { animation-play-state: running; }
+    .disc img { width: 58%; height: 58%; object-fit: cover; border-radius: 0; border: 3px solid var(--accent); image-rendering: pixelated; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .track-title { font-weight: 900; }
+    .track-meta { color: var(--muted); font-size: 13px; }
+    .progress { height: 7px; margin: 18px 0 12px; background: var(--surface-raised); }
+    .progress i { display: block; width: 42%; height: 100%; background: var(--accent); }
+    .music-controls { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .play { min-width: 46px; min-height: 42px; color: var(--shadow); background: var(--accent); border: 2px solid var(--shadow); box-shadow: 3px 3px 0 var(--shadow); font-weight: 900; transition: transform var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out), background-color var(--motion-fast) ease; }
+    .play:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0 var(--shadow); }
+    .music-link { color: var(--cyan); font-size: 13px; }
+    .music-link:hover { color: var(--accent); }
+    .mob-scene { margin: 6px 0 18px; padding: 14px; animation: pixel-enter 420ms 130ms var(--ease-out) both; }
+    .mob-scene-head { display: flex; align-items: end; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+    .mob-scene-head p { margin: 0; color: var(--muted); font-size: 12px; }
+    .mob-scene-title { margin: 0; color: var(--accent); font: 900 14px ui-monospace, Consolas, monospace; }
+    .mob-tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .mob-tile { position: relative; min-width: 0; overflow: hidden; aspect-ratio: 2 / 1; background: #176e5d; border: 2px solid var(--line); box-shadow: inset 0 0 0 2px rgba(255,255,255,.06); }
+    .mob-tile img { width: 100%; height: 100%; display: block; object-fit: cover; image-rendering: pixelated; }
+    .mob-tile span { position: absolute; left: 7px; bottom: 6px; padding: 3px 6px; color: #f3f4dc; background: rgba(7, 18, 32, .74); border: 1px solid rgba(255,255,255,.18); font: 11px ui-monospace, Consolas, monospace; }
+    [data-theme="day"] .mob-tile span { color: #24372a; background: rgba(243,241,218,.82); }
+
+    .announcement { display: flex; align-items: center; gap: 10px; min-height: 46px; margin: 18px 0 10px; padding: 10px 15px; background: var(--surface); border: 2px solid var(--line); border-left: 8px solid var(--accent); box-shadow: 4px 4px 0 var(--shadow); animation: pixel-enter 420ms 150ms var(--ease-out) both; }
+    .announcement strong { color: var(--accent); font: 800 12px ui-monospace, Consolas, monospace; white-space: nowrap; }
+    .announcement span { color: var(--muted); }
+    .notice { min-height: 42px; display: flex; align-items: center; overflow: hidden; margin-bottom: 18px; padding: 8px 15px; color: var(--cyan); background: rgba(8, 20, 36, .62); border: 2px dashed var(--line); font: 13px ui-monospace, Consolas, monospace; animation: pixel-enter 420ms 200ms var(--ease-out) both; }
+    [data-theme="day"] .notice { background: rgba(243, 241, 218, .6); }
+    .notice span { animation: ticker 18s linear infinite; white-space: nowrap; }
+    @keyframes ticker { from { transform: translateX(100%); } to { transform: translateX(-100%); } }
+    .world-hud { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 74px; margin: 0 0 30px; padding: 10px 12px; background: rgba(7, 18, 32, .66); border: 2px solid rgba(174, 208, 235, .28); box-shadow: 5px 5px 0 var(--shadow); animation: pixel-enter 420ms 250ms var(--ease-out) both; }
+    [data-theme="day"] .world-hud { background: rgba(243, 241, 218, .68); }
+    .hud-label, .hud-coords { color: var(--muted); font: 11px ui-monospace, Consolas, monospace; white-space: nowrap; }
+    .hotbar { display: grid; grid-template-columns: repeat(9, 38px); gap: 3px; padding: 3px; background: rgba(4, 10, 18, .68); border: 2px solid rgba(208, 222, 217, .4); }
+    [data-theme="day"] .hotbar { background: rgba(69, 77, 57, .32); border-color: rgba(58, 75, 44, .45); }
+    .hot-slot { position: relative; width: 38px; height: 38px; display: block; background-color: rgba(82, 88, 91, .82); background-image: url("assets/pixel-ui-icon-atlas.png"); background-size: 300% 300%; background-repeat: no-repeat; border: 2px solid rgba(19, 25, 30, .88); box-shadow: inset 2px 2px 0 rgba(235, 238, 225, .46), inset -2px -2px 0 rgba(14, 19, 24, .72); image-rendering: pixelated; transition: transform var(--motion-fast) var(--ease-out), border-color var(--motion-fast) ease, box-shadow var(--motion-fast) var(--ease-out); }
+    .hot-slot:nth-child(1) { background-position: 0 0; }
+    .hot-slot:nth-child(2) { background-position: 50% 0; }
+    .hot-slot:nth-child(3) { background-position: 100% 0; }
+    .hot-slot:nth-child(4) { background-position: 0 50%; }
+    .hot-slot:nth-child(5) { background-position: 50% 50%; border-color: var(--accent); box-shadow: inset 2px 2px 0 rgba(255, 248, 214, .68), inset -2px -2px 0 rgba(72, 49, 16, .76), 0 0 0 1px var(--accent); }
+    .hot-slot:nth-child(6) { background-position: 100% 50%; }
+    .hot-slot:nth-child(7) { background-position: 0 100%; }
+    .hot-slot:nth-child(8) { background-position: 50% 100%; }
+    .hot-slot:nth-child(9) { background-position: 100% 100%; }
+    .hud-hearts { display: flex; gap: 3px; color: #e87967; font-size: 14px; letter-spacing: -3px; }
+    .hud-hearts span { display: inline-block; width: 10px; height: 10px; background: #d95d4c; border: 2px solid #712f2b; transform: rotate(45deg) scale(.8); }
+    .section-head { display: flex; align-items: end; justify-content: space-between; gap: 18px; margin: 0 0 18px; animation: pixel-enter 420ms 300ms var(--ease-out) both; }
+    .section-head h2 { margin: 0; font: 900 27px/1.1 ui-monospace, Consolas, monospace; }
+    .section-head p { max-width: 360px; margin: 0; color: var(--muted); font-size: 14px; text-align: right; }
+    .waterfall { columns: 3 260px; column-gap: 16px; }
+    .article { display: block; break-inside: avoid; margin: 0 0 16px; overflow: hidden; background: var(--surface); border: 2px solid var(--line); box-shadow: 5px 5px 0 var(--shadow); animation: pixel-enter 420ms var(--ease-out) both; transition: transform var(--motion-ui) var(--ease-out), border-color var(--motion-fast) ease, box-shadow var(--motion-ui) var(--ease-out); }
+    .article:nth-child(1) { animation-delay: 340ms; }
+    .article:nth-child(2) { animation-delay: 380ms; }
+    .article:nth-child(3) { animation-delay: 420ms; }
+    .article:nth-child(4) { animation-delay: 460ms; }
+    .article:nth-child(5) { animation-delay: 500ms; }
+    .article:nth-child(6) { animation-delay: 540ms; }
+    .article-cover { aspect-ratio: 16 / 10; overflow: hidden; background: var(--surface-raised); }
+    .article-cover img { width: 100%; height: 100%; display: block; object-fit: cover; transition: transform var(--motion-ui) var(--ease-out); }
+    .article-body { padding: 14px 15px 16px; }
+    .article-tag { display: inline-flex; padding: 3px 8px; color: var(--cyan); background: rgba(104, 210, 210, .08); border: 2px solid var(--cyan); font: 11px ui-monospace, Consolas, monospace; }
+    .article h3 { margin: 10px 0 7px; font-size: 18px; line-height: 1.35; }
+    .article p { display: -webkit-box; overflow: hidden; margin: 0 0 12px; color: var(--muted); font-size: 14px; line-height: 1.65; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+    .article-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--muted); font: 12px ui-monospace, Consolas, monospace; }
+    .article-meta b { color: var(--accent); }
+    .more { display: block; width: max-content; min-height: 46px; margin: 24px auto 54px; padding: 10px 18px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); box-shadow: 3px 3px 0 var(--shadow); }
+    .more:hover { color: var(--shadow); background: var(--accent); }
+
+    .dock { position: fixed; left: 0; top: 50%; z-index: 40; display: grid; gap: 6px; padding: 10px 7px; transform: translate(calc(-100% + 22px), -50%); transition: transform var(--motion-ui) var(--ease-out); background: #0b192c; border: 2px solid var(--line); border-left: 0; box-shadow: 4px 4px 0 var(--shadow); }
+    .dock:hover, .dock:focus-within { transform: translate(0, -50%); }
+    [data-theme="day"] .dock { background: #edf1dc; }
+    .dock-button { min-width: 52px; min-height: 50px; display: grid; place-items: center; gap: 2px; padding: 4px; color: var(--muted); background: transparent; transition: color var(--motion-fast) ease, background-color var(--motion-fast) ease, transform var(--motion-fast) var(--ease-out); }
+    .dock-button:hover, .dock-button.on { color: var(--accent); background: var(--surface-raised); }
+    .dock-button span { width: 24px; height: 24px; display: block; background: url("assets/pixel-ui-icon-atlas.png") 0 0 / 300% 300%; image-rendering: pixelated; }
+    .dock-button[data-panel="clock"] span { background-position: 50% 100%; }
+    .dock-button[data-panel="stats"] span { background-position: 0 50%; }
+    .dock-button[data-panel="note"] span { background-position: 100% 100%; }
+    .dock-button i { font-style: normal; font-size: 11px; }
+    .floating-panel { position: fixed; left: 76px; top: 50%; z-index: 39; width: 230px; padding: 16px; color: var(--ink); background: var(--surface-solid); border: 2px solid var(--line); box-shadow: 6px 6px 0 var(--shadow); opacity: 0; pointer-events: none; transform: translate(-8px, -50%) scale(.97); transform-origin: left center; transition: opacity var(--motion-ui) var(--ease-out), transform var(--motion-ui) var(--ease-out); }
+    .floating-panel.is-open { opacity: 1; pointer-events: auto; transform: translate(0, -50%) scale(1); }
+    .floating-panel[hidden] { display: none; }
+    .floating-panel h3 { margin: 0 0 8px; font: 800 16px ui-monospace, Consolas, monospace; }
+    .floating-panel p { margin: 0; color: var(--muted); font-size: 13px; }
+    .site-footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 24px clamp(16px, 4vw, 48px) 38px; color: var(--muted); border-top: 1px solid var(--line); font-size: 13px; }
+    .footer-brand { display: inline-flex; align-items: center; gap: 6px; color: var(--ink); font-weight: 800; }
+    .footer-brand img { width: 20px; height: 20px; object-fit: contain; image-rendering: pixelated; }
+    .footer-tools { display: flex; align-items: center; gap: 10px; }
+    .footer-tools button { min-height: 42px; padding: 8px 12px; color: var(--muted); background: transparent; border: 1px solid var(--line); }
+    .footer-tools button:hover { color: var(--accent); border-color: var(--accent); }
+    @keyframes pixel-enter { from { opacity: 0; transform: translateY(14px) scale(.985); } to { opacity: 1; transform: translateY(0) scale(1); } }
+    @keyframes theme-flash { 0% { opacity: .24; } 100% { opacity: 0; } }
+    .theme-flash { position: fixed; inset: 0; z-index: 80; pointer-events: none; opacity: 0; background: var(--accent); }
+    .theme-flash.show { animation: theme-flash 260ms var(--ease-out) both; }
+    @media (hover: hover) and (pointer: fine) {
+      .article:hover { transform: translateY(-4px); border-color: var(--accent); box-shadow: 7px 7px 0 var(--shadow); }
+      .article:hover .article-cover img { transform: scale(1.04); }
+      .hot-slot:hover { transform: translateY(-3px); border-color: var(--accent-strong); box-shadow: 0 4px 0 var(--shadow); }
+      .dock-button:hover { transform: translateY(-2px); }
+    }
+
+    @media (max-width: 860px) {
+      .nav-center { display: none; }
+      .menu-button { display: inline-flex; }
+      .toprow { grid-template-columns: 1fr; }
+      .dock { top: auto; bottom: 10px; left: 50%; display: flex; transform: translate(-50%, calc(100% - 22px)); }
+      .dock:hover, .dock:focus-within { transform: translate(-50%, 0); }
+      .floating-panel { left: 50%; top: auto; bottom: 78px; transform: translateX(-50%); }
+    }
+    @media (max-width: 560px) {
+      main { width: min(100% - 24px, 520px); }
+      .site-nav { gap: 8px; padding-inline: 12px; }
+      .brand-name { max-width: 125px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .nav-right { margin-left: auto; }
+      .nav-action { min-width: 42px; padding: 8px; }
+      .nav-action span:last-child { display: none; }
+      [data-panel="admin"] .nav-label { display: none; }
+      .menu-button { font-size: 0; }
+      .login { display: none; }
+      .search-area { padding-top: 22px; }
+      .section-head { display: block; }
+      .section-head p { margin-top: 10px; text-align: left; }
+      .profile, .music { padding: 18px; }
+      .stats { gap: 8px; }
+      .announcement { align-items: flex-start; flex-direction: column; gap: 2px; }
+      .world-hud { align-items: flex-start; flex-direction: column; gap: 8px; }
+      .hotbar { grid-template-columns: repeat(9, minmax(26px, 1fr)); width: 100%; }
+      .hot-slot { width: auto; height: auto; aspect-ratio: 1; }
+      .hud-coords { display: none; }
+      .article h3 { font-size: 17px; }
+      .site-footer { align-items: flex-start; flex-direction: column; padding-bottom: 92px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; animation: none !important; transition: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip" href="#content">跳到主要内容</a>
+  <div class="shell">
+    <div class="world-backdrop" aria-hidden="true"></div>
+    <div class="world-wash" aria-hidden="true"></div>
+    <div class="theme-flash" aria-hidden="true"></div>
+
+    <header class="site-nav">
+      <a class="brand" href="#content"><span class="brand-mark" data-tip="亿轨星途" aria-hidden="true"><img src="assets/brand-minecraft-pixel.png" alt=""></span><span class="brand-name">亿轨星途</span></a>
+      <nav class="nav-center" aria-label="主导航">
+        <a class="nav-link active" data-tip="首页" href="#content"><span class="pixel-icon icon-home" aria-hidden="true"></span>首页</a>
+        <a class="nav-link" data-tip="文章" href="#articles"><span class="pixel-icon icon-article" aria-hidden="true"></span>文章</a>
+        <a class="nav-link" data-tip="项目" href="#projects"><span class="pixel-icon icon-project" aria-hidden="true"></span>项目</a>
+        <a class="nav-link" data-tip="关于" href="#about"><span class="pixel-icon icon-about" aria-hidden="true"></span>关于</a>
+      </nav>
+      <div class="nav-right">
+        <button class="nav-action menu-button" type="button" aria-label="打开菜单" data-menu>菜单</button>
+        <button class="nav-action" data-tip="切换白天/夜晚" type="button" data-theme aria-label="切换主题"><span class="pixel-icon theme-icon" aria-hidden="true"></span><span data-theme-label>切换白天</span></button>
+        <button class="nav-action" data-tip="后台工作台" type="button" data-panel="admin" aria-label="后台工作台"><span class="pixel-icon icon-admin" aria-hidden="true"></span><span class="nav-label">后台</span></button>
+        <button class="nav-action login" type="button" data-login>登录</button>
+      </div>
+    </header>
+
+    <main id="content">
+      <section class="search-area" aria-label="搜索文章">
+        <div class="search-row">
+          <label class="searchbox" for="search"><span class="search-icon" aria-hidden="true"></span><input id="search" type="search" placeholder="搜索文章、标签或一段记忆…" autocomplete="off"><button class="search-clear" type="button" data-clear aria-label="清除搜索"><span aria-hidden="true"></span></button></label>
+        </div>
+        <div class="filter-group" aria-label="分类筛选">
+          <button class="filter on" type="button" data-filter="all">全部</button>
+          <button class="filter" type="button" data-filter="build">建造记录</button>
+          <button class="filter" type="button" data-filter="backend">后端札记</button>
+          <button class="filter" type="button" data-filter="design">设计随笔</button>
+          <button class="filter tag-filter" type="button" data-filter="pixel">#像素</button>
+        </div>
+      </section>
+
+      <section class="toprow" id="about" aria-label="个人信息与音乐">
+        <article class="panel profile">
+          <div class="profile-head"><div class="avatar"><img src="assets/avatar-catgirl-pixel.png" alt="猫娘像素头像"></div><div><h1>站长 · YIGUI</h1><p class="profile-sub">在代码与星轨之间，慢慢画自己的图。</p></div></div>
+          <div class="stats"><div class="stat"><b>28</b><span>篇文章</span></div><div class="stat"><b>12.6k</b><span>次浏览</span></div><div class="stat"><b>07</b><span>个分类</span></div></div>
+        </article>
+        <article class="panel music" aria-label="背景音乐播放器">
+          <p class="eyebrow">BACKGROUND MUSIC</p>
+          <div class="music-main"><div class="disc" data-disc><img src="assets/cover-3.png" alt="当前音乐封面"></div><div><div class="track-title">星光落在工作台</div><div class="track-meta">YIGUI · late-night build</div></div></div>
+          <div class="progress" aria-label="音乐进度 42%"><i></i></div>
+          <div class="music-controls"><button class="play" type="button" data-play aria-label="播放背景音乐">播放</button><a class="music-link" href="#music">完整播放器 →</a></div>
+        </article>
+      </section>
+
+      <div class="announcement"><strong>站长公告</strong><span>这周在整理首页，也在删掉一些不必要的复杂度。</span></div>
+      <div class="notice" aria-label="滚动提示"><span>BUILD LOG · 让错误有名字 · 把可复用的判断写进日志 · 下一站：更轻快的文章页</span></div>
+      <section id="articles" aria-labelledby="articles-title">
+        <div class="section-head"><div><p class="eyebrow">RECENT PAGES</p><h2 id="articles-title">最近写下的事</h2></div><p>不追热点，只保存真正参与过的思考和过程。</p></div>
+        <div class="waterfall">
+          <a class="article" data-kind="build" href="article-detail-demo.html?article=1"><div class="article-cover"><img src="assets/village-day-bg.png" alt="草地上的方块小屋" loading="lazy"></div><div class="article-body"><span class="article-tag">建造记录</span><h3>我给自己的首页换了一块草地</h3><p>从信息架构开始重做一个个人站，关于留白、节奏和如何不把自己藏在组件后面。</p><div class="article-meta"><span>2026.09.28</span><b>阅读全文 ↗</b></div></div></a>
+          <a class="article" data-kind="backend" href="article-detail-demo.html?article=2"><div class="article-cover"><img src="assets/mine-night-bg.png" alt="深夜矿井和蓝色水池" loading="lazy"></div><div class="article-body"><span class="article-tag">后端札记</span><h3>把复杂的后端逻辑写得像路标</h3><p>一次接口整理记录：边界清楚，错误可见，未来的自己才不用考古。</p><div class="article-meta"><span>2026.09.16</span><b>阅读全文 ↗</b></div></div></a>
+          <a class="article" data-kind="design pixel" href="article-detail-demo.html?article=3"><div class="article-cover"><img src="assets/village-night-bg.png" alt="月光下的方块村庄" loading="lazy"></div><div class="article-body"><span class="article-tag">设计随笔</span><h3>像素风不是把所有东西变成方块</h3><p>关于材质、比例和那些让界面真的有性格的小细节。</p><div class="article-meta"><span>2026.08.31</span><b>阅读全文 ↗</b></div></div></a>
+          <a class="article" data-kind="build pixel" href="article-detail-demo.html?article=4"><div class="article-cover"><img src="assets/cover-2.png" alt="星球吉祥物" loading="lazy"></div><div class="article-body"><span class="article-tag">生活记录</span><h3>给小站留一盏不刺眼的灯</h3><p>背景、音乐、夜间模式，都是为了让人愿意多停留几分钟。</p><div class="article-meta"><span>2026.08.12</span><b>阅读全文 ↗</b></div></div></a>
+          <a class="article" data-kind="backend" href="article-detail-demo.html?article=5"><div class="article-cover"><img src="assets/cover-3.png" alt="像素音乐封面" loading="lazy"></div><div class="article-body"><span class="article-tag">工程记录</span><h3>删掉不必要的抽象之后</h3><p>代码少了一点，解释清楚的地方多了一点，维护起来也没有那么怕。</p><div class="article-meta"><span>2026.07.24</span><b>阅读全文 ↗</b></div></div></a>
+          <a class="article" data-kind="design" href="article-detail-demo.html?article=6"><div class="article-cover"><img src="assets/village-day-bg.png" alt="白天的方块世界小路" loading="lazy"></div><div class="article-body"><span class="article-tag">设计随笔</span><h3>给每个状态都留一条路</h3><p>加载、失败、空数据和成功，不应该让访客靠猜。</p><div class="article-meta"><span>2026.07.08</span><b>阅读全文 ↗</b></div></div></a>
+        </div>
+        <button class="more" type="button" data-more>加载更多文章</button>
+      </section>
+    </main>
+
+    <aside class="dock" aria-label="快捷工具"><button class="dock-button" data-tip="时钟：查看当前时间" type="button" data-panel="clock"><span aria-hidden="true"></span><i>时钟</i></button><button class="dock-button" data-tip="统计：查看文章数据" type="button" data-panel="stats"><span aria-hidden="true"></span><i>统计</i></button><button class="dock-button" data-tip="便签：查看待办提醒" type="button" data-panel="note"><span aria-hidden="true"></span><i>便签</i></button></aside>
+    <aside class="floating-panel" data-floating hidden><h3 data-panel-title>时钟</h3><p data-panel-copy>现在是 23:18。夜里适合把一件小事做完。</p></aside>
+
+    <footer class="site-footer">
+      <span class="footer-brand"><img src="assets/brand-minecraft-pixel.png" alt=""> 亿轨星途</span>
+      <span>© 2026 YIGUIXINGTU · 保持好奇，持续建造</span>
+      <div class="footer-tools"><button type="button" data-music>播放背景音乐</button><button type="button" data-footer-theme>切换主题</button></div>
+    </footer>
+  </div>
+  <script>
+    (() => {
+      const root = document.documentElement
+      const themeButton = document.querySelector('button[data-theme]')
+      const themeLabel = document.querySelector('[data-theme-label]')
+      const themeFlash = document.querySelector('.theme-flash')
+      const setTheme = (theme, animate = true) => {
+        root.dataset.theme = theme
+        localStorage.setItem('project-layout-theme', theme)
+        themeLabel.textContent = theme === 'night' ? '切换白天' : '切换夜晚'
+        if (animate) {
+          themeFlash.classList.remove('show')
+          void themeFlash.offsetWidth
+          themeFlash.classList.add('show')
+        }
+      }
+      setTheme(localStorage.getItem('project-layout-theme') || 'night', false)
+      const toggleTheme = () => setTheme(root.dataset.theme === 'night' ? 'day' : 'night')
+      themeButton.addEventListener('click', toggleTheme)
+      document.querySelector('[data-footer-theme]').addEventListener('click', toggleTheme)
+
+      const input = document.querySelector('#search')
+      const clear = document.querySelector('[data-clear]')
+      const filters = [...document.querySelectorAll('[data-filter]')]
+      const articles = [...document.querySelectorAll('.article')]
+      let activeFilter = 'all'
+      const renderArticles = () => {
+        const query = input.value.trim().toLowerCase()
+        articles.forEach((article) => {
+          const matchesFilter = activeFilter === 'all' || article.dataset.kind.split(' ').includes(activeFilter)
+          const matchesQuery = !query || article.textContent.toLowerCase().includes(query)
+          article.hidden = !(matchesFilter && matchesQuery)
+        })
+      }
+      input.addEventListener('input', renderArticles)
+      clear.addEventListener('click', () => { input.value = ''; activeFilter = 'all'; filters.forEach((item) => item.classList.toggle('on', item.dataset.filter === 'all')); renderArticles(); input.focus() })
+      filters.forEach((filter) => filter.addEventListener('click', () => { activeFilter = filter.dataset.filter; filters.forEach((item) => item.classList.toggle('on', item === filter)); renderArticles() }))
+
+      const disc = document.querySelector('[data-disc]')
+      const play = document.querySelector('[data-play]')
+      const musicButtons = [...document.querySelectorAll('[data-music]')]
+      const setPlaying = (playing) => { disc.classList.toggle('playing', playing); play.textContent = playing ? '暂停' : '播放'; play.setAttribute('aria-label', playing ? '暂停背景音乐' : '播放背景音乐'); musicButtons.forEach((button) => { button.textContent = playing ? '暂停背景音乐' : '播放背景音乐' }) }
+      let playing = false
+      play.addEventListener('click', () => { playing = !playing; setPlaying(playing) })
+      musicButtons.forEach((button) => button.addEventListener('click', () => { playing = !playing; setPlaying(playing) }))
+
+      const panel = document.querySelector('[data-floating]')
+      const panelTitle = document.querySelector('[data-panel-title]')
+      const panelCopy = document.querySelector('[data-panel-copy]')
+      const panelText = { clock: ['时钟', '现在是 23:18。夜里适合把一件小事做完。'], stats: ['访问统计', '本周有 238 位访客来过，最常读的是后端札记。'], note: ['便签', '记得把新首页的搜索结果状态补上。'], admin: ['后台工作台', '文章、评论和站点设置从这里进入。'] }
+      let panelCloseTimer
+      document.querySelectorAll('[data-panel]').forEach((button) => button.addEventListener('click', () => {
+        const key = button.dataset.panel
+        const isSame = panel.dataset.open === key
+        clearTimeout(panelCloseTimer)
+        panel.dataset.open = isSame ? '' : key
+        document.querySelectorAll('[data-panel]').forEach((item) => item.classList.toggle('on', item === button && !isSame))
+        if (isSame) {
+          panel.classList.remove('is-open')
+          panelCloseTimer = setTimeout(() => { panel.hidden = true }, 220)
+        } else {
+          panel.hidden = false
+          panelTitle.textContent = panelText[key][0]
+          panelCopy.textContent = panelText[key][1]
+          requestAnimationFrame(() => panel.classList.add('is-open'))
+        }
+      }))
+
+      document.querySelector('[data-more]').addEventListener('click', (event) => { event.currentTarget.textContent = '已经到底啦'; event.currentTarget.disabled = true })
+      document.querySelector('[data-login]').addEventListener('click', (event) => { event.currentTarget.textContent = '演示模式'; event.currentTarget.disabled = true })
+
+    })()
+  </script>
+</body>
+</html>

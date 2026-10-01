@@ -84,6 +84,19 @@ describe('外壳：页眉与页脚的站名', () => {
     expect(w.find('.foot-brand').text()).not.toContain(SITE_NAME)
   })
 
+  it('主题切换会写入偏好 Cookie，并更新下一步可切换的主题标签', async () => {
+    const w = await mountShell()
+    const toggle = w.find('.theme-toggle')
+
+    expect(toggle.attributes('aria-label')).toBe('切换到白天主题')
+    await toggle.trigger('click')
+    expect(cookieRefs['site-theme'].value).toBe('day')
+    expect(toggle.attributes('aria-label')).toBe('切换到夜晚主题')
+
+    await toggle.trigger('click')
+    expect(cookieRefs['site-theme'].value).toBe('night')
+  })
+
   it('站点设置读不到时，站名回落 seo.ts 的 SITE_NAME（页脚不会空）', async () => {
     fetchMock.mockImplementation(() => Promise.resolve({ code: 500, message: '服务器内部错误', data: null }))
     const w = await mountShell()

@@ -61,7 +61,7 @@
            没写自我介绍时给一句说明，而不是留一片空白（会让人以为没加载出来）。 -->
       <section class="ac-bio">
         <h3 class="ac-bio-title">自我介绍</h3>
-        <MdPreview v-if="hasBio" :model-value="about.bio" theme="dark" :language="zh_CN" />
+        <MdPreview v-if="hasBio" :model-value="about.bio" theme="dark" language="zh-CN" />
         <p v-else class="ac-bio-empty">站长还没有写自我介绍。</p>
       </section>
 
@@ -106,7 +106,7 @@
 
 // MdPreview 是"只读渲染"版，不带动编辑器那套（体积小很多）。
 // 样式引 preview.css 而不是 style.css —— 和文章详情页完全一致。
-import { MdPreview, zh_CN } from 'md-editor-v3'
+import { MdPreview } from 'md-editor-v3'
 import 'md-editor-v3/lib/preview.css'
 
 const { request } = useApi()

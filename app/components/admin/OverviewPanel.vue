@@ -85,7 +85,7 @@
         <div class="vs-block">
           <div class="vs-block-head">访问最多的页面</div>
           <ul class="vs-rank">
-            <li v-for="p in visits.topPaths" :key="p.key">
+            <li v-for="p in arrayValue(visits.topPaths)" :key="p.key">
               <span class="vs-rank-name" :title="p.key">{{ p.key }}</span>
               <span class="vs-rank-val">{{ p.value }}</span>
             </li>
@@ -94,7 +94,7 @@
         <div class="vs-block">
           <div class="vs-block-head">访问最多的文章</div>
           <ul class="vs-rank">
-            <li v-for="a in visits.topArticles" :key="a.id">
+            <li v-for="a in arrayValue(visits.topArticles)" :key="a.id">
               <span class="vs-rank-name" :title="a.title || ''">
                 {{ a.title || '（文章已删除）' }}
               </span>
@@ -154,6 +154,8 @@
 </template>
 
 <script setup>
+import StatsChart from './StatsChart.vue'
+
 // props 全部是只读的：这个面板不改任何数据，只按父页面给的值渲染
 defineProps({
   /** GET /article/stats 的三个数字（只统计已发布文章） */
@@ -277,12 +279,13 @@ const dailyOption = computed(() => {
   const v = visits.value
   if (!v) return {}
 
-  const byDate = new Map(v.daily.map(d => [String(d.date).slice(0, 10), d]))
+  const byDate = new Map((Array.isArray(v.daily) ? v.daily : []).map(d => [String(d.date).slice(0, 10), d]))
   const dates = []
   const pv = []
   const uv = []
   const today = new Date()
-  for (let i = v.days - 1; i >= 0; i -= 1) {
+  const days = Number(v.days) > 0 ? Number(v.days) : 1
+  for (let i = days - 1; i >= 0; i -= 1) {
     const day = new Date(today)
     day.setDate(today.getDate() - i)
     // 用本地日期拼 yyyy-MM-dd（不能用 toISOString：那是 UTC，跨时区会差一天）
@@ -336,10 +339,12 @@ const pieOption = (slices, labels) => ({
       label: { color: '#cfdcf0', fontSize: 11, formatter: '{b} {c}' },
       labelLine: { lineStyle: { color: 'rgba(150,190,240,.3)' } },
       // 分组值是英文常量，这里翻成中文（认不出的原样显示，见上面那条注释）
-      data: (slices || []).map(s => ({ name: labels[s.key] || s.key, value: s.value })),
-    },
-  ],
+      data: arrayValue(slices).map(s => ({ name: labels[s.key] || s.key, value: s.value })),
+  },
+],
 })
+
+const arrayValue = value => (Array.isArray(value) ? value : [])
 </script>
 
 <style scoped>

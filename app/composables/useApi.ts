@@ -1,45 +1,8 @@
-// ============================================================
-// app/composables/useApi.ts
-// 作用：后台所有请求的统一入口，自动做三件事：
-//   1. 自动带上 Authorization: Bearer <token>
-//   2. 自动判断后端返回的 code（非 200 当失败，弹出后端的 message）
-//   3. 自动处理 401（token 过期 → 清 token 并弹登录框）和 403（无权限）
-//
-// 另外还管着两件"不写出来就会踩坑"的事：
-//   · 【重试策略】显式关掉 ofetch 对 429 的自动重试（见 API_RETRY_STATUS_CODES）：
-//     $fetch 默认会对 GET 自动重试一次，而它的默认重试集合里包含 429 ——
-//     后端正在限流时前端再打一次，正好与限流的目的相反，用户还要多等一个往返。
-//   · 【追踪号】见下面「关于追踪号」。
-//
-// 为什么不用直接 $fetch？
-//   若每个页面都自己写，那"带 token""判 401"要重复几十遍，改一处要改几十处。
-//   封装成一处后，页面只管写 request('/user/page')。
-//
-// 【关于"两种 429"】见 app/utils/apiError.ts 的说明：
-//   HTTP 429 = 真被限流（等一下就好），HTTP 200 + body.code=429 = 重复提交
-//   （别重复点）。两者提示必须不同，所以这里分成两个分支，
-//   而且【绝不】让 429 掉进最后的"网络异常"兜底分支 ——
-//   对限流说成网络故障，用户会以为网络坏了，反复重试，越试越糟。
-//
-// 【关于追踪号】每条错误提示都会带上后端的 X-Trace-Id（有才带）：
-//   用户把提示里的那串号报给站长，站长在日志里搜它就能看到这次请求的全貌。
-//   见 app/utils/apiError.ts 里的 TRACE_ID_HEADER 与 withTraceId。
-// ============================================================
+// Shared API entry: auth headers, response codes, retries, and trace IDs.
 
 import { ElMessage } from 'element-plus'
 
-/**
- * 选后端地址：服务端渲染时走内网地址，浏览器里走公开地址。
- *
- * 【为什么单独抽成一个函数】
- *   import.meta.server 是【编译期常量】——构建时就被替换成 true / false 了，
- *   在测试里没法两种情形都跑到（Nuxt 测试环境里它固定是客户端那一侧）。
- *   抽成纯函数之后，只要传一个布尔值就能把两条分支都测到，
- *   而 useApi 里仍然是"用真实标志调用"，没有为了测试而改变生产行为。
- *
- * @param {boolean} isServer 是否在服务端渲染
- * @param {object}  config   useRuntimeConfig() 的结果
- */
+/** Resolve the server-side or browser API base URL. */
 export const resolveApiBase = (isServer, config) =>
   isServer ? config.apiBaseServer : config.public.apiBase
 
@@ -196,6 +159,10 @@ export const useApi = () => {
         const message = withTraceId(pickMessage(readBackendMessage(err), RATE_LIMITED_MESSAGE), trace)
         toast(message)
         return { ok: false, code: HTTP_STATUS_TOO_MANY_REQUESTS, message, rateLimited: true, traceId: trace }
+      }
+      if (status === 404) {
+        const message = withTraceId(pickMessage(readBackendMessage(err), '内容不存在'), trace)
+        return { ok: false, code: 404, message, traceId: trace }
       }
       const message = withTraceId('网络异常，请稍后再试', trace)
       toast(message)

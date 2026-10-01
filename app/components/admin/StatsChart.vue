@@ -1,7 +1,5 @@
 <template>
-  <!-- 图表的容器。ECharts 需要一个有确定尺寸的 DOM 元素来挂 canvas ——
-       高度由父级通过 height 传进来（不给高度的话它初始化出来是 0 高，
-       表现为"图不见了"，而且控制台什么都不会说）。 -->
+  <!-- ECharts needs a sized host element. -->
   <div ref="host" class="st-chart" :style="{ height }" />
 </template>
 
@@ -22,33 +20,10 @@ echarts.use([
   CanvasRenderer,
 ])
 
-/**
- * =====================================================================
- * ECharts 的薄封装（后台统计页专用）
- *
- * 【为什么要封一层，而不是在面板里直接调 echarts.init】
- *   图表库有两件必须自己管的东西，散在业务组件里迟早漏一个：
- *     · **销毁**：ECharts 实例持有 canvas 与事件监听，不 dispose 就泄漏。
- *       后台面板是"切菜单就销毁重建"的（v-if），漏一次就多一个实例
- *     · **窗口尺寸变化**：不及时 resize 的话，图会保持旧宽度 ——
- *       最典型的表现是"缩小窗口后右侧被裁掉一截"
- *   封一层之后，业务组件只负责"给我一个 option"。
- *
- * 【按需引入（echarts/core）】只注册用到的图表与组件。
- *   全量 import * as echarts from 'echarts' 会把所有图表类型都打进包里
- *   （几百 KB），而这个页面只用得到折线、柱状、饼图三种。
- *
- * 【为什么用 ResizeObserver 而不是监听 window.resize】
- *   后台的侧边栏是固定宽度、内容区随窗口变；但将来若加了可折叠的侧栏，
- *   窗口没变而容器变了 —— 那时 window.resize 收不到通知，图就会错位。
- *   ResizeObserver 盯的是容器自己，两种情况都对。
- * =====================================================================
- */
+/** Small ECharts wrapper with lifecycle and resize handling. */
 
 const props = defineProps({
-  /** 完整的 ECharts option（由调用方按数据拼好，这里不做任何业务解释） */
   option: { type: Object, required: true },
-  /** 容器高度，CSS 值（图表必须有确定高度，见模板注释） */
   height: { type: String, default: '280px' },
 })
 
@@ -59,6 +34,18 @@ let observer = null
 /** 渲染（或更新）图表 */
 const render = () => {
   if (!host.value) return
+  // happy-dom/SSR 没有可测量的布局尺寸，ECharts 在这种环境下无法初始化。
+  // 浏览器完成布局后会通过 ResizeObserver 继续接管真实渲染。
+  if (!host.value.clientWidth || !host.value.clientHeight) return
+  // 部分测试 DOM 提供尺寸但不提供 Canvas 2D 上下文；避免把图表能力缺失
+  // 误报成业务渲染错误，同时保留真实浏览器中的 Canvas 渲染。
+  if (typeof document !== 'undefined') {
+    try {
+      if (!document.createElement('canvas').getContext?.('2d')) return
+    } catch {
+      return
+    }
+  }
   if (!chart) {
     chart = echarts.init(host.value, null, { renderer: 'canvas' })
   }

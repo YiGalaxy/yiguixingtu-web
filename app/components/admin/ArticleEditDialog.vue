@@ -1,12 +1,5 @@
 <template>
-  <!-- ==================== 新建 / 编辑文章弹窗 ====================
-       它被拆成一个独立组件，而不是留在「文章管理」面板里：
-       编辑器（md-editor-v3）是这里唯一的重依赖，弹窗自己扛着这一整套表单状态
-       （标题 / 分类 / 标签 / 封面 / 摘要 / 开关 / 正文）之后，
-       面板那边只剩"表格 + 工具栏"，两边谁也不用读对方的变量。
-
-       destroy-on-close：关掉时销毁内容。编辑器是个重组件，
-       不销毁的话每次打开都会累积一个 CodeMirror 实例，写久了会卡。 -->
+  <!-- New/edit article dialog. The editor is destroyed on close. -->
   <el-dialog
     v-model="visible" class="art-edit-modal"
     :title="form.id ? '编辑文章' : '新建文章'"
@@ -29,11 +22,7 @@
       </el-select>
     </div>
 
-    <!-- 标签：多选。
-         · 选项来自 GET /admin/tag/list（后台那份【不走缓存】，刚建的标签立刻能选到）
-         · 打开弹窗时会重新拉一次：标签管理那边刚建完标签就切过来编辑文章，
-           下拉框里必须已经有它，否则用户只能"刷新整个页面"才能选到
-         · 提交时【永远带上 tagIds】（一个都没选就是空数组），语义见 saveArticle 里的说明 -->
+    <!-- Tags are refreshed when the dialog opens and always submit tagIds. -->
     <div class="af-row">
       <span class="ed-label">标签</span>
       <el-select
@@ -135,7 +124,7 @@
       <MdEditor
         v-model="form.content"
         theme="dark"
-        :language="zh_CN"
+        language="zh-CN"
         :toolbars-exclude="['github', 'fullscreen', 'preview-html']"
         @on-upload-img="onEditorUploadImg" />
     </div>
@@ -150,9 +139,9 @@
 
 <script setup>
 import { ElMessage } from 'element-plus'
-// Markdown 编辑器。zh_CN 是官方中文语言包（工具栏的鼠标提示、字数统计等都会变中文）
+// Markdown 编辑器。语言通过语言代码选择官方中文文案
 // 样式必须单独引一次 —— 这个库不带自动注入 CSS
-import { MdEditor, zh_CN } from 'md-editor-v3'
+import { MdEditor } from 'md-editor-v3'
 import 'md-editor-v3/lib/style.css'
 
 /**

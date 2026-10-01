@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>一颗会写代码的星球 · 视觉方案预览</title>
+  <style>
+    :root { color-scheme: dark; --bg: #101613; --ink: #eef4e7; --muted: #9cae9e; --line: rgba(229,242,216,.16); --accent: #e6bf65; --surface: #17211b; --shadow: #080d0a; }
+    [data-theme="day"] { color-scheme: light; --bg: #e8e8d8; --ink: #243023; --muted: #5c6d58; --line: rgba(39,57,37,.2); --accent: #9f671b; --surface: #f5f3e3; --shadow: #a4ad92; }
+    * { box-sizing: border-box; } body { margin: 0; min-width: 320px; color: var(--ink); background: var(--bg); font-family: "Microsoft YaHei", "PingFang SC", sans-serif; }
+    .wrap { width: min(1120px, calc(100% - 36px)); margin: auto; padding: 72px 0; } .kicker { color: var(--accent); font: 700 12px ui-monospace,monospace; letter-spacing: .14em; text-transform: uppercase; } h1 { max-width: 760px; margin: 16px 0; font: 900 clamp(42px,8vw,88px)/.94 ui-monospace,monospace; letter-spacing: -.07em; } .intro { max-width: 640px; color: var(--muted); font-size: 18px; }
+    .toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 52px 0 22px; } .toolbar button { min-height: 44px; padding: 9px 14px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); cursor: pointer; } .toolbar button:hover { border-color: var(--accent); }
+    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; } .choice { display: flex; flex-direction: column; min-height: 360px; padding: 18px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); box-shadow: 6px 6px 0 var(--shadow); transition: transform .18s ease; } .choice:hover { transform: translateY(-5px); } .swatch { height: 170px; margin-bottom: 20px; border: 2px solid var(--shadow); } .swatch.field { background: linear-gradient(#bad4e0 0 45%, #89a761 45% 66%, #485b39 66%); position: relative; } .swatch.field::after { content: ""; display: block; width: 55%; height: 32%; margin: 50px 0 0 25%; background: #c59760; border: 12px solid #6f8c55; } .swatch.mine { background: radial-gradient(circle at 70% 25%, #e8c66d 0 4%, transparent 5%), linear-gradient(135deg, #121a2b, #273b55); } .swatch.mine::after { content: ""; display: block; width: 70%; height: 36%; margin: 80px 0 0 15%; background: repeating-linear-gradient(90deg, #4c6177 0 12px, #33465c 12px 24px); border: 10px solid #172237; } .swatch.village { background: #d7c18e; position: relative; } .swatch.village::before { content: ""; display: block; width: 70%; height: 58%; margin: 36px auto 0; background: #d28358; border: 12px solid #6c5744; box-shadow: 0 17px 0 #6d8050; } .choice h2 { margin: 0 0 8px; font: 800 24px ui-monospace,monospace; } .choice p { margin: 0; color: var(--muted); } .choice a { display: inline-flex; align-items: center; min-height: 44px; margin-top: auto; padding: 9px 12px; color: var(--accent); border-top: 1px solid var(--line); font-weight: 700; } .choice a:hover { color: var(--ink); }
+    .swatch { background-position: center; background-size: cover; image-rendering: pixelated; }
+    .swatch.field { background-image: linear-gradient(90deg, rgba(19, 37, 26, .2), rgba(19, 37, 26, .05)), url("assets/village-day-bg.png"); }
+    .swatch.mine { background-image: linear-gradient(90deg, rgba(9, 17, 31, .15), rgba(9, 17, 31, .05)), url("assets/mine-night-bg.png"); }
+    .swatch.village { background-image: linear-gradient(90deg, rgba(24, 21, 16, .18), rgba(24, 21, 16, .04)), url("assets/village-night-bg.png"); }
+    .swatch.field::after, .swatch.mine::after, .swatch.village::before { display: none; }
+    @media (max-width: 760px) { .wrap { padding: 44px 0; } .grid { grid-template-columns: 1fr; } .choice { min-height: 300px; } .swatch { height: 140px; } }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <p class="kicker">YIGUIXINGTU / VISUAL DIRECTIONS</p>
+    <h1>先选一个世界，再把它做成真正的网站。</h1>
+    <p class="intro">这 3 个版本使用同一套首页内容，但对密度、颜色和情绪做了不同处理。点进去可以查看完整的首页样式，并切换白天 / 夜晚。</p>
+    <div class="toolbar"><span>3 个独立方向 · 桌面 / 移动端</span><button data-theme-toggle aria-label="切换主题"><span data-theme-label>切换白天</span></button></div>
+    <section class="grid" aria-label="视觉方案">
+      <a class="choice" href="field-notes.html"><div class="swatch field" aria-hidden="true"></div><h2>01 · 草地手帐</h2><p>轻盈、留白多、像一页被阳光照到的像素旅行手帐。适合把文章和个人气质放在第一位。</p><span>查看方案 →</span></a>
+      <a class="choice" href="night-mine.html"><div class="swatch mine" aria-hidden="true"></div><h2>02 · 深夜矿井</h2><p>深色、密度高、带一点游戏 HUD 感。适合突出技术文章、项目和探索感。</p><span>查看方案 →</span></a>
+      <a class="choice" href="village-board.html"><div class="swatch village" aria-hidden="true"></div><h2>03 · 村庄告示板</h2><p>暖色、亲切、像方块世界里的一块公告木牌。适合内容型个人博客和生活记录。</p><span>查看方案 →</span></a>
+    </section>
+  </main>
+  <script src="preview.js"></script>
+</body>
+</html>

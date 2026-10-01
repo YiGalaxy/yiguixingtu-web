@@ -154,7 +154,7 @@ v-for="t in tags" :key="t.id" class="tagp"
       <div class="w-head">
         <!-- 标题跟着筛选条件走：让用户一眼看出"现在看到的是哪一批文章" -->
         <h2>{{ listTitle }}</h2>
-        <span v-if="isFiltered" class="w-clear" @click="clearAll">清除筛选</span>
+        <button v-if="isFiltered" class="w-clear" type="button" @click="clearAll">清除筛选</button>
       </div>
 
       <!-- 三种状态：加载中 / 空 / 有数据。
@@ -216,7 +216,7 @@ v-for="t in a.tags" :key="t.id" class="tg"
     </section>
 
     <!-- 右下浮动小角色 -->
-    <div class="mascot" title="亿轨星途" @click="onMascot"><img src="/cover-2.png" ></div>
+    <button class="mascot" type="button" aria-label="查看站点欢迎语" title="亿轨星途" @click="onMascot"><img src="/cover-2.png" alt="" ></button>
 
     <!-- 左下角原来有个「1 人正在看」的在线人数。
          那是写死的字符串：后端没有在线人数接口，这个数字永远不会变，
@@ -231,7 +231,7 @@ v-for="t in a.tags" :key="t.id" class="tg"
     <div v-if="open.clock" class="wpanel glass" :style="posStyle('clock')">
       <div class="wp-head" @pointerdown="startDrag('clock', $event)">
         <span class="wp-t">时钟</span>
-        <span class="wp-x" @click="close('clock')">×</span>
+        <button class="wp-x" type="button" aria-label="关闭时钟" @click="close('clock')">×</button>
       </div>
       <div class="wp-body clock">
         <div class="ck-time">{{ now.time }}</div>
@@ -673,7 +673,8 @@ const fmtDate = (t) => (t ? String(t).replace('T', ' ').slice(0, 10) : '')
 const now = reactive({ time: '', date: '' })
 const tick = () => { const d = new Date(); now.time = d.toLocaleTimeString('zh-CN', { hour12: false }); now.date = d.toLocaleDateString('zh-CN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) }
 tick()
-onMounted(() => setInterval(tick, 1000))
+let clockTimer = null
+onMounted(() => { clockTimer = window.setInterval(tick, 1000) })
 
 // —— 侧边菜单 + 可拖动面板 ——
 // 现在只剩「时钟」一个面板（「留言」那个假浮窗已随它的两条假留言一起删掉），
@@ -688,6 +689,12 @@ let drag = null
 const startDrag = (k, e) => { drag = { k, sx: e.clientX, sy: e.clientY, ox: pos[k].x, oy: pos[k].y }; document.addEventListener('pointermove', onMove); document.addEventListener('pointerup', onUp) }
 const onMove = (e) => { if (!drag) return; pos[drag.k].x = drag.ox + (e.clientX - drag.sx); pos[drag.k].y = drag.oy + (e.clientY - drag.sy) }
 const onUp = () => { drag = null; document.removeEventListener('pointermove', onMove); document.removeEventListener('pointerup', onUp) }
+
+onBeforeUnmount(() => {
+  if (clockTimer !== null) window.clearInterval(clockTimer)
+  document.removeEventListener('pointermove', onMove)
+  document.removeEventListener('pointerup', onUp)
+})
 
 const onMascot = () => { ElMessage.info('欢迎来到亿轨星途 ✦') }
 
@@ -881,7 +888,7 @@ useSeoMetaFor(() => ({
 /* 标题行改成两端对齐：左边标题，右边「清除搜索」 */
 .w-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 20px; }
 .w-head h2 { margin: 0; }
-.w-clear { color: var(--accent); font-size: 13px; cursor: pointer; }
+.w-clear { padding: 4px 8px; background: none; border: none; color: var(--accent); font-size: 13px; cursor: pointer; }
 .w-empty { text-align: center; color: var(--muted); padding: 60px 0; font-size: 14px; }
 .w-more { text-align: center; margin-top: 6px; }
 
@@ -900,7 +907,7 @@ useSeoMetaFor(() => ({
 .s-clear { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 14px; padding: 4px 6px; }
 .s-clear:hover { color: var(--accent); }
 
-.mascot { position: fixed; right: 22px; top: 45%; width: 84px; height: 84px; border-radius: 50%; overflow: hidden; cursor: pointer; border: 2px solid rgba(242,193,78,.5); box-shadow: 0 12px 30px rgba(0,0,0,.4); animation: bob 5s ease-in-out infinite; z-index: 5; }
+.mascot { position: fixed; right: 22px; top: 45%; width: 84px; height: 84px; padding: 0; border-radius: 50%; overflow: hidden; cursor: pointer; border: 2px solid rgba(242,193,78,.5); box-shadow: 0 12px 30px rgba(0,0,0,.4); animation: bob 5s ease-in-out infinite; z-index: 5; }
 .mascot img { width: 100%; height: 100%; object-fit: cover; }
 @keyframes bob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-14px); } }
 /* .viewers / .dot / @keyframes pulseDot 随写死的「1 人正在看」一起删掉 */
@@ -914,7 +921,7 @@ useSeoMetaFor(() => ({
 .wpanel { position: fixed; z-index: 20; min-width: 220px; border-radius: 18px; overflow: hidden; }
 .wp-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; cursor: grab; border-bottom: 1px solid var(--line); }
 .wp-t { font-weight: 700; font-size: 14px; }
-.wp-x { cursor: pointer; color: var(--muted); font-size: 18px; }
+.wp-x { min-width: 32px; min-height: 32px; padding: 0; border: none; background: transparent; cursor: pointer; color: var(--muted); font-size: 18px; }
 .wp-x:hover { color: var(--accent); }
 .wp-body { padding: 16px; }
 .clock { text-align: center; }

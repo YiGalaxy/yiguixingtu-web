@@ -1,35 +1,36 @@
 <template>
   <div class="art-page">
+    <div class="article-world-backdrop" aria-hidden="true" />
+    <div class="article-library-backdrop" aria-hidden="true" />
+    <div class="article-world-wash" aria-hidden="true" />
+    <div class="article-enchant-table" aria-hidden="true">
+      <span class="article-enchant-book" />
+      <span class="article-enchant-glyph glyph-a">✦</span>
+      <span class="article-enchant-glyph glyph-b">◇</span>
+      <span class="article-enchant-glyph glyph-c">✧</span>
+    </div>
     <div class="art-wrap">
 
-      <!-- 返回 -->
+      <!-- Back to article list. -->
       <a class="back" href="/" @click.prevent="goHome">← 返回首页</a>
 
-      <!-- ① 加载中 -->
+      <!-- Loading state. -->
       <div v-if="pending" class="state">加载中…</div>
 
-      <!-- ② 没找到（不存在 / 是草稿 / 已下架 / 已删除，对访客来说都是同一种结果） -->
+      <!-- Unavailable state. -->
       <div v-else-if="!article" class="state">
         <b>这篇文章不见了</b>
         <p>{{ errMsg }}</p>
         <button class="btn" @click="goHome">回到首页</button>
       </div>
 
-      <!-- ③ 正文 -->
+      <!-- Article body. -->
       <article v-else class="doc">
         <header class="doc-head">
-          <!-- 分类与标签放在同一行：它们是同一类东西（这篇属于哪儿），
-               分开两行会让标题上方的空白被撑得很高。 -->
+          <!-- Category and tags. -->
           <div class="doc-labels">
             <span v-if="article.categoryName" class="doc-cat">{{ article.categoryName }}</span>
-            <!-- 标签：点它去首页看"同标签的其他文章"。
-                 详情页自己只有一篇文章、没有筛选的能力，所以"按标签看"只能落到
-                 首页那一套筛选状态上：跳过去时把 ?tagId= 带上，
-                 首页的 useArticleFilter 启动时就从地址栏把它恢复出来
-                 （和"别人甩一条带筛选参数的链接给你"走的是同一条路，没有第二套逻辑）。
-                 【为什么写成 <a href> 而不是 <span>】内链是爬虫发现"标签下还有哪些文章"
-                 的入口；保留 href 也让中键/右键新标签打开这些浏览器的原生行为照常可用，
-                 .prevent 只是把左键点击换成站内路由跳转（和上面那个「返回首页」一样）。 -->
+            <!-- Tag link keeps filtering shareable and crawlable. -->
             <a
 v-for="t in articleTags" :key="t.id" class="doc-tag"
                :href="tagLink(t.id)"
@@ -46,29 +47,14 @@ v-for="t in articleTags" :key="t.id" class="doc-tag"
           <img v-if="article.cover" class="doc-cover" :src="article.cover" :alt="article.title" >
         </header>
 
-        <MdPreview :model-value="article.content || ''" theme="dark" :language="zh_CN" />
+        <MdPreview :model-value="article.content || ''" theme="dark" language="zh-CN" />
 
-        <!-- ==================== 附件 ====================
-             【为什么放在正文之后、"完"之前】附件是正文的补充材料：
-             读者读完正文正好看到"这篇还附了哪些文件"；放到评论区下面等于藏起来 ——
-             几乎没人会翻过去。
-             【为什么要 download 属性】它让浏览器**下载**而不是就地打开，
-             与后端那层 `Content-Disposition: attachment` 是同一件事的两道保险：
-             前端这道在某些场景（跨域、浏览器策略）下不生效，但不能因此不写。
-             【为什么要 rel=noopener】附件地址现在是同源的，但保持这个习惯 ——
-             哪天附件挪到别的域，这一行不用再改。 -->
+        <!-- Attachments follow the article body. -->
         <section v-if="attachments.length" class="doc-attach">
           <h2 class="doc-attach-title">附件（{{ attachments.length }}）</h2>
           <ul class="doc-attach-list">
-            <!-- 【key 为什么要带上下标】2026-09 上传改成内容寻址之后，
-                 同一个文件可以被挂两次（拿到的是同一个 url），
-                 只用 url 当 key 会出现重复 key 警告与错行复用。
-                 与后台弹窗里那一处保持一致（见 ArticleEditDialog.vue）。 -->
             <li v-for="(item, index) in attachments" :key="`${item.url}-${index}`">
               <a class="doc-attach-item" :href="item.url" :download="item.name" target="_blank" rel="noopener">
-                <!-- 【为什么要有 title】文件名上限 100 字，而这一行是 ellipsis 截断的 ——
-                     没有 title 的话，被截断之后读者**没有任何办法**看到全名
-                     （与后台弹窗里那一处保持一致） -->
                 <span class="doc-attach-name" :title="item.name">{{ item.name }}</span>
                 <span class="doc-attach-size">{{ formatFileSize(item.size) }}</span>
               </a>
@@ -92,7 +78,7 @@ v-for="t in articleTags" :key="t.id" class="doc-tag"
           <span v-if="commentTotal" class="cm-count">{{ commentTotal }}</span>
         </h2>
 
-        <!-- ① 已通过的评论（这个接口只返回已通过的，待审核的谁都看不到） -->
+        <!-- Public comments. -->
         <div v-if="commentsPending && allComments.length === 0" class="cm-empty">评论加载中…</div>
         <div v-else-if="allComments.length === 0" class="cm-empty">
           还没有评论，来说点什么
@@ -103,33 +89,22 @@ v-for="t in articleTags" :key="t.id" class="doc-tag"
               <span class="cm-nick">{{ c.nickname }}</span>
               <span class="cm-time">{{ fmtTime(c.createTime) }}</span>
             </div>
-            <!-- 【安全关键】这里是 {{ }} 插值，不是 v-html（详细理由见下面 script 段里的说明）。
-                 插值会把内容当成**纯文本**放进 DOM，所以哪怕内容里写着 script 标签，
-                 它也只会原样显示成一串字符，永远不会变成能执行的标签。
-                 （注释里刻意不写尖括号：模板注释会被原样序列化进发给访客的 HTML，
-                   写进去就等于往每个页面的源码里多塞一段看起来像标签的文本。） -->
+            <!-- Interpolation keeps user comments as text. -->
             <p class="cm-body">{{ c.content }}</p>
           </li>
         </ul>
 
-        <!-- 分页用「加载更多」而不是页码器：和首页一致，而且评论是对话，
-             追加到末尾符合阅读顺序；翻页器会把用户"跳"到另一页、丢掉读到的位置。 -->
         <div v-if="hasMoreComments" class="cm-more">
           <button class="btn" :disabled="commentsLoadingMore" @click="loadMoreComments">
             {{ commentsLoadingMore ? '加载中…' : '加载更多评论' }}
           </button>
         </div>
 
-        <!-- ② 发表表单（站点设置里把评论总开关关掉时，整块换成一句说明） -->
+        <!-- Comment form. -->
         <form v-if="settings.commentEnabled" class="cm-form" @submit.prevent="submitComment">
           <div class="cm-form-title">发表评论</div>
 
           <div class="cm-fields">
-            <!-- 【登录之后这一栏变成只读】2026-09 起，登录用户的昵称由后端从账号里取，
-                 表单里填什么都会被忽略。所以这里不让改 —— 让用户改一个"改了也没用"
-                 的输入框，比不让改更让人困惑。
-                 后端那边是**同一套规则的另一端**：它真的会忽略表单里的昵称
-                 （不是"前端不给改所以安全了"—— 直接调接口照样能用账号身份发言）。 -->
             <label class="cm-field">
               <span class="cm-label">
                 昵称 <i v-if="!isLoggedIn">*</i>
@@ -141,7 +116,6 @@ v-model="commentForm.nickname" type="text"
                      :maxlength="COMMENT_LIMITS.nickname" placeholder="怎么称呼你" >
             </label>
             <label class="cm-field">
-              <!-- 邮箱选填：强制填邮箱会显著降低评论意愿，而它对读者没有任何用处 -->
               <span class="cm-label">邮箱 <em>选填</em></span>
               <input
 v-model="commentForm.email" type="text"
@@ -161,18 +135,8 @@ v-model="commentForm.content" class="cm-textarea"
             </button>
           </div>
 
-          <!-- 失败提示（校验没过、后端 400/404/429 都走这里）。
-               429 复用 app/utils/apiError.ts 里那句「请求过于频繁」——
-               绝不能说成「网络异常」：限流是"服务端好好的、让你等一会儿"，
-               说成网络故障会把人往"查网线、重启路由器"的方向带。 -->
           <p v-if="commentError" class="cm-alert err">{{ commentError }}</p>
 
-          <!-- 【提交成功后必须说清楚，不能让用户以为没发出去】
-               后端默认把评论存成【待审核】（status=0），所以它不会立刻出现在上面的列表里。
-               如果只清空输入框、什么都不说，用户看到的就是"我发的评论没了"，
-               然后很可能再发一遍 —— 于是同一条评论进了两次审核队列。
-               所以这里三件事一起做：① 一句话说明 ② 把刚提交的那条显示出来
-               ③ 挂上「待审核」标记，并说明它为什么不在上面的列表里。 -->
           <p v-if="commentPublished" class="cm-alert ok">
             评论已发布，已出现在上面的评论列表里。
           </p>
@@ -181,18 +145,9 @@ v-model="commentForm.content" class="cm-textarea"
           </p>
         </form>
 
-        <!-- 【评论总开关关掉时的替代说明】
-             ⚠️ 两点刻意的语义，别当成漏了：
-             ① **已有的评论仍然显示在上面** —— "关闭评论"的意思是"不再接收新评论"，
-                不是"把历史评论藏起来"。既有评论是站点内容的一部分，
-                而且后端那边也只是拒绝新的提交（不是把数据删了）
-             ② 这只是**前端的表现**：真正的拦截在后端（POST /comment 会返回
-                「评论已关闭」的业务错误）。只藏表单不拦接口等于一个假开关 ——
-                谁都能直接调接口绕过它 -->
         <p v-else class="cm-closed">评论已关闭，暂时不能发表新的评论。</p>
 
-        <!-- ③ 我这次提交的评论（待审核）：单独一块，不混进公开列表，
-             免得用户以为"别人已经看到了" -->
+        <!-- Pending comments from this session stay private. -->
         <div v-if="myPending.length" class="cm-mine">
           <div class="cm-mine-title">你的评论（仅你可见）</div>
           <ul class="cm-list">
@@ -200,12 +155,6 @@ v-model="commentForm.content" class="cm-textarea"
               <div class="cm-head">
                 <span class="cm-nick">{{ c.nickname }}</span>
                 <span class="cm-badge">待审核</span>
-                <!-- 【为什么这里要兜一个「刚刚」】联调实测发现：POST /comment 的响应里
-                     createTime 是 null（插入后没有把数据库里刚生成的时间回填到返回对象上），
-                     而前台列表接口返回的评论是有时间的。
-                     照原样显示的话，这一行会出现一个空白的时间位（看着像页面坏了）。
-                     刚提交的评论本来就是"刚刚"，比显示一个"—"更准确。
-                     （这属于对后端返回形状的兼容，不是掩盖问题 —— 已记进汇报。） -->
                 <span class="cm-time">{{ fmtTime(c.createTime) || '刚刚' }}</span>
               </div>
               <p class="cm-body">{{ c.content }}</p>
@@ -221,7 +170,7 @@ v-model="commentForm.content" class="cm-textarea"
 <script setup>
 // MdPreview 是"只读渲染"版，不带动编辑器那套（体积小很多）。
 // 样式引 preview.css 而不是 style.css —— 详情页不需要编辑器样式。
-import { MdPreview, zh_CN } from 'md-editor-v3'
+import { MdPreview } from 'md-editor-v3'
 import 'md-editor-v3/lib/preview.css'
 
 /*
@@ -292,12 +241,12 @@ const requestComments = (pageNo) => request('/comment/list', {
 })
 
 const articleAsync = useAsyncData(
-  'article-' + route.params.id,
+  () => 'article-' + route.params.id,
   () => request('/article/' + route.params.id),
 )
 
 const commentsAsync = useAsyncData(
-  'article-comments-' + route.params.id,
+  () => 'article-comments-' + route.params.id,
   () => requestComments(1),
 )
 
@@ -565,7 +514,26 @@ const fmtTime = (t) => (t ? String(t).replace('T', ' ').slice(0, 16) : '')
 </script>
 
 <style scoped>
-.art-page { min-height: 70vh; }
+.art-page { position: relative; min-height: 70vh; isolation: isolate; }
+.article-world-backdrop,
+.article-library-backdrop,
+.article-world-wash { position: fixed; inset: 0; pointer-events: none; }
+.article-world-backdrop { z-index: -4; background: center / cover url('/assets/article-library-bg.png'); image-rendering: pixelated; }
+:global([data-theme="day"]) .article-world-backdrop { background-image: url('/assets/article-library-bg.png'); }
+.article-library-backdrop { z-index: -3; opacity: .19; background: linear-gradient(180deg, transparent 0 54%, rgba(8,16,29,.78)), url('/assets/article/bookshelf-oak.png') 0 62% / 192px 192px repeat-x; image-rendering: pixelated; mix-blend-mode: screen; }
+:global([data-theme="day"]) .article-library-backdrop { opacity: .13; filter: saturate(.7) brightness(1.12); mix-blend-mode: multiply; }
+.article-world-wash { z-index: -2; background: linear-gradient(180deg, rgba(8,15,29,.52), rgba(8,15,29,.9) 70%, rgba(8,15,29,.98)); }
+:global([data-theme="day"]) .article-world-wash { background: linear-gradient(180deg, rgba(232,240,219,.42), rgba(224,234,208,.79) 70%, rgba(219,229,205,.96)); }
+.article-enchant-table { position: fixed; right: clamp(26px, 8vw, 120px); bottom: clamp(64px, 11vh, 118px); z-index: -1; width: 88px; height: 76px; pointer-events: none; image-rendering: pixelated; animation: article-enchant-float 2.8s ease-in-out infinite; }
+.article-enchant-table::before { content: ''; position: absolute; left: 9px; top: 17px; width: 70px; height: 53px; background: linear-gradient(#56366e 0 0) 50% 0 / 70px 18px no-repeat, linear-gradient(#271a3b 0 0) 50% 17px / 48px 40px no-repeat; border: 3px solid #171329; box-shadow: 4px 4px 0 rgba(8,10,19,.5); }
+.article-enchant-book { position: absolute; left: 24px; top: -10px; width: 48px; height: 27px; background: linear-gradient(90deg, #5f3f9b 0 47%, #cfb9f2 48% 53%, #7856bc 54%); border: 3px solid #201532; box-shadow: 3px 3px 0 rgba(8,10,19,.48); transform: rotate(-8deg); animation: article-enchant-book 3.4s ease-in-out infinite; }
+.article-enchant-glyph { position: absolute; color: var(--cyan); text-shadow: 2px 2px 0 #173a4d; font: 900 16px ui-monospace, Consolas, monospace; animation: article-glyph-rise 2.2s ease-in-out infinite; }
+.glyph-a { left: -2px; top: 22px; }
+.glyph-b { right: -4px; top: 38px; animation-delay: .7s; }
+.glyph-c { left: 14px; top: 4px; animation-delay: 1.2s; }
+@keyframes article-enchant-float { 0%,100% { transform: translateY(3px); } 50% { transform: translateY(-5px); } }
+@keyframes article-enchant-book { 0%,100% { transform: rotate(-8deg) translateY(0); } 50% { transform: rotate(8deg) translateY(-4px); } }
+@keyframes article-glyph-rise { 0% { opacity: 0; transform: translateY(8px) scale(.8); } 35%,70% { opacity: .9; } 100% { opacity: 0; transform: translateY(-18px) scale(1.1); } }
 /* 阅读栏宽度。
    【为什么从 860 提到 960】站长反馈"文章详情页有点小、不那么好看" —— 860px 是
    早期按"一行 40 来个字最舒服"定的，但本项目正文用的是 16px 中文 + 1.9 行高，
@@ -600,24 +568,24 @@ const fmtTime = (t) => (t ? String(t).replace('T', ' ').slice(0, 16) : '')
      在一张高对比度的背景图上也会明显干扰阅读（实测截图里画作清晰可见）。
      这里故意不做 backdrop-filter —— 一整块大面积实时模糊会对背后的播放中视频
      逐帧重采样，是首页那次卡顿的同款问题，而且面积更大。 */
-  background: rgba(13,22,43,.96);
-  border: 1px solid rgba(180,210,245,.14);
-  border-radius: 22px;
+  background: var(--panel);
+  border: 2px solid var(--line);
+  border-radius: 0;
   padding: 44px 52px 52px;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.06), 0 24px 60px rgba(0,0,0,.35);
+  box-shadow: 8px 8px 0 var(--pixel-shadow);
 }
 .doc-head { margin-bottom: 28px; padding-bottom: 24px; border-bottom: 1px solid rgba(150,190,240,.12); }
 /* 分类与标签同一行，窄屏自动换行（标签多的文章不该把标题挤下去） */
 .doc-labels { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 14px; }
 .doc-cat {
   display: inline-block; font-size: 12px; color: #cfe0f0;
-  border: 1px solid rgba(180,210,245,.25); border-radius: 999px;
+  border: 2px solid var(--line); border-radius: 0;
   padding: 2px 12px;
 }
 /* 标签做得比分类淡一些：# 前缀 + 实心底，一眼能看出"这是标签、而且能点" */
 .doc-tag {
   display: inline-block; font-size: 12px; color: #cfe0f0; text-decoration: none;
-  background: rgba(242,193,78,.14); border-radius: 999px; padding: 3px 12px;
+  background: var(--surface-2); border: 2px solid var(--cyan); border-radius: 0; padding: 3px 12px;
   transition: background .2s, color .2s;
 }
 .doc-tag:hover { background: rgba(242,193,78,.3); color: var(--ink); }
@@ -625,7 +593,7 @@ const fmtTime = (t) => (t ? String(t).replace('T', ' ').slice(0, 16) : '')
 .doc-meta { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13px; flex-wrap: wrap; }
 .doc-meta .dot { opacity: .5; }
 .doc-top { color: var(--accent); border: 1px solid rgba(242,193,78,.45); border-radius: 999px; padding: 1px 10px; font-size: 12px; }
-.doc-cover { width: 100%; border-radius: 16px; margin-top: 22px; display: block; }
+.doc-cover { width: 100%; border-radius: 0; margin-top: 22px; display: block; border: 2px solid var(--line); image-rendering: auto; }
 
 /* 附件区：在正文之后、"完"之前。
    每一项都是"文件名（可省略号）+ 大小"的**整行链接** —— 整行可点比只有文字可点更好按，
@@ -645,11 +613,11 @@ const fmtTime = (t) => (t ? String(t).replace('T', ' ').slice(0, 16) : '')
    背后的播放中视频逐帧重采样，而这里同样是一整块长内容。 */
 .cm {
   margin-top: 28px;
-  background: rgba(13,22,43,.96);
-  border: 1px solid rgba(180,210,245,.14);
-  border-radius: 22px;
+  background: var(--panel);
+  border: 2px solid var(--line);
+  border-radius: 0;
   padding: 32px 44px 36px;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.06), 0 24px 60px rgba(0,0,0,.35);
+  box-shadow: 8px 8px 0 var(--pixel-shadow);
 }
 .cm-title { font-size: 20px; font-weight: 800; color: var(--ink); margin: 0 0 20px; }
 .cm-count {
@@ -709,9 +677,9 @@ const fmtTime = (t) => (t ? String(t).replace('T', ' ').slice(0, 16) : '')
 .cm-actions { display: flex; align-items: center; justify-content: space-between; margin-top: 12px; }
 .cm-hint { color: var(--muted); font-size: 12px; }
 .cm-submit {
-  background: linear-gradient(135deg, var(--accent), var(--cyan));
-  border: none; color: #0a1224; font-weight: 700; font-size: 14px;
-  padding: 9px 28px; border-radius: 999px; cursor: pointer;
+  background: var(--accent);
+  border: 2px solid var(--pixel-shadow); color: var(--on-accent); font-weight: 700; font-size: 14px;
+  padding: 9px 28px; border-radius: 0; cursor: pointer; box-shadow: 3px 3px 0 var(--pixel-shadow);
   transition: opacity .2s;
 }
 .cm-submit:disabled { opacity: .6; cursor: default; }
