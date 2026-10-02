@@ -15,7 +15,7 @@ export const useApi = () => {
   //   · 浏览器里 → 走 public.apiBase（对外可访问的那个地址）
   const apiBase = resolveApiBase(import.meta.server, config)
   const token = useCookie('token')           // 登录通行证
-  const { openLogin } = useAuthUi()          // 401 时弹登录框用
+  const { openLogin } = useAuthUi()          // 需要登录的请求才打开登录框
 
   /**
    * 【SSR 关键】弹提示必须只在浏览器端做。
@@ -41,6 +41,7 @@ export const useApi = () => {
    * @returns {Promise<{ok:boolean, code:number, message?:string, data?:any}>}
    */
   const request = async (url, options = {}) => {
+    const requiresAuth = options.requiresAuth === true || url.startsWith('/admin') || url.startsWith('/user')
     // ---- 1. 拼请求头：有 token 就带上 ----
     const headers = { ...(options.headers || {}) }
     if (token.value) {
@@ -82,6 +83,8 @@ export const useApi = () => {
         onResponse: captureTraceId,
         onResponseError: captureTraceId,
         ...options,
+        // Internal control flag; never forward it to ofetch.
+        requiresAuth: undefined,
         headers,
       })
 
@@ -138,10 +141,13 @@ export const useApi = () => {
 
       if (status === 401) {
         token.value = null            // 通行证失效 → 清掉
-        openLogin()                   // 弹登录框
-        const message = withTraceId('登录已过期，请重新登录', trace)
-        toast(message)
-        return { ok: false, code: 401, message, traceId: trace }
+        if (requiresAuth) {
+          openLogin()
+          const message = withTraceId('登录已过期，请重新登录', trace)
+          toast(message)
+          return { ok: false, code: 401, message, traceId: trace }
+        }
+        return { ok: false, code: 401, message: '', traceId: trace }
       }
       if (status === 403) {
         const message = withTraceId('无权限访问', trace)

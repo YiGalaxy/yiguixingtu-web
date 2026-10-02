@@ -2485,3 +2485,28 @@ location /media/ {
 ## 许可证
 
 尚未指定许可证。若计划开源，建议补充一份 MIT 的 `LICENSE` 文件。
+# 本地运行与后台登录
+
+前端目录：`yiguixingtu-web`；后端目录：同级的 `yiguixingtu`。
+
+## 启动
+
+1. 在后端目录执行 `docker compose up -d mysql redis`。
+2. 后端开发配置连接 MySQL `localhost:3310`、Redis `localhost:6380`。执行 `./mvnw spring-boot:run`（Windows 使用 `mvnw.cmd spring-boot:run`），API 默认监听 `8082`。
+3. 在前端目录执行 `npm run dev -- --port 4175`，访问 `http://localhost:4175`。
+
+如果 PowerShell/npm 没有正确转发端口参数，可设置 `$env:NITRO_PORT='4175'` 后执行 `npm run dev`。
+
+## 后台登录
+
+进入 `/admin`。管理员账号和密码存储在数据库中；启动引导只在数据库没有管理员时创建账号，不会覆盖已有账号密码。忘记密码时，通过受控的数据库/运维流程重置，不要将本地临时密码当作已有账号密码。
+
+本地管理员密码曾在 2026-10-02 重置。请从本机密码管理器或本次开发记录获取，不要把凭据提交到仓库或写入公开文档。
+
+## 检查
+
+- 前端：`npm run lint`、`npm run test`、`npm run build`
+- 后端：`./mvnw test`（Windows 使用 `mvnw.cmd test`）
+- 后端健康检查：`http://localhost:8082/actuator/health`
+
+主题图片、图标和页面设计变更见 [CHANGELOG.md](./CHANGELOG.md)。

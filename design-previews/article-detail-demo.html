@@ -37,11 +37,11 @@
       --shadow: #8c9b7b;
     }
     * { box-sizing: border-box; }
-    html { min-width: 320px; scroll-behavior: smooth; overflow-x: hidden; background: var(--bg); cursor: url("assets/cursor-creeper-arrow.png") 2 2, auto; }
-    body { margin: 0; min-width: 320px; color: var(--ink); background: var(--bg); font: 16px/1.65 "Microsoft YaHei", "PingFang SC", sans-serif; overflow-x: hidden; cursor: url("assets/cursor-creeper-arrow.png") 2 2, auto; }
+    html { min-width: 320px; scroll-behavior: smooth; overflow-x: hidden; background: var(--bg); cursor: auto; }
+    body { margin: 0; min-width: 320px; color: var(--ink); background: var(--bg); font: 16px/1.65 "Microsoft YaHei", "PingFang SC", sans-serif; overflow-x: hidden; cursor: auto; }
     body::before { content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none; opacity: .18; background-image: linear-gradient(to right, rgba(255,255,255,.08) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,.08) 1px, transparent 1px); background-size: 16px 16px; mix-blend-mode: soft-light; }
     a { color: inherit; text-decoration: none; }
-    button:not(:disabled), a, [role="button"] { cursor: url("assets/cursor-creeper-pointer.png") 3 2, pointer; }
+    button:not(:disabled), a, [role="button"] { cursor: pointer; }
     input, textarea { cursor: text; }
     button { border: 0; cursor: pointer; font: inherit; }
     :focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }

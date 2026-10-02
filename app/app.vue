@@ -1,11 +1,12 @@
 <template>
   <div class="shell" :data-theme="themeMode">
-    <!-- 视频关闭、加载中或失败时显示静态背景。v-if 会同时停止视频解码。 -->
-    <div class="bg-poster" :style="bgPosterStyle"/>
-    <video v-if="videoOn" ref="bgVideo" class="bg-video" autoplay muted loop playsinline preload="auto">
-      <source :src="bgVideoSrc" type="video/mp4" >
-    </video>
-    <div class="bg-overlay"/>
+    <!-- 单一文档高度背景，避免长页面滚动时平铺或重复。 -->
+    <img
+      class="bg-poster"
+      :class="`is-${themeMode}`"
+      :src="bgPosterSrc"
+      alt=""
+      aria-hidden="true">
 
     <!-- 全站唯一的播放器，挂在外壳上以跨路由保持状态。 -->
     <audio
@@ -22,20 +23,20 @@
 
     <header class="site-nav">
       <NuxtLink to="/" class="brand">
-        <span class="brand-mark" title="亿轨星途" aria-hidden="true"><img src="/assets/brand-minecraft-pixel.png" alt=""></span>
+        <span class="brand-mark" title="亿轨星途" aria-hidden="true"><img src="/assets/brand-minecraft-pixel-transparent.png" alt=""></span>
         <span class="brand-name">{{ settings.siteName }}</span>
       </NuxtLink>
       <nav class="nav-center">
         <!-- 桌面和移动端共用同一份导航数据。 -->
         <template v-for="item in navItems" :key="item.label">
           <!-- 有子项时显示下拉菜单。 -->
-          <div v-if="item.children" class="nv dd">
-            <button class="nv-btn">{{ item.label }} <span class="caret">▾</span></button>
+          <div v-if="item.children" class="nv dd" :data-tip="item.tip">
+            <button class="nv-btn"><span v-if="item.icon" class="pixel-ui-icon" :class="item.icon" aria-hidden="true" />{{ item.label }} <span class="caret">▾</span></button>
             <div class="dd-menu">
-              <NuxtLink v-for="child in item.children" :key="child.label" :to="child.to">{{ child.label }}</NuxtLink>
+              <NuxtLink v-for="child in item.children" :key="child.label" :to="child.to"><span v-if="child.icon" class="pixel-ui-icon" :class="child.icon" aria-hidden="true" />{{ child.label }}</NuxtLink>
             </div>
           </div>
-          <NuxtLink v-else :to="item.to" class="nv">{{ item.label }}</NuxtLink>
+          <NuxtLink v-else :to="item.to" class="nv" :data-tip="item.tip"><span v-if="item.icon" class="pixel-ui-icon" :class="item.icon" aria-hidden="true" />{{ item.label }}</NuxtLink>
         </template>
       </nav>
       <nav class="nav-right">
@@ -84,7 +85,7 @@
           <div class="nm-group-title">{{ item.label }}</div>
           <NuxtLink v-for="child in item.children" :key="child.label" :to="child.to" class="nm-sub" @click="closeNav">{{ child.label }}</NuxtLink>
         </div>
-        <NuxtLink v-else :to="item.to" class="nm-item" @click="closeNav">{{ item.label }}</NuxtLink>
+        <NuxtLink v-else :to="item.to" class="nm-item" @click="closeNav"><span v-if="item.icon" class="pixel-ui-icon" :class="item.icon" aria-hidden="true" />{{ item.label }}</NuxtLink>
       </template>
     </nav>
 
@@ -97,7 +98,7 @@
       <!-- 页脚上方放品牌与音乐开关。 -->
       <div class="foot-top">
         <div class="foot-brand">
-          <img class="foot-mark" src="/assets/brand-minecraft-pixel.png" alt=""> {{ settings.siteName }}
+          <img class="foot-mark" src="/assets/brand-minecraft-pixel-transparent.png" alt=""> {{ settings.siteName }}
         </div>
 
         <button class="music-toggle" :class="{ on: musicEnabled }" :aria-label="musicEnabled ? '关闭背景音乐' : '播放背景音乐'" @click="toggleMusic">
@@ -131,21 +132,8 @@
       title="站点设置"
       direction="rtl"
       size="min(380px, 88vw)">
-      <p class="set-sub">这两个开关只影响你这台设备上的显示与声音，不会同步到账号。</p>
+      <p class="set-sub">昼夜主题控制页面背景，音乐开关只影响你这台设备。</p>
       <div class="set-card glass">
-        <div class="set-row">
-          <div class="set-info">
-            <span class="set-name">背景视频</span>
-            <span class="set-desc">首页那层流动的星空。关掉更省电、也更省流量</span>
-          </div>
-          <!-- 【为什么不是 v-model】v-model 只会改到一个 ref 上，而"关掉"这件事
-               还得写进 cookie（服务端下次渲染时才知道）—— 所以统一走 setVideoOn()。
-               aria-label 是给读屏软件的：开关本身没有可读的文字（名字在旁边的 span 里）。 -->
-          <el-switch
-            :model-value="videoOn"
-            aria-label="背景视频"
-            @update:model-value="setVideoOn" />
-        </div>
         <div class="set-row">
           <div class="set-info">
             <span class="set-name">背景音乐</span>
@@ -161,7 +149,7 @@
 
     <el-dialog v-model="loginVisible" class="auth-modal" :show-close="false" width="400px" :close-on-click-modal="true">
       <div class="auth-card">
-        <div class="brand-line"><img src="/assets/brand-minecraft-pixel.png" alt=""> 亿轨星途</div>
+        <div class="brand-line"><img src="/assets/brand-minecraft-pixel-transparent.png" alt=""> 亿轨星途</div>
         <h2 class="auth-title">欢迎回来</h2>
         <p class="auth-sub">登录后，继续绘制你的星图</p>
         <el-form label-position="top" class="auth-form" @submit.prevent="onLogin">
@@ -185,7 +173,7 @@
 
     <el-dialog v-model="registerVisible" class="auth-modal" :show-close="false" width="400px" :close-on-click-modal="true">
       <div class="auth-card">
-        <div class="brand-line"><img src="/assets/brand-minecraft-pixel.png" alt=""> 亿轨星途</div>
+        <div class="brand-line"><img src="/assets/brand-minecraft-pixel-transparent.png" alt=""> 亿轨星途</div>
         <h2 class="auth-title">创建账号</h2>
         <p class="auth-sub">开始记录你的第一篇</p>
         <el-form label-position="top" class="auth-form" @submit.prevent="onRegister">
@@ -222,6 +210,7 @@ const themePreference = useCookie('site-theme', {
   sameSite: 'lax',
 })
 const themeMode = computed(() => themePreference.value === 'day' ? 'day' : 'night')
+const route = useRoute()
 useHead(() => ({ htmlAttrs: { 'data-theme': themeMode.value } }))
 const toggleTheme = () => {
   themePreference.value = themeMode.value === 'night' ? 'day' : 'night'
@@ -230,21 +219,26 @@ const toggleTheme = () => {
 // ---------- 登录状态提示 ----------
 const isAdmin = computed(() => user.value?.role === 'ADMIN')
 const displayName = computed(() => user.value?.nickname || user.value?.username || '已登录')
-const bgVideo = ref()
-
 // The shell owns the single audio element; pages consume shared state and injected controls.
 const music = useBackgroundMusic()
 const { enabled: musicEnabled, toggle: toggleMusic, report: reportMusic } = music
 // Client-only preferences are restored after mount.
 onMounted(() => music.loadPreference())
 
-// Resolve static media once so templates do not rebuild URLs on every render.
-const bgVideoSrc = mediaUrl(MEDIA_FILES.backgroundVideo)
+const routeBackdrop = computed(() => {
+  const path = route.path
+  if (path === '/admin') return ['admin-studio-day.png', 'admin-studio-night.png']
+  if (path === '/projects') return ['enchant-room-day.png', 'enchant-room-night.png']
+  if (path === '/articles' || path.startsWith('/article/')) return ['article-library-day.png', 'article-library-night.png']
+  if (path === '/music') return ['music-room-day.png', 'music-room-night.png']
+  if (path === '/archive') return ['archive-chest-day.png', 'archive-chest-night.png']
+  if (path === '/favorites') return ['brewing-room-day.png', 'brewing-room-night.png']
+  if (path === '/links') return ['village-gathering-day.png', 'village-gathering-night.png']
+  if (path === '/about') return ['fishing-river-day.png', 'fishing-river-night.png']
+  return ['homepage-day-bg.png', 'homepage-night-clear.png']
+})
 
-// Keep the poster style stable; mediaUrl still supports a CDN prefix.
-const bgPosterStyle = computed(() => ({
-  backgroundImage: `url(/assets/${themeMode.value === 'day' ? 'homepage-day-bg' : 'homepage-night-reference'}.png)`,
-}))
+const bgPosterSrc = computed(() => `/assets/${themeMode.value === 'day' ? routeBackdrop.value[0] : routeBackdrop.value[1]}`)
 
 // Resolve the filing icon with the same media prefix.
 const policeIconSrc = mediaUrl(MEDIA_FILES.policeIcon)
@@ -672,14 +666,6 @@ provide('bgMusicPlayer', bgMusicPlayer)
 // （SPA 里反复切换/热更新时就是一条稳定的内存泄漏）
 onBeforeUnmount(resetMusicCover)
 
-// ---------- 背景视频性能优化 ----------
-// 页面切到后台（切标签页 / 最小化窗口）时暂停视频，避免白白占用 CPU 和显卡
-const onVisibilityChange = () => {
-  if (!bgVideo.value) return
-  if (document.hidden) bgVideo.value.pause()
-  else bgVideo.value.play().catch(() => {})
-}
-onBeforeUnmount(() => document.removeEventListener('visibilitychange', onVisibilityChange))
 const onLogout = async () => {
   // 【这次修了什么】原来只清本地 token，完全没调后端 ——
   // 于是服务端签出去的那个 token 依然有效到自然过期（默认 24 小时）。
@@ -700,21 +686,20 @@ const { settings } = useSiteSettings()
 const footerMetaVisible = computed(() => hasFooterMeta(settings.value))
 
 const navItems = computed(() => [
-  { label: '首页', to: '/' },
+  { label: '首页', to: '/', icon: 'icon-home', tip: '首页' },
   // Archive and article search are separate pages.
-  { label: '归档', to: '/archive' },
-  { label: '文章', to: '/articles' },
+  { label: '归档', to: '/archive', icon: 'icon-archive', tip: '归档' },
+  { label: '文章', to: '/articles', icon: 'icon-article', tip: '文章检索' },
   // Music is a real route rather than a home-page anchor.
-  { label: '音乐', to: '/music' },
-  { label: '收藏', to: '/favorites' },
-  { label: '项目', to: '/projects' },
-  { label: '友链', to: '/links' },
-  { label: '关于', to: '/about' },
+  { label: '音乐', to: '/music', icon: 'icon-music', tip: '音乐播放器' },
+  { label: '收藏', to: '/favorites', icon: 'icon-favorite', tip: '我的收藏' },
+  { label: '项目', to: '/projects', icon: 'icon-project', tip: '项目档案' },
+  { label: '友链', to: '/links', icon: 'icon-links', tip: '友链' },
+  { label: '关于', to: '/about', icon: 'icon-about', tip: '关于本站' },
 ])
 
 /** 汉堡面板开着没有 */
 const navOpen = ref(false)
-const route = useRoute()
 
 const closeNav = () => { navOpen.value = false }
 const toggleNav = () => { navOpen.value = !navOpen.value }
@@ -753,13 +738,6 @@ const setBodyLock = (locked) => {
 watch(navOpen, (open) => setBodyLock(open))
 onBeforeUnmount(() => setBodyLock(false))
 
-// Video preference uses a cookie for SSR; music preference stays client-side.
-
-/** Video is on by default; only an explicit off state is persisted. */
-const videoPref = useCookie('bg-video-enabled', { maxAge: 60 * 60 * 24 * 180 })
-const videoOn = computed(() => videoPref.value !== false)
-const setVideoOn = (value) => { videoPref.value = value ? null : false }
-
 /** Local state for the settings drawer. */
 const settingsOpen = ref(false)
 
@@ -792,7 +770,7 @@ onMounted(async () => {
 
   // Rehydrate the current user from the token after refresh.
   if (token.value && !user.value) {
-    const res = await request('/auth/me')
+    const res = await request('/auth/me', { requiresAuth: false })
     if (res.ok) user.value = res.data
   }
 
@@ -805,8 +783,6 @@ onMounted(async () => {
     navigateTo({ path: route.path, query: rest }, { replace: true })
   }
 
-  // 绑定"切到后台就暂停背景视频"
-  document.addEventListener('visibilitychange', onVisibilityChange)
 })
 
 // ---------------------------------------------------------------------
@@ -944,7 +920,7 @@ const onRegister = async () => {
   --ink: #263723; --muted: #4d6046; --line: rgba(70,97,57,.4);
   --accent: #9a6214; --accent-strong: #81500c; --cyan: #247d77;
   --grass: #557a3e; --pixel-shadow: #829271; --panel: #f2f3e2;
-  --nav-surface: #edf1dc; --world-wash: rgba(239,244,221,.80); --world-wash-bottom: rgba(231,239,213,.92);
+  --nav-surface: #edf1dc; --world-wash: transparent; --world-wash-bottom: transparent;
   --grid-ink: rgba(48,79,38,.09); --on-accent: #fff8e6;
   --el-color-primary-light-3: #c38a40;
   --el-color-primary-light-5: #d2a467;
@@ -967,31 +943,23 @@ body { margin: 0; background: var(--bg); color: var(--ink); font-family: "PingFa
      ③ 内容区 flex:1 吃掉剩余空间，自然把页脚挤到底部
    内容超出视口时行为完全不变（照常往下滚），首页那种长页面不受影响。
 
-   顺带说：背景视频和遮罩是 position: fixed，
-   它们【不参与】文档流，所以不会变成 flex 子项来捣乱。 */
+    背景图和遮罩是绝对定位，不参与文档流。 */
 .shell { display: flex; flex-direction: column; min-height: 100vh; min-height: 100dvh; }
 /* 导航是 sticky、页脚是固定高度，都不允许被 flex 压缩 */
 .site-nav, .site-footer { flex-shrink: 0; }
 /* 内容区：flex-basis 用 auto（按内容撑），有剩余空间时再长高把它吃满 */
 .page { flex: 1 0 auto; }
 
-/* 视频每帧都要跑一遍 filter，所以只保留必要的 brightness。
-   原来的 contrast + saturate 去掉，能明显减少每帧的 GPU 开销。 */
-/* 背景**底图**（静态）。它在 z-index 上比视频低一层（-11 对 -10），
-   所以视频一旦就位就把它整个盖住 —— 不需要任何条件判断，
-   也就没有"视频开关与底图不同步"这种能写错的地方。
-   【为什么连亮度滤镜都要一致（1.35）】这张图就是从那段视频里抽的一帧**原始像素**，
-   而视频那层有 `filter: brightness(1.35)`。不给同一个滤镜的话，关掉视频的瞬间
-   画面会明显变暗，看起来像"关掉之后坏了"，而不是"换成了一张静态背景"。 */
-.bg-poster { position: fixed; inset: 0; z-index: -11; pointer-events: none; background-position: center; background-size: cover; background-repeat: no-repeat; filter: brightness(1.35); }
-.bg-video { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: -10; pointer-events: none; filter: brightness(1.35); transform: translateZ(0); will-change: transform; }
-.bg-overlay { position: fixed; inset: 0; z-index: -9; pointer-events: none; background: rgba(6,12,26,.12); backdrop-filter: blur(0); }
+/* A single document-height layer prevents background seams on long pages. */
+.shell { position: relative; isolation: isolate; }
+.bg-poster { position: absolute; inset: 0; z-index: -2; display: block; width: 100%; height: 100%; min-height: 100%; pointer-events: none; object-fit: cover; object-position: center top; background: #07111e; filter: none; image-rendering: auto; transition: opacity .25s ease; }
+.bg-overlay { position: absolute; inset: 0; z-index: -1; min-height: 100%; pointer-events: none; background: linear-gradient(180deg, rgba(8,15,29,.58), rgba(8,15,29,.84) 62%, rgba(8,15,29,.96)); backdrop-filter: none; }
 
 /* ===== 共享的"玻璃面板"底 =====
    【为什么放在这里（全局）而不是各页面自己的 scoped 样式里】
    这个类被首页、归档页、后台面板一起用。原来它**只在 index.vue 里以 scoped 形式定义**，
    而 scoped 样式只对本组件的模板生效 —— 于是【归档页写了 class="glass"，却没有任何规则命中】：
-   那些月份卡片和三个状态块没有背景、没有边框，文字直接压在背景视频上，
+   那些月份卡片和三个状态块没有背景、没有边框，文字直接压在页面背景上，
    看起来就是"和背景糊在一起"。用户报的原话正是这个。
    放到全局之后：任何页面都能用，而且只有一份定义，不会再出现"用了却没定义"。
 
@@ -1150,8 +1118,8 @@ body { margin: 0; background: var(--bg); color: var(--ink); font-family: "PingFa
 .auth-sub { margin: 0 0 26px; color: var(--muted); font-size: 14px; }
 .auth-form .el-form-item { margin-bottom: 18px; }
 .auth-form .el-form-item__label { color: var(--muted); font-weight: 600; padding-bottom: 6px; }
-.auth-form .el-input__wrapper { background: #0d1b38 !important; box-shadow: 0 0 0 1px var(--line) inset !important; border-radius: 12px; }
-.auth-form .el-input__wrapper.is-focus { box-shadow: 0 0 0 1.5px var(--cyan) inset !important; }
+.auth-form .el-input__wrapper { background: #0d1b38 !important; box-shadow: none !important; border: 1px solid var(--line) !important; border-radius: 0; }
+.auth-form .el-input__wrapper.is-focus { box-shadow: none !important; border-color: var(--cyan) !important; }
 .auth-form .el-input__inner { color: var(--ink) !important; }
 .auth-form .el-input__inner::placeholder { color: var(--muted) !important; }
 .auth-form .el-input__inner:-webkit-autofill, .auth-form .el-input__inner:-webkit-autofill:hover, .auth-form .el-input__inner:-webkit-autofill:focus { -webkit-box-shadow: 0 0 0 1000px #0d1b38 inset !important; -webkit-text-fill-color: var(--ink) !important; caret-color: var(--ink); transition: background-color 9999s ease-out 0s; }
@@ -1175,9 +1143,10 @@ body { margin: 0; background: var(--bg); color: var(--ink); font-family: "PingFa
 /* Shared voxel theme: the cookie selects a palette on <html> during SSR. */
 html { scroll-padding-top: 76px; }
 body { background: var(--bg); color: var(--ink); }
-html, body, .shell { cursor: url('/assets/cursor-creeper-arrow.png') 2 2, auto; }
-button:not(:disabled), a, [role="button"], input[type="button"], input[type="submit"] { cursor: url('/assets/cursor-creeper-pointer.png') 3 2, pointer; }
+html, body, .shell { cursor: auto; }
+button:not(:disabled), a, [role="button"], input[type="button"], input[type="submit"] { cursor: pointer; }
 input, textarea, select { cursor: text; }
+button:disabled, input:disabled, textarea:disabled, select:disabled { cursor: not-allowed; }
 ::selection { color: var(--on-accent); background: var(--accent); }
 .bg-overlay {
   background:
@@ -1186,7 +1155,12 @@ input, textarea, select { cursor: text; }
     linear-gradient(to bottom, var(--grid-ink) 1px, transparent 1px);
   background-size: auto, 16px 16px, 16px 16px;
 }
-.bg-poster { z-index: -8; opacity: .96; image-rendering: pixelated; }
+.bg-poster { opacity: .96; image-rendering: auto; }
+.bg-poster.is-day {
+  opacity: 1;
+  image-rendering: auto;
+  filter: none;
+}
 .bg-overlay { z-index: -7; background-blend-mode: multiply, normal, normal; }
 .site-nav {
   background: var(--nav-surface) !important;
@@ -1203,12 +1177,12 @@ input, textarea, select { cursor: text; }
 .brand-mark {
   border: 2px solid var(--accent-strong);
   border-radius: 0 !important;
-  background: var(--accent) !important;
-  color: var(--on-accent);
-  box-shadow: 3px 3px 0 var(--pixel-shadow) !important;
+  background: transparent !important;
+  color: var(--ink);
+  box-shadow: none !important;
   animation: none;
 }
-.brand-mark img { width: 34px; height: 30px; object-fit: contain; image-rendering: pixelated; }
+.brand-mark img { width: 34px; height: 30px; object-fit: contain; image-rendering: pixelated; display: block; }
 .brand-name {
   background: none !important;
   -webkit-background-clip: border-box !important;
@@ -1240,15 +1214,48 @@ input, textarea, select { cursor: text; }
 .brand-line { display: inline-flex; align-items: center; gap: 8px; }
 .brand-line img { width: 26px; height: 24px; object-fit: contain; image-rendering: pixelated; }
 .nav-ghost { background: var(--surface-2) !important; }
-.theme-glyph { position: relative; display: block; width: 18px; height: 18px; margin: auto; }
+.theme-glyph { position: relative; display: block; width: 24px; height: 24px; margin: auto; image-rendering: pixelated; }
+.theme-glyph::before,
+.theme-glyph::after { content: ''; position: absolute; display: block; background: var(--accent); }
 .theme-glyph.is-day::before {
-  content: ''; position: absolute; inset: 6px; background: var(--accent);
-  box-shadow: 0 -6px 0 -2px var(--accent), 0 6px 0 -2px var(--accent), -6px 0 0 -2px var(--accent), 6px 0 0 -2px var(--accent), -4px -4px 0 -2px var(--accent), 4px -4px 0 -2px var(--accent), -4px 4px 0 -2px var(--accent), 4px 4px 0 -2px var(--accent);
+  width: 8px; height: 8px; left: 8px; top: 8px;
+  box-shadow:
+    0 -8px 0 -2px var(--accent),
+    0 8px 0 -2px var(--accent),
+    -8px 0 0 -2px var(--accent),
+    8px 0 0 -2px var(--accent),
+    -6px -6px 0 -2px var(--accent),
+    6px -6px 0 -2px var(--accent),
+    -6px 6px 0 -2px var(--accent),
+    6px 6px 0 -2px var(--accent);
+  animation: dayGlyphPulse 2.8s steps(2, end) infinite;
+}
+.theme-glyph.is-day::after {
+  display: block;
+  width: 4px; height: 4px; left: 10px; top: 10px;
+  background: var(--accent-strong);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent);
+  animation: dayGlyphCore 2.8s steps(2, end) infinite;
 }
 .theme-glyph.is-night::before {
-  content: ''; position: absolute; inset: 1px 2px 2px 3px; background: var(--accent);
-  clip-path: polygon(0 0, 62% 0, 62% 16%, 40% 16%, 40% 32%, 24% 32%, 24% 68%, 40% 68%, 40% 84%, 62% 84%, 62% 100%, 0 100%);
+  width: 16px; height: 16px; left: 3px; top: 3px;
+  clip-path: polygon(0 0, 75% 0, 75% 12.5%, 50% 12.5%, 50% 25%, 37.5% 25%, 37.5% 75%, 50% 75%, 50% 87.5%, 75% 87.5%, 75% 100%, 0 100%);
+  animation: nightGlyphFloat 3.6s steps(2, end) infinite;
 }
+.theme-glyph.is-night::after { width: 4px; height: 4px; left: 11px; top: 3px; background: var(--nav-surface); animation: nightGlyphTwinkle 3.6s steps(2, end) infinite; }
+@keyframes dayGlyphPulse {
+  0%, 100% { transform: rotate(0deg) scale(1); filter: drop-shadow(0 0 0 transparent); }
+  50% { transform: rotate(45deg) scale(1.08); filter: drop-shadow(0 0 4px rgba(242,193,78,.8)); }
+}
+@keyframes dayGlyphCore {
+  0%, 100% { opacity: .72; }
+  50% { opacity: 1; }
+}
+@keyframes nightGlyphFloat {
+  0%, 100% { transform: translate(0, 0); filter: drop-shadow(0 0 0 transparent); }
+  50% { transform: translate(-1px, 1px); filter: drop-shadow(0 0 4px rgba(135,206,235,.75)); }
+}
+@keyframes nightGlyphTwinkle { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
 body .shell .glass {
   background: var(--panel) !important;
   -webkit-backdrop-filter: none !important;
@@ -1331,7 +1338,19 @@ body .auth-modal {
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
-body .shell :focus-visible { outline: 3px solid var(--accent-strong); outline-offset: 3px; }
+body .auth-form .el-input__wrapper {
+  border: 1px solid var(--line) !important;
+  box-shadow: none !important;
+}
+body .auth-form .el-input__wrapper.is-focus {
+  border-color: var(--accent-strong) !important;
+  box-shadow: none !important;
+}
+body .shell :focus-visible:not(.el-input__wrapper):not(.el-input__inner) { outline: 3px solid var(--accent-strong); outline-offset: 3px; }
+body .auth-form .el-input__wrapper:focus,
+body .auth-form .el-input__wrapper:focus-visible,
+body .auth-form .el-input__inner:focus,
+body .auth-form .el-input__inner:focus-visible { outline: none !important; }
 .shell :is(.icon-btn, .nav-mobile .nm-item, .nav-mobile .nm-sub) { min-height: 44px; }
 @media (max-width: 900px) { .home .waterfall { columns: 2; } }
 @media (max-width: 820px) {
@@ -1355,4 +1374,454 @@ body .shell :focus-visible { outline: 3px solid var(--accent-strong); outline-of
 }
 @media (max-width: 380px) { .shell .brand-name { max-width: 88px; } }
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
+/* Final shell geometry mirrors project-layout-demo. */
+.shell .site-nav {
+  min-height: 66px;
+  height: auto;
+  padding: 10px clamp(16px, 4vw, 48px) 16px;
+  gap: 26px;
+  background: var(--nav-surface) !important;
+  border: 0 !important;
+  box-shadow: 0 6px 0 #5d432d, 0 10px 0 var(--grass) !important;
+}
+.shell .site-nav::after {
+  display: none;
+}
+.shell .brand {
+  gap: 10px;
+}
+.shell .brand-mark {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  border: 2px solid var(--accent-strong) !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+.shell .brand-mark img {
+  width: 36px;
+  height: 30px;
+}
+.shell .brand-name {
+  font-size: 16px;
+}
+.shell .nav-center {
+  justify-content: flex-end;
+  gap: 4px;
+}
+.shell .nav-center .nv {
+  min-height: 42px;
+  padding: 8px 12px;
+  border: 2px solid transparent;
+  border-radius: 0 !important;
+  background: transparent;
+}
+.shell .nav-center .nv:hover,
+.shell .nav-center .nv.router-link-active,
+.shell .nav-center .nv.router-link-exact-active {
+  color: var(--ink);
+  background: var(--surface-2);
+  border-color: var(--line);
+  box-shadow: none;
+}
+.shell .nav-right {
+  gap: 8px;
+}
+.shell .nav-right .icon-btn {
+  width: 42px;
+  height: 42px;
+  border: 2px solid transparent;
+}
+.shell .nav-right .nav-btn,
+.shell .nav-right .nav-admin {
+  min-height: 42px;
+  border: 2px solid var(--pixel-shadow);
+  border-radius: 0 !important;
+  box-shadow: 3px 3px 0 var(--pixel-shadow);
+}
+.shell .nav-right .nav-admin {
+  padding: 8px 12px;
+}
+.shell .dd-menu {
+  margin-top: 0;
+  padding: 6px;
+  border: 2px solid var(--line);
+  border-radius: 0;
+  background: var(--panel);
+  box-shadow: 4px 4px 0 var(--pixel-shadow);
+}
+.shell .dd-menu a {
+  border-radius: 0;
+}
+.shell .site-footer {
+  padding-top: 24px;
+  border-top: 0;
+  box-shadow: inset 0 3px 0 var(--grass);
+}
+@media (max-width: 1000px) {
+  .shell .site-nav { gap: 10px; }
+  .shell .nav-center { display: none; }
+}
+@media (max-width: 640px) {
+  .shell .site-nav {
+    min-height: 60px;
+    padding: 8px 12px 14px;
+  }
+  .shell .brand-mark { width: 38px; height: 38px; flex-basis: 38px; }
+  .shell .brand-mark img { width: 32px; height: 27px; }
+}
+
+/* Final voxel pass: keep every shared shell surface on the demo palette. */
+:root {
+  --bg: #0d1727;
+  --surface: rgba(14,31,53,.76);
+  --surface-2: rgba(39,72,102,.78);
+  --ink: #f3f4dc;
+  --muted: #9eb1c5;
+  --line: rgba(174,208,235,.22);
+  --accent: #f3c65e;
+  --accent-strong: #ffd979;
+  --cyan: #68d2d2;
+  --grass: #6e9b48;
+  --pixel-shadow: #08101d;
+  --panel: rgba(14,31,53,.94);
+  --nav-surface: #0b192c;
+  --world-wash: rgba(8,15,29,.24);
+  --world-wash-bottom: rgba(8,15,29,.72);
+  --on-accent: #08101d;
+}
+:root[data-theme="day"] {
+  --bg: #dce6d3;
+  --surface: rgba(243,241,218,.94);
+  --surface-2: rgba(227,232,201,.96);
+  --ink: #24372a;
+  --muted: #4d624b;
+  --line: rgba(53,79,49,.38);
+  --accent: #9a6417;
+  --accent-strong: #b17a22;
+  --cyan: #287f7b;
+  --grass: #6f9c49;
+  --pixel-shadow: #8c9b7b;
+  --panel: rgba(243,241,218,.98);
+  --nav-surface: #edf1dc;
+  --world-wash: rgba(232,240,219,.22);
+  --world-wash-bottom: rgba(219,229,205,.68);
+  --on-accent: #08101d;
+}
+
+html, body { background: var(--bg); color: var(--ink); }
+body { font-family: "Microsoft YaHei", "PingFang SC", sans-serif; line-height: 1.55; }
+.shell { background: transparent; }
+
+/* 背景图保持原始清晰度，主题只通过图片和面板配色区分。 */
+.shell .bg-overlay {
+  background: transparent !important;
+  background-image: none !important;
+  mix-blend-mode: normal;
+  opacity: 1;
+}
+
+/* Navigation */
+.shell .site-nav {
+  min-height: 66px;
+  height: auto;
+  padding: 10px clamp(16px, 4vw, 48px) 16px;
+  gap: 26px;
+  background: var(--nav-surface) !important;
+  border-bottom: 0 !important;
+  box-shadow: 0 6px 0 #5d432d, 0 10px 0 var(--grass) !important;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.shell .site-nav::after {
+  height: 0;
+  background: none;
+  animation: none;
+}
+.shell .brand { gap: 12px; }
+.shell .brand-mark {
+  width: 42px;
+  height: 42px;
+  border: 2px solid var(--accent);
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+.shell .brand-name {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 16px;
+  font-weight: 900;
+  letter-spacing: .04em;
+  color: var(--ink) !important;
+  -webkit-text-fill-color: var(--ink);
+}
+.shell .nav-center { gap: 4px; }
+.shell .nv,
+.shell .nv-btn {
+  min-height: 42px;
+  padding: 8px 12px;
+  border-radius: 0 !important;
+  color: var(--muted);
+  background: transparent;
+}
+.shell .nv,
+.shell .nv-btn,
+.shell .dd-menu a,
+.shell .nm-item,
+.shell .nm-sub {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.shell .nv,
+.shell .dd { position: relative; }
+.shell [data-tip]::after {
+  content: attr(data-tip);
+  position: absolute;
+  left: 50%;
+  bottom: -8px;
+  z-index: 100;
+  padding: 5px 8px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 2px solid var(--accent);
+  box-shadow: 3px 3px 0 var(--pixel-shadow);
+  font: 12px/1.2 "Microsoft YaHei", sans-serif;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 100%) scale(.94);
+  transition: opacity .16s ease, transform .16s ease;
+}
+.shell [data-tip]:hover::after,
+.shell [data-tip]:focus-visible::after {
+  opacity: 1;
+  transform: translate(-50%, 100%) scale(1);
+}
+.shell .pixel-ui-icon {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  background-image: url('/assets/pixel-ui-icon-atlas.png');
+  background-size: 300% 300%;
+  background-repeat: no-repeat;
+  image-rendering: pixelated;
+}
+.shell .icon-home { background-position: 0 0; }
+.shell .icon-article,
+.shell .icon-archive { background-position: 50% 0; }
+.shell .icon-project { background-position: 100% 0; }
+.shell .icon-about { background-position: 0 50%; }
+.shell .icon-workbench { background-position: 50% 50%; }
+.shell .icon-music { background-position: 100% 50%; }
+.shell .icon-favorite { background-position: 0 100%; }
+.shell .icon-links { background-position: 50% 100%; }
+.shell .nv .pixel-ui-icon { opacity: .9; }
+.shell .nv:hover .pixel-ui-icon,
+.shell .nv.router-link-active .pixel-ui-icon,
+.shell .nm-item:hover .pixel-ui-icon { filter: brightness(1.25) saturate(1.15); }
+.shell .nv:hover,
+.shell .nv-btn:hover,
+.shell .nav-center .nv.router-link-active,
+.shell .nav-center .nv.router-link-exact-active {
+  color: var(--ink);
+  background: var(--surface-2) !important;
+  border-color: var(--line);
+}
+.shell .dd-menu {
+  margin-top: 2px;
+  padding: 6px;
+  min-width: 144px;
+  border: 2px solid var(--line);
+  border-radius: 0 !important;
+  background: var(--surface) !important;
+  box-shadow: 4px 4px 0 var(--pixel-shadow);
+}
+.shell .dd-menu a {
+  padding: 10px 12px;
+  border-radius: 0 !important;
+  color: var(--muted);
+}
+.shell .dd-menu a:hover { color: var(--ink); background: var(--surface-2); }
+.shell .icon-btn {
+  width: 42px;
+  height: 42px;
+  border: 2px solid transparent;
+  border-radius: 0 !important;
+  color: var(--muted);
+}
+.shell .icon-btn:hover { color: var(--ink); background: var(--surface-2); border-color: var(--line); }
+.shell .user-chip {
+  height: 42px;
+  padding: 0 10px 0 4px;
+  border: 2px solid var(--line);
+  border-radius: 0 !important;
+  background: var(--surface) !important;
+}
+.shell .uc-role { border-radius: 0 !important; background: var(--surface-2); }
+.shell .nav-admin,
+.shell .nav-btn {
+  min-height: 42px;
+  border-radius: 0 !important;
+  box-shadow: 4px 4px 0 var(--pixel-shadow);
+}
+.shell .nav-admin { border: 2px solid var(--pixel-shadow); }
+.shell .nav-admin:hover { transform: translate(2px, 2px); box-shadow: 2px 2px 0 var(--pixel-shadow); }
+.shell .nav-ghost { background: var(--surface-2) !important; border: 2px solid var(--line); backdrop-filter: none; }
+
+/* Shared surfaces, footer and mobile navigation */
+body .shell .glass,
+body .shell .wpanel,
+body .shell .dock {
+  background: var(--surface) !important;
+  border: 2px solid var(--line) !important;
+  border-radius: 0 !important;
+  box-shadow: 6px 6px 0 var(--pixel-shadow) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+.shell .nav-mobile {
+  top: 68px;
+  max-height: calc(100vh - 68px);
+  padding: 10px 14px 16px;
+  border: 2px solid var(--line) !important;
+  border-top: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: 6px 6px 0 var(--pixel-shadow);
+}
+.shell .nm-item, .shell .nm-sub { border-radius: 0 !important; }
+.shell .site-footer {
+  margin-top: 40px;
+  padding: 26px 0 44px;
+  border-top: 3px solid var(--grass);
+  background: var(--bg);
+  backdrop-filter: none;
+  box-shadow: 0 -4px 0 var(--pixel-shadow);
+}
+.shell .foot-top { width: min(1180px, calc(100% - 36px)); margin: 0 auto; }
+.shell .foot-meta { width: min(1180px, calc(100% - 36px)); margin: 0 auto; }
+.shell .music-toggle {
+  min-height: 42px;
+  height: auto;
+  padding: 8px 12px;
+  border: 2px solid var(--line);
+  border-radius: 0 !important;
+  background: var(--surface-2);
+  backdrop-filter: none;
+  box-shadow: 4px 4px 0 var(--pixel-shadow);
+}
+.shell .music-toggle:hover { transform: translate(2px, 2px); box-shadow: 2px 2px 0 var(--pixel-shadow); }
+
+/* Element Plus overlays and controls */
+body .el-drawer.settings-drawer,
+body .auth-modal {
+  background: var(--surface) !important;
+  border: 2px solid var(--line) !important;
+  border-radius: 0 !important;
+  box-shadow: 6px 6px 0 var(--pixel-shadow) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+body .settings-drawer .el-drawer__header { padding: 18px 22px; border-bottom: 2px solid var(--line); }
+body .settings-drawer .set-card { padding: 4px 14px; border-radius: 0 !important; }
+body .settings-drawer .set-row + .set-row { border-top: 2px dashed var(--line); }
+body .auth-card { padding: 32px; }
+body .auth-form .el-input__wrapper,
+body .auth-form .el-select__wrapper,
+body .auth-form .el-textarea__inner {
+  background: var(--surface-2) !important;
+  border-radius: 0 !important;
+  border: 2px solid var(--line) !important;
+  box-shadow: none !important;
+}
+body .auth-form .el-input__wrapper.is-focus {
+  border-color: var(--accent) !important;
+  box-shadow: none !important;
+}
+body .auth-submit { border-radius: 0 !important; box-shadow: 4px 4px 0 var(--pixel-shadow); }
+body .el-popper,
+body .el-dropdown-menu,
+body .el-message,
+body .el-message-box,
+body .el-dialog { border-radius: 0 !important; }
+body .shell :is(.el-button, .el-input__wrapper, .el-select__wrapper, .el-textarea__inner, .el-tag, .el-checkbox__inner) { border-radius: 0 !important; }
+body .shell :is(.el-button, .el-input__wrapper, .el-select__wrapper, .el-textarea__inner) { box-shadow: 4px 4px 0 var(--pixel-shadow); }
+body .shell .el-button--primary { border: 2px solid var(--pixel-shadow); }
+body .shell .el-button--primary:hover { transform: translate(2px, 2px); box-shadow: 2px 2px 0 var(--pixel-shadow); }
+
+@media (max-width: 640px) {
+  .shell .site-nav { min-height: 60px; padding: 8px 12px; }
+  .shell .nav-mobile { top: 60px; max-height: calc(100vh - 60px); }
+  .shell .foot-top, .shell .foot-meta { width: min(100% - 36px, 1180px); }
+}
+
+/* Demo alignment */
+:root[data-theme="day"] .shell .site-nav {
+  background: #edf1dc !important;
+  box-shadow: 0 6px 0 #8c6a42, 0 10px 0 #6f9c49 !important;
+}
+.shell .bg-overlay {
+  z-index: -1;
+  background: linear-gradient(180deg, var(--world-wash), var(--world-wash-bottom) 62%, var(--world-wash-bottom));
+  background-blend-mode: normal;
+}
+:root[data-theme="day"] .shell .bg-overlay { background: transparent; }
+.shell[data-theme="day"] .bg-overlay { display: none !important; }
+.shell[data-theme="night"] .bg-overlay { display: none !important; }
+.shell[data-theme="day"] .page,
+.shell[data-theme="day"] .site-nav,
+.shell[data-theme="day"] .site-footer { opacity: 1 !important; filter: none !important; }
+.shell[data-theme="day"] {
+  opacity: 1 !important;
+  filter: none !important;
+  background: transparent !important;
+  background-image: none !important;
+  mix-blend-mode: normal !important;
+}
+.shell .page {
+  width: 100%;
+  min-height: 0;
+}
+.shell .site-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: auto;
+  padding: 24px clamp(16px, 4vw, 48px) 38px;
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+  background: var(--nav-surface) !important;
+  font-size: 13px;
+}
+.shell .site-footer { border-top: 3px solid var(--grass); box-shadow: 0 -4px 0 var(--pixel-shadow); }
+.shell[data-theme="night"] .site-footer { border-top-color: var(--accent); }
+
+/* 日间场景保持清晰，文字区域使用浅色实面板承托。 */
+.shell[data-theme="day"] .home .w-head,
+.shell[data-theme="day"] :is(.ar-head, .pj-head, .fv-head, .lk-head, .ab-head, .mp-head, .list-heading) {
+  padding: 14px 16px;
+  border: 2px solid var(--line);
+  background: var(--surface);
+  box-shadow: 4px 4px 0 var(--pixel-shadow);
+}
+.shell[data-theme="day"] .home .w-head { margin-top: 8px; }
+.shell[data-theme="day"] :is(.w-head h2, .ar-head h1, .pj-head h1, .fv-head h1, .lk-head h1, .ab-head h1, .mp-h1, .list-heading h2) {
+  color: var(--ink);
+  text-shadow: none;
+}
+.shell[data-theme="day"] .home .w-intro,
+.shell[data-theme="day"] :is(.ar-sub, .pj-sub, .fv-sub, .lk-sub, .ab-sub, .hero-copy) {
+  color: var(--muted);
+}
+.shell[data-theme="day"] .art-page .doc-head {
+  padding: 18px;
+  border: 2px solid var(--line);
+  background: var(--surface);
+  box-shadow: 4px 4px 0 var(--pixel-shadow);
+}
+@media (max-width: 560px) {
+  .shell .site-footer { align-items: flex-start; flex-direction: column; padding-bottom: 92px; }
+}
 </style>

@@ -1,15 +1,5 @@
 <template>
-  <!--
-    存储管理：磁盘上有什么、谁在用它、删掉没人用的。
-    【为什么这个页面存在】上传改成内容寻址之后，"同一份内容只存一份"是自动的，
-    但**孤儿文件**不是：上传了却没保存进文章、或者某篇文章删掉后留下的图，
-    都会一直躺在磁盘上占着空间 —— 而总量护栏（5GB）满了之后，
-    站长收到的提示是"上传空间不足"，看不出原因是一堆没人引用的文件。
-
-    【它和「设置」的关系】那一页管站点文案与开关，这一页管磁盘上的实物。
-    分开是因为它们的操作频率与风险完全不同：改个文案随时可以改，
-    删文件是不可逆的。
-  -->
+  <!-- Storage inventory and cleanup for unreferenced uploads. -->
   <header class="top">
     <h1>存储管理</h1>
     <p>共 {{ files.length }} 个文件，其中 {{ orphanCount }} 个没有任何地方引用</p>
@@ -17,10 +7,7 @@
 
   <div class="toolbar glass">
     <el-button @click="load">刷新</el-button>
-    <!-- 【为什么"清理"要做成独立按钮】它是这一页唯一会批量删东西的动作，
-         而它删的正是"没人用"的那些 —— 这类动作值得有一个明确的入口与二次确认，
-         而不是让站长自己在表格里一个个勾。没有任何孤儿时按钮禁用，
-         省得他点一下、确认一次、然后什么也没发生。 -->
+    <!-- Batch deletion is explicit and disabled when there are no orphans. -->
     <el-button
       type="danger" :disabled="!orphanCount || loading"
       @click="cleanOrphans">
@@ -123,17 +110,7 @@
 <script setup>
 import { ElMessage, ElMessageBox } from 'element-plus'
 
-/**
- * 存储管理面板。
- *
- * 【接口形状】GET /admin/upload/storage 一次返回整份清单（后端注释里写了为什么不分页）：
- *   { usedBytes, maxTotalBytes, fileCount, orphanCount, files: [{ key, url, name,
- *     category, size, lastModified, references: [{ type, targetId, title, field }] }] }
- *
- * 【筛选为什么放在前端做】清单本来就已经整份拿回来了（引用索引是一次全量构建的，
- * 分页反而要多缓存一层状态），那筛选就没有理由再跑一趟后端 ——
- * 而且"按是否被引用筛"这件事后端也答不了：那个判断的输入就是整份清单。
- */
+/** Storage endpoint returns the full inventory; filtering is local. */
 const { request } = useApi()
 
 const loading = ref(false)
@@ -174,11 +151,7 @@ const TYPE_LABELS = {
   ABOUT: '关于页', FRIEND_LINK: '友链', PROJECT: '项目', FAVORITE: '收藏',
 }
 
-/**
- * 一条引用显示成什么。
- * 【为什么要带上字段名】同一个文件被同一篇文章引用了两次（封面 + 正文）时会有两条，
- *   只显示"《某文》"的话两条一模一样，站长没法判断该去改哪里。
- */
+/** Format a reference, including the field when a file is used more than once. */
 const refLabel = (ref) => {
   const type = TYPE_LABELS[ref.type] || ref.type
   if (ref.type === 'ABOUT') return `关于页 · ${ref.field}`
@@ -186,15 +159,7 @@ const refLabel = (ref) => {
   return `${type}${title} · ${ref.field}`
 }
 
-/**
- * 引用点开之后去哪 —— **前台页面**，而不是后台编辑器。
- * 【为什么是前台】点开这一下的目的通常是"看看这张图到底用在哪了"，
- *   前台页面正好是这个问题的答案（而且是新窗口，不打断当前的清理工作）。
- *   要改的话再回对应的管理页 —— 后台面板之间的跳转需要一整套"切菜单 + 打开某条记录"
- *   的接线，为这一个链接不值当。
- * 【草稿文章没有前台页面】后端返回的是文章 id，草稿在 /article/{id} 上会 404 ——
- *   但那也好过给一个假的链接误导人（站长会以为是站点坏了）。
- */
+/** Resolve a reference to its public page; drafts may legitimately return a 404. */
 const refUrl = (ref) => {
   switch (ref.type) {
     case 'ARTICLE':
@@ -214,8 +179,7 @@ const load = async () => {
   const res = await request('/admin/upload/storage')
   loading.value = false
   if (!res.ok || !res.data) {
-    // 读失败时把清单清空但保留页面（不要因为一次接口抖动就让表格停留在旧数据上 ——
-    // 那些旧数据里的"无人引用"可能已经不成立了）
+    // Clear potentially stale rows when the inventory request fails.
     files.value = []
     orphanCount.value = 0
     ElMessage.error(res.message || '读取存储清单失败')
@@ -227,12 +191,7 @@ const load = async () => {
   maxTotalBytes.value = Number(res.data.maxTotalBytes) || 0
 }
 
-/**
- * 删掉若干个 key，并把结果说清楚。
- * 【为什么要把报告拼成一句话给用户看】后端会区分"删掉了 / 因为仍被引用而跳过 /
- *   删除失败"三种结果。笼统说一句"操作完成"的话，站长勾了 10 个，
- *   回头一看还剩 3 个，会以为功能坏了。
- */
+/** Delete keys and report deleted, skipped, and failed results separately. */
 const deleteKeys = async (keys, successPrefix) => {
   const res = await request('/admin/upload/delete-files', {
     method: 'POST',

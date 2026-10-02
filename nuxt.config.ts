@@ -33,8 +33,8 @@ export default defineNuxtConfig({
       // 移动端浏览器地址栏/状态栏跟随默认夜间主题。
       meta: [{ name: 'theme-color', content: '#111a14' }],
       link: [
-        { rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' },
-        { rel: 'icon', type: 'image/x-icon', href: '/favicon.ico' },
+        { rel: 'icon', type: 'image/png', sizes: '32x32', href: '/favicon-32.png?v=2' },
+        { rel: 'icon', type: 'image/png', sizes: '256x256', href: '/favicon-minecraft.png?v=2' },
         { rel: 'apple-touch-icon', sizes: '180x180', href: '/apple-touch-icon.png' },
       ],
     },

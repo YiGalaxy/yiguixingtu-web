@@ -200,7 +200,7 @@ useSeoMetaFor(() => ({
 /* 空的 / 出错时的占位块：和首页 .w-empty 一样的"安静"风格，只多一层玻璃底
    （玻璃底来自【全局】的 .glass，见 app.vue —— 原来归档页写了 class="glass"
     却没有任何规则命中，于是这些块没有背景，文字直接压在背景视频上） */
-.ar-state { border-radius: 16px; padding: 60px 24px; text-align: center; color: var(--muted); font-size: 14px; }
+.ar-state { border: 2px solid var(--line); box-shadow: 6px 6px 0 var(--pixel-shadow); padding: 60px 24px; text-align: center; color: var(--muted); font-size: 14px; background: var(--panel); }
 .ar-link { color: var(--accent); margin-left: 6px; text-decoration: none; }
 .ar-link:hover { text-decoration: underline; }
 
@@ -215,14 +215,14 @@ useSeoMetaFor(() => ({
      · 行与行之间用虚线分隔，所以每一行都被"框"住了
      · 「日」做成小徽章，扫读时一眼能对上是哪一天
    overflow: hidden 是为了让表头的底色与圆角对齐，不溢出卡片边界。 */
-.ar-month { border-radius: 16px; padding: 0; overflow: hidden; }
+.ar-month { border-radius: 0; padding: 0; overflow: hidden; border: 2px solid var(--line); box-shadow: 6px 6px 0 var(--pixel-shadow); background: var(--panel); }
 
 /* 月份标题做成"左侧时间轴 + 右侧篇数"两栏：一眼能看出这一段是几月、有多少篇 */
 .am-head {
   display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
   margin: 0; padding: 13px 20px 11px;
-  background: rgba(255,255,255,.035);
-  border-bottom: 1px solid rgba(180,210,245,.18);
+  background: var(--surface-2);
+  border-bottom: 2px solid rgba(180,210,245,.18);
 }
 .am-date { font-size: 17px; font-weight: 800; color: var(--ink); }
 .am-count { font-size: 12px; color: var(--accent); font-weight: 700; }
@@ -230,22 +230,23 @@ useSeoMetaFor(() => ({
 .am-list { list-style: none; margin: 0; padding: 0; }
 /* 行分隔线画在 <li> 上（不是 <a> 上）：这样虚线是【整行宽】的，
    不会因为 <a> 自己有 padding 而缩进、看起来像没对齐 */
-.am-list li + li { border-top: 1px dashed rgba(150,190,240,.13); }
+.am-list li + li { border-top: 2px dashed rgba(150,190,240,.13); }
 .am-item {
   display: flex; align-items: center; gap: 12px;
   padding: 9px 20px;
   color: var(--muted); text-decoration: none;
-  transition: color .2s, background .2s;
+  transition: color .2s, background .2s, transform .2s;
 }
-.am-item:hover { color: var(--ink); background: rgba(255,255,255,.06); }
+.am-item:hover { color: var(--ink); background: var(--surface-2); transform: translateX(2px); }
 /* 「日」做成小徽章：固定宽度 + 居中，不同月份的文章标题左边缘依然是对齐的，
    扫读时视线不会一行一行地跳；加底色的原因是让每一行有个"锚点"，
    否则一整列日期看起来还是散着的字 */
 .am-day {
   flex-shrink: 0; width: 30px; height: 24px;
   display: inline-flex; align-items: center; justify-content: center;
-  border-radius: 7px;
-  background: rgba(242,193,78,.12); border: 1px solid rgba(242,193,78,.26);
+  border-radius: 0;
+  background: rgba(242,193,78,.12); border: 2px solid rgba(242,193,78,.26);
+  box-shadow: 2px 2px 0 var(--pixel-shadow);
   color: var(--accent); font-weight: 700; font-size: 12px;
 }
 .am-title { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

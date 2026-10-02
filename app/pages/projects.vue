@@ -1,5 +1,8 @@
 <template>
   <div class="proj">
+    <div class="proj-world-backdrop" aria-hidden="true">
+      <span class="proj-enchant-table"><i class="proj-enchant-book" /><b class="proj-rune rune-a">✦</b><b class="proj-rune rune-b">◇</b><b class="proj-rune rune-c">✧</b></span>
+    </div>
     <header class="pj-head">
       <h1>项目</h1>
       <p v-if="failed" class="pj-sub">做过的东西，都摆在这里</p>
@@ -173,7 +176,24 @@ useSeoMetaFor(() => ({
 </script>
 
 <style scoped>
-.proj { max-width: 1080px; margin: 0 auto; padding: 40px 32px 40px; }
+.proj { position: relative; isolation: isolate; max-width: 1080px; margin: 0 auto; padding: 40px 32px 40px; }
+.proj-world-backdrop { position: fixed; inset: 0; z-index: -2; pointer-events: none; overflow: hidden; }
+.proj-world-backdrop::before {
+  content: ''; position: absolute; inset: -5%;
+  background: transparent;
+  image-rendering: pixelated;
+}
+.proj-world-backdrop::after {
+  content: ''; position: absolute; inset: 0;
+  background: transparent;
+  opacity: 1;
+  mix-blend-mode: normal;
+}
+.proj-enchant-table { position: absolute; left: 50%; bottom: 9vh; width: 132px; height: 112px; transform: translateX(-50%); image-rendering: pixelated; }
+.proj-enchant-table::before { content: ''; position: absolute; left: 15px; top: 30px; width: 102px; height: 72px; background: linear-gradient(#67408a 0 0) 50% 0 / 102px 24px no-repeat, linear-gradient(#261938 0 0) 50% 23px / 68px 52px no-repeat; border: 4px solid #171128; box-shadow: 6px 6px 0 rgba(5, 6, 14, .56), inset 0 0 0 3px rgba(189, 137, 255, .2); }
+.proj-enchant-book { position: absolute; z-index: 1; left: 38px; top: 2px; width: 60px; height: 34px; background: linear-gradient(90deg, #5d3b96 0 46%, #e0c8ff 47% 54%, #7952bb 55%); border: 4px solid #211533; box-shadow: 4px 4px 0 rgba(7, 6, 15, .46); transform: rotate(-8deg); }
+.proj-rune { position: absolute; z-index: 2; color: #77e2e7; text-shadow: 2px 2px 0 #1c3d52; font: 900 19px ui-monospace, Consolas, monospace; }
+.rune-a { left: 4px; top: 34px; }.rune-b { right: 0; top: 54px; }.rune-c { left: 28px; top: 20px; }
 
 .pj-head { margin-bottom: 24px; }
 .pj-head h1 { font-size: 28px; font-weight: 800; margin: 0 0 8px; }

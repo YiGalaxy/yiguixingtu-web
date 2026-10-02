@@ -60,8 +60,9 @@ export const useCategoryList = () => {
      */
     getCachedData: (key, nuxtApp, ctx) => {
       if (ctx?.cause === 'refresh:manual' || ctx?.cause === 'refresh:hook') return undefined
-      if (import.meta.server) return nuxtApp.payload.data[key] ?? nuxtApp.static.data[key]
-      return nuxtApp.static.data[key]
+      // Client-side remounts must fetch fresh data; only reuse the SSR payload.
+      if (import.meta.client && !nuxtApp.isHydrating) return undefined
+      return nuxtApp.payload.data[key] ?? nuxtApp.static.data[key]
     },
   })
 

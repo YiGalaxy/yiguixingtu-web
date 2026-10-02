@@ -1,14 +1,5 @@
 <template>
   <div class="art-page">
-    <div class="article-world-backdrop" aria-hidden="true" />
-    <div class="article-library-backdrop" aria-hidden="true" />
-    <div class="article-world-wash" aria-hidden="true" />
-    <div class="article-enchant-table" aria-hidden="true">
-      <span class="article-enchant-book" />
-      <span class="article-enchant-glyph glyph-a">✦</span>
-      <span class="article-enchant-glyph glyph-b">◇</span>
-      <span class="article-enchant-glyph glyph-c">✧</span>
-    </div>
     <div class="art-wrap">
 
       <!-- Back to article list. -->
@@ -515,25 +506,6 @@ const fmtTime = (t) => (t ? String(t).replace('T', ' ').slice(0, 16) : '')
 
 <style scoped>
 .art-page { position: relative; min-height: 70vh; isolation: isolate; }
-.article-world-backdrop,
-.article-library-backdrop,
-.article-world-wash { position: fixed; inset: 0; pointer-events: none; }
-.article-world-backdrop { z-index: -4; background: center / cover url('/assets/article-library-bg.png'); image-rendering: pixelated; }
-:global([data-theme="day"]) .article-world-backdrop { background-image: url('/assets/article-library-bg.png'); }
-.article-library-backdrop { z-index: -3; opacity: .19; background: linear-gradient(180deg, transparent 0 54%, rgba(8,16,29,.78)), url('/assets/article/bookshelf-oak.png') 0 62% / 192px 192px repeat-x; image-rendering: pixelated; mix-blend-mode: screen; }
-:global([data-theme="day"]) .article-library-backdrop { opacity: .13; filter: saturate(.7) brightness(1.12); mix-blend-mode: multiply; }
-.article-world-wash { z-index: -2; background: linear-gradient(180deg, rgba(8,15,29,.52), rgba(8,15,29,.9) 70%, rgba(8,15,29,.98)); }
-:global([data-theme="day"]) .article-world-wash { background: linear-gradient(180deg, rgba(232,240,219,.42), rgba(224,234,208,.79) 70%, rgba(219,229,205,.96)); }
-.article-enchant-table { position: fixed; right: clamp(26px, 8vw, 120px); bottom: clamp(64px, 11vh, 118px); z-index: -1; width: 88px; height: 76px; pointer-events: none; image-rendering: pixelated; animation: article-enchant-float 2.8s ease-in-out infinite; }
-.article-enchant-table::before { content: ''; position: absolute; left: 9px; top: 17px; width: 70px; height: 53px; background: linear-gradient(#56366e 0 0) 50% 0 / 70px 18px no-repeat, linear-gradient(#271a3b 0 0) 50% 17px / 48px 40px no-repeat; border: 3px solid #171329; box-shadow: 4px 4px 0 rgba(8,10,19,.5); }
-.article-enchant-book { position: absolute; left: 24px; top: -10px; width: 48px; height: 27px; background: linear-gradient(90deg, #5f3f9b 0 47%, #cfb9f2 48% 53%, #7856bc 54%); border: 3px solid #201532; box-shadow: 3px 3px 0 rgba(8,10,19,.48); transform: rotate(-8deg); animation: article-enchant-book 3.4s ease-in-out infinite; }
-.article-enchant-glyph { position: absolute; color: var(--cyan); text-shadow: 2px 2px 0 #173a4d; font: 900 16px ui-monospace, Consolas, monospace; animation: article-glyph-rise 2.2s ease-in-out infinite; }
-.glyph-a { left: -2px; top: 22px; }
-.glyph-b { right: -4px; top: 38px; animation-delay: .7s; }
-.glyph-c { left: 14px; top: 4px; animation-delay: 1.2s; }
-@keyframes article-enchant-float { 0%,100% { transform: translateY(3px); } 50% { transform: translateY(-5px); } }
-@keyframes article-enchant-book { 0%,100% { transform: rotate(-8deg) translateY(0); } 50% { transform: rotate(8deg) translateY(-4px); } }
-@keyframes article-glyph-rise { 0% { opacity: 0; transform: translateY(8px) scale(.8); } 35%,70% { opacity: .9; } 100% { opacity: 0; transform: translateY(-18px) scale(1.1); } }
 /* 阅读栏宽度。
    【为什么从 860 提到 960】站长反馈"文章详情页有点小、不那么好看" —— 860px 是
    早期按"一行 40 来个字最舒服"定的，但本项目正文用的是 16px 中文 + 1.9 行高，
@@ -549,15 +521,16 @@ const fmtTime = (t) => (t ? String(t).replace('T', ' ').slice(0, 16) : '')
 }
 .back:hover { color: var(--accent); }
 
-.state { text-align: center; padding: 80px 24px; border-radius: 20px; color: var(--muted); }
+.state { text-align: center; padding: 80px 24px; border: 2px solid var(--line); box-shadow: 6px 6px 0 var(--pixel-shadow); color: var(--muted); background: var(--panel); }
 .state b { display: block; font-size: 20px; color: var(--ink); margin-bottom: 10px; }
 .state p { margin: 0 0 22px; font-size: 14px; line-height: 1.7; }
 .btn {
-  background: rgba(30,47,82,.66); border: 1px solid rgba(180,210,245,.18);
-  color: var(--ink); padding: 9px 26px; border-radius: 999px; cursor: pointer;
+  background: var(--surface-2); border: 2px solid var(--line);
+  color: var(--ink); padding: 9px 26px; border-radius: 0; cursor: pointer;
+  box-shadow: 3px 3px 0 var(--pixel-shadow);
   font-size: 14px; transition: border-color .2s, color .2s;
 }
-.btn:hover { border-color: rgba(242,193,78,.5); color: var(--accent); }
+.btn:hover { border-color: var(--accent); color: var(--accent); transform: translate(1px, 1px); box-shadow: 2px 2px 0 var(--pixel-shadow); }
 
 /* 【性能考虑】正文面板用"几乎不透明的深色底"而不是 .glass 毛玻璃。
    原因：文章很长，一整块大面积的 backdrop-filter 会对背后的播放中视频
@@ -592,7 +565,7 @@ const fmtTime = (t) => (t ? String(t).replace('T', ' ').slice(0, 16) : '')
 .doc-title { font-size: 32px; font-weight: 800; line-height: 1.35; margin: 0 0 14px; color: var(--ink); }
 .doc-meta { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13px; flex-wrap: wrap; }
 .doc-meta .dot { opacity: .5; }
-.doc-top { color: var(--accent); border: 1px solid rgba(242,193,78,.45); border-radius: 999px; padding: 1px 10px; font-size: 12px; }
+.doc-top { color: var(--accent); border: 2px solid rgba(242,193,78,.45); border-radius: 0; padding: 2px 10px; font-size: 12px; box-shadow: 2px 2px 0 var(--pixel-shadow); }
 .doc-cover { width: 100%; border-radius: 0; margin-top: 22px; display: block; border: 2px solid var(--line); image-rendering: auto; }
 
 /* 附件区：在正文之后、"完"之前。
@@ -601,8 +574,9 @@ const fmtTime = (t) => (t ? String(t).replace('T', ' ').slice(0, 16) : '')
 .doc-attach { margin-top: 34px; border-top: 1px solid rgba(150,190,240,.12); padding-top: 22px; }
 .doc-attach-title { font-size: 15px; font-weight: 700; color: var(--ink); margin: 0 0 14px; }
 .doc-attach-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
-.doc-attach-item { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 12px; background: rgba(255,255,255,.04); border: 1px solid rgba(150,190,240,.14); color: var(--muted); text-decoration: none; transition: border-color .2s ease, color .2s ease; }
+.doc-attach-item { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 0; background: var(--surface-2); border: 2px solid rgba(150,190,240,.14); color: var(--muted); text-decoration: none; box-shadow: 3px 3px 0 var(--pixel-shadow); transition: border-color .2s ease, color .2s ease, transform .2s ease, box-shadow .2s ease; }
 .doc-attach-item:hover { border-color: var(--accent); color: var(--accent); }
+.doc-attach-item:hover { transform: translate(1px, 1px); box-shadow: 2px 2px 0 var(--pixel-shadow); }
 /* 文件名要能截断：flex 子项默认 min-width 是 auto，不写 min-width: 0 就会把整行撑破 */
 .doc-attach-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .doc-attach-size { flex: 0 0 auto; font-size: 12px; font-variant-numeric: tabular-nums; }
@@ -622,7 +596,7 @@ const fmtTime = (t) => (t ? String(t).replace('T', ' ').slice(0, 16) : '')
 .cm-title { font-size: 20px; font-weight: 800; color: var(--ink); margin: 0 0 20px; }
 .cm-count {
   margin-left: 8px; font-size: 12px; font-weight: 600; color: var(--muted);
-  border: 1px solid rgba(180,210,245,.25); border-radius: 999px; padding: 2px 10px;
+  border: 2px solid rgba(180,210,245,.25); border-radius: 0; padding: 2px 10px;
 }
 .cm-empty { color: var(--muted); font-size: 14px; text-align: center; padding: 34px 0; }
 
@@ -635,7 +609,8 @@ const fmtTime = (t) => (t ? String(t).replace('T', ' ').slice(0, 16) : '')
 /* 「待审核」标记：它要显眼，因为这条评论别人看不到，只有作者自己看得到 */
 .cm-badge {
   font-size: 11px; color: #0a1224; background: var(--accent);
-  border-radius: 999px; padding: 1px 8px; font-weight: 700;
+  border: 2px solid var(--pixel-shadow); border-radius: 0; padding: 1px 8px; font-weight: 700;
+  box-shadow: 2px 2px 0 var(--pixel-shadow);
 }
 /* 【pre-wrap 是必需的】评论内容里可以有换行，默认的 white-space: normal
    会把换行"吃掉"，用户写的一段一段话会被拼成一整行。
@@ -658,9 +633,10 @@ const fmtTime = (t) => (t ? String(t).replace('T', ' ').slice(0, 16) : '')
 .cm-label i { color: #f56c6c; font-style: normal; }
 .cm-label em { font-style: normal; opacity: .7; }
 .cm-field input, .cm-textarea {
-  background: rgba(255,255,255,.06);
-  border: 1px solid rgba(150,190,240,.18);
-  border-radius: 12px; padding: 10px 12px; color: var(--ink);
+  background: var(--surface-2);
+  border: 2px solid rgba(150,190,240,.18);
+  border-radius: 0; padding: 10px 12px; color: var(--ink);
+  box-shadow: inset 2px 2px 0 rgba(255,255,255,.05);
   font-size: 14px; font-family: inherit; outline: none;
   transition: border-color .2s;
 }
@@ -723,10 +699,10 @@ const fmtTime = (t) => (t ? String(t).replace('T', ' ').slice(0, 16) : '')
 /* 窄屏：减小内边距，标题降字号 */
 @media (max-width: 720px) {
   .art-wrap { padding: 20px 16px 48px; }
-  .doc { padding: 26px 20px 32px; border-radius: 18px; }
+  .doc { padding: 26px 20px 32px; }
   .doc-title { font-size: 24px; }
   /* 昵称与邮箱在窄屏改成上下排：两栏挤在 320px 里每个只有 140px，字都显示不全 */
-  .cm { padding: 22px 18px 26px; border-radius: 18px; }
+  .cm { padding: 22px 18px 26px; }
   .cm-fields { grid-template-columns: 1fr; }
 }
 </style>

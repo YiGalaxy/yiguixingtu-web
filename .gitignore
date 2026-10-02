@@ -40,6 +40,8 @@ logs
 
 # Browser/playtest artifacts
 output/
+.playwright-cli/
+gpt-image-output/
 
 # Misc
 .DS_Store

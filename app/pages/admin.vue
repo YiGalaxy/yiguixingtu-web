@@ -2,7 +2,7 @@
   <div class="admin">
     <!-- ==================== 左侧菜单 ==================== -->
     <aside class="side glass">
-      <div class="side-brand"><img class="mk" src="/assets/brand-minecraft-pixel.png" alt=""> {{ settings.siteName }} · 后台</div>
+      <div class="side-brand"><img class="mk" src="/assets/brand-minecraft-pixel-transparent.png" alt=""> {{ settings.siteName }} · 后台</div>
       <nav class="side-nav">
         <a
           v-for="m in menus" :key="m.key"
@@ -10,41 +10,15 @@
           role="button"
           :class="{ active: cur === m.key }"
           @click.prevent="cur = m.key">
-          <!-- 文字单独包一层：待审核数量是个角标，混在文字里会让"菜单项的文字"
-               断言（用例里按文字核对菜单）时有时无，读代码的人也不容易发现它是动态的 -->
+          <span class="admin-menu-icon pixel-ui-icon" :class="m.icon" aria-hidden="true" />
           <span class="nv-label">{{ m.label }}</span>
-          <!-- 待审核数量的角标：评论默认待审核，站长最关心的就是"有没有新的要处理"，
-               不点进菜单也该看得见。数量为 0 时整个角标不渲染（显示一个 0 只是噪音）。 -->
+          <!-- Hide the badge when there is nothing pending. -->
           <i v-if="m.key === 'comments' && pendingCommentCount" class="nv-badge">{{ pendingCommentCount }}</i>
         </a>
       </nav>
     </aside>
 
     <div class="main">
-      <!--
-        ==================== 十二个菜单 ====================
-        【每个菜单是一个组件，划分依据有两条】
-          ① 一个菜单 = 一个独立的"加载 / 刷新单元"：切过去要重新拉一次的东西
-             （标签列表、分类列表、评论待办、概览数字）正好都是那个菜单的整块内容，
-             所以按菜单切，边界和"什么时候该刷新"是同一件事，不用另画一张表。
-          ② 一个菜单 = 一个能独立改坏的单元：改评论审核只需要打开一个文件，
-             不用再滚过一千多行别人的代码（这是这次拆分的直接动机）。
-
-        【哪些状态留在这一层，为什么】
-          留在页面里的都是**跨菜单共用**的那几份数据，各复制一份就会出现
-          "两个地方看到的不是同一批数据"：
-            · articles / artTotal / artLoading / artQuery —— 文章管理表格，
-              同时喂概览页的「最近文章」（概览要的是全站最新 5 篇，不是当前筛选结果，
-              所以列表数据只能有一份）
-            · categories —— 文章筛选下拉框 + 文章弹窗的分类单选 + 分类管理页
-            · tags       —— 文章弹窗的标签多选 + 标签管理页
-            · pendingCommentCount —— 左侧菜单的角标 + 评论管理页标题
-            · 概览的四个数字 —— 进后台就并行拉好（不依赖用户点过哪些菜单），
-              所以不能等概览那个组件挂载了才拉
-          向下传用 props（只读的）与 v-model（父子共用的对象/数字），
-          向上抛用事件（refresh / refresh-tags / refresh-pending）
-          —— 谁持有数据谁负责去读接口，组件只负责"要一份新的"。
-      -->
       <AdminOverviewPanel
         v-if="cur === 'overview'"
         :stats="siteStats"
@@ -80,18 +54,10 @@
         :loading="categoryLoading"
         @refresh="fetchCategories" />
 
-      <!-- ==================== ⑧ F5 四个内容模块 ====================
-           【为什么这四个面板没有 props、也不监听事件】它们的列表只有自己用
-           （不像标签/分类那样要喂文章弹窗的下拉框），所以列表 ref、loading 与
-           "什么时候刷新"全都留在面板内部（挂载时自己拉一次）——
-           这里只负责"哪个菜单显示哪一个"。这与「评论管理」是同一个判断，
-           好处是 admin.vue 不用再为四个模块各维护一份没人共用的状态与请求。 -->
       <AdminFavoritesPanel v-else-if="cur === 'favorites'" />
       <AdminProjectsPanel v-else-if="cur === 'projects'" />
       <AdminLinksPanel v-else-if="cur === 'links'" />
       <AdminAboutPanel v-else-if="cur === 'about'" />
-      <!-- 音乐管理（第 12 个菜单）：同样是"数据只有自己用"的自包含面板 ——
-           它的音频文件走 POST /upload?type=audio，那一套规则收在 useUpload('audio') 里 -->
       <AdminMusicPanel v-else-if="cur === 'music'" />
 
       <AdminCommentsPanel
@@ -99,20 +65,10 @@
         v-model:pending-count="pendingCommentCount"
         @refresh-pending="fetchPendingCommentCount" />
 
-      <!-- ==================== ⑦ 存储管理 ====================
-           管磁盘上的实物（上传的图片 / 音频 / 附件）：占用多少、谁在用它、
-           哪些没人用可以清掉。与上面那些"维护一批记录"的面板不同，
-           它读的是文件系统 + 全站引用，而不是某一张表。 -->
       <AdminStoragePanel v-else-if="cur === 'storage'" />
 
-      <!-- ==================== ⑧ 站点设置 ====================
-           【为什么它有独立菜单而不是塞进别处】它管的是"整站外壳与开关"
-           （站名 / 公告 / 滚动文字 / 评论开关 / 页脚版权与备案号 / 每页条数），
-           和「文章管理」那种"维护一批记录"不是一类东西 ——
-           菜单注释里也是按这个把「设置」留在最后的。 -->
       <AdminSettingsPanel v-else-if="cur === 'settings'" />
 
-      <!-- ==================== ⑨ 其他模块占位 ==================== -->
       <template v-else>
         <header class="top"><h1>{{ curLabel }}</h1><p>该模块开发中。</p></header>
         <div class="panel glass"><div class="empty">该模块开发中 · 敬请期待</div></div>
@@ -122,21 +78,7 @@
 </template>
 
 <script setup>
-// ================================================================
-//  后台页的 SEO 元信息
-//
-//  【为什么后台也要设 head】不设的话它会继承站点默认标题，看起来像"公开页面"；
-//  更要紧的是【必须让它明确不可索引】：
-//   · robots 里给 noindex, nofollow —— 后台是登录后才看得见的内部工具，
-//     被搜索引擎收录没有任何好处，只有"把管理入口暴露给别人"的风险
-//   · 光靠 robots.txt 的 Disallow 是不够的：Disallow 只挡住"抓取"，
-//     如果别处有链接指向它，搜索结果里仍然可能出现这个地址（只是没有摘要）。
-//     两者都做才算完整（robots.txt 见 server/routes/robots.txt.get.ts）
-//
-//  【为什么不上全站登录墙】后台的访问控制本来就在 useApi + 路由守卫（middleware/admin），
-//  noindex 处理的是"搜索引擎",不是"攻击者"：真正拦住人的是后端接口的 401/403。
-// ================================================================
-// 路由守卫：没登录就弹登录框并回首页
+// Route guard protects the page; noindex keeps the admin surface out of search results.
 definePageMeta({ middleware: 'admin' })
 
 useSeoMetaFor(() => ({
@@ -149,59 +91,32 @@ useSeoMetaFor(() => ({
 const { request } = useApi()
 const { user } = useAuth()
 
-// 【后台侧栏的站名也读站点设置】它和页眉页脚是同一个 key 的 useAsyncData，
-// 所以不会多打一次 /setting；而"后台显示的还是旧站名"正是改名之后最容易漏的一处
 const { settings } = useSiteSettings()
 
 // 当前登录用户 ID：用来禁用「操作自己」的按钮（传给用户管理面板）
 const myId = computed(() => user.value?.id)
 
-// ---------- 左侧菜单 ----------
-// 【分类与标签现在是两个对称的菜单】
-//   · 标签管理：标签是多对多（一篇文章可以有多个），增删改齐全
-//   · 分类管理：分类是一对一（一篇文章只属于一个），增删改也齐全，
-//     但**删除可能被拒**（分类下还有文章时后端会拒绝，见 CategoriesPanel 的 removeCategory）
-//   两个菜单名都带「管理」两个字：它们背后是同一类能力（维护一个维度），
-//   叫法不一致会让人以为分类那一页有什么不同。
 const menus = [
-  { key: 'overview', label: '概览' },
-  { key: 'articles', label: '文章管理' },
-  { key: 'users',    label: '用户管理' },
-  { key: 'tags',     label: '标签管理' },
-  { key: 'categories', label: '分类管理' },
-  // ---------- 内容模块（F5 的四个 + 音乐，菜单从七个变十二个）----------
-  // 【为什么插在「分类管理」之后、「评论管理」之前】
-  //   这几项和上面的标签/分类是同一类东西：**站点级静态内容**（站长自己维护、
-  //   没有别人引用、用"显示/隐藏"控制可见性），排在内容类菜单里最自然。
-  //   而「评论管理」是每天要处理一遍的待办（它带角标），「设置」是站点的开关 ——
-  //   这两个各有各的性质，所以留在最后。
-  // 【名字都带「管理」】与标签管理/分类管理对称：叫法不一致会让人以为
-  //   某一页的能力不一样（实际上这几页都是"列表 + 增删改"）。
-  { key: 'favorites', label: '收藏管理' },
-  { key: 'projects',  label: '项目管理' },
-  { key: 'links',     label: '友链管理' },
-  { key: 'about',     label: '关于管理' },
-  { key: 'music',     label: '音乐管理' },
-  { key: 'comments', label: '评论管理' },
-  // 【存储管理为什么排在「设置」前面而不是最后】菜单注释里说「设置」留在最后 ——
-  //   它管的是整站外壳，是"平时的最后一站"。存储管理属于"打理这个站"的运维动作，
-  //   与前面那些内容管理是一类，所以紧挨着它们、把「设置」留在末尾。
-  { key: 'storage',   label: '存储管理' },
-  { key: 'settings', label: '设置' },
+  { key: 'overview', label: '概览', icon: 'icon-home' },
+  { key: 'articles', label: '文章管理', icon: 'icon-article' },
+  { key: 'users', label: '用户管理', icon: 'icon-about' },
+  { key: 'tags', label: '标签管理', icon: 'icon-links' },
+  { key: 'categories', label: '分类管理', icon: 'icon-archive' },
+  { key: 'favorites', label: '收藏管理', icon: 'icon-favorite' },
+  { key: 'projects', label: '项目管理', icon: 'icon-project' },
+  { key: 'links', label: '友链管理', icon: 'icon-links' },
+  { key: 'about', label: '关于管理', icon: 'icon-about' },
+  { key: 'music', label: '音乐管理', icon: 'icon-music' },
+  { key: 'comments', label: '评论管理', icon: 'icon-article' },
+  { key: 'storage', label: '存储管理', icon: 'icon-archive' },
+  { key: 'settings', label: '设置', icon: 'icon-workbench' },
 ]
 const cur = ref('users')
 const curLabel = computed(() => menus.find(m => m.key === cur.value)?.label || '')
 
-// ================================================================
-//  概览的四个数字
-// ================================================================
-// 文章 / 浏览 / 分类：公开接口 GET /article/stats（口径：只统计已发布文章），
-// 和首页个人卡片共用同一个 composable，口径与降级行为完全一致。
 const { stats: siteStats, failed: statsFailed, load: loadSiteStats } = useSiteStats()
 
-// 用户数是单独一个 ref，不复用用户表格的 total。
-// 【为什么】total 是"用户管理页当前查询条件"的总数：管理员在那边筛了"禁用用户"，
-// 概览的用户数就会跟着变成禁用用户数 —— 这正是要修掉的"数字取决于你点过什么"。
+// Keep the overview count independent from the user table filters.
 const userCount = ref(0)
 const userCountFailed = ref(false)
 
@@ -212,40 +127,24 @@ const fetchUserCount = async () => {
     userCount.value = toCount(res.data?.total)
     userCountFailed.value = false
   } else {
-    // 失败就保留旧值 + 显示占位，不把数字清成 0（假装"没有用户"比"读不到"更糟）
+    // Preserve the last value; the panel renders a placeholder for failures.
     userCountFailed.value = true
   }
 }
 
-/**
- * 拉一次概览数据。
- * 【为什么进入后台就要主动拉，而不是等用户点「概览」菜单】
- *   改之前概览的数字来自用户表格 / 文章表格 / 分类列表的变量，而这些表格是
- *   "哪个菜单被点开才加载"的 —— 于是概览显示什么，取决于你点过哪些菜单：
- *   直接进后台点「概览」，四个数字全是 0。现在进入页面就并行拉好。
- *   （概览面板因此是纯展示组件：它一个请求都不发，只把这几份数据画出来。）
- */
+/** Load overview data in parallel on entry and when returning to the overview. */
 const loadOverview = () => Promise.all([loadSiteStats(), fetchUserCount()])
 
-// ================================================================
-//  文章列表（概览的「最近文章」与文章管理面板共用这一份）
-// ================================================================
 const articles = ref([])
 const artTotal = ref(0)
 const artLoading = ref(false)
 
-// 筛选条件。用 v-model:query 交给文章面板去改（那边是真正的交互发生地），
-// 这里只读它来发请求 —— 条件只有这一份，不会出现"界面筛了、请求没带"。
 const artQuery = reactive({
   page: 1, size: 10,
   keyword: '', categoryId: null, status: null,
   sortField: '', sortOrder: '',
 })
 
-// ---------- 拉文章列表 ----------
-// 【注意这里打的是 /admin/article/page，不是前台的 /article/page】
-// 区别：后台接口带 token 且要求 ADMIN，能看见草稿；前台接口一律隐藏草稿。
-// 管理后台当然要看得见自己没写完的草稿，所以走后台接口。
 const fetchArticles = async () => {
   artLoading.value = true
   const res = await request('/admin/article/page', {
@@ -269,24 +168,7 @@ const fetchArticles = async () => {
   artTotal.value = Number(res.data.total) || 0
 }
 
-// ================================================================
-//  分类列表（文章筛选下拉框 + 文章弹窗的分类单选 + 分类管理页共用这一份）
-//
-//  【为什么还打公开接口，而不是后台的 GET /admin/category/list】
-//   后端在 AdminCategoryController 里写明了：分类列表**只有一个缓存**，
-//   写操作会推进缓存版本号让它立刻失效，所以后台那份和前台那份一定是
-//   同一份最新数据（这也是后端为什么没有像标签那样单独做一个"不走缓存"的方法）。
-//   既然两者等价，就沿用已经在用的公开接口 ——
-//   换来换去只会多出一个要同步的 ref，而"刚建完的分类能不能立刻选到"
-//   这件事由后端那套版本号保证（联调实测过：新建后立刻再查，列表里就有它）。
-//
-//  【失败时为什么保留上一次的结果，而不是清空】
-//   这个 ref 同时喂着文章筛选下拉框与文章弹窗的分类选择。分类是"很少变、
-//   一次失败不该影响别的操作"的那种数据：清空的表现是"下拉框突然空了，
-//   于是这篇文章保存出去就没有分类" —— 比"显示一份几秒钟前的分类"糟得多。
-//   返回结构不是数组时（比如以后改成分页结构）兜成空数组：
-//   它会被 v-for 与 .find 用到，直接拿去遍历会把整个后台带崩。
-// ================================================================
+// Shared by article filters, the edit dialog, and category management.
 const categories = ref([])
 const categoryLoading = ref(false)
 
@@ -295,15 +177,7 @@ const fetchCategories = async () => {
   if (!res.ok) return
   categories.value = Array.isArray(res.data) ? res.data : []
 
-  // 【顺带刷掉外壳导航用的那份共享缓存 —— 这一步不能省】
-  //   上面只更新了本页面自己的 categories ref；而站点的导航栏（app.vue 的一部分）
-  //   读的是另一个 useAsyncData（key = 'category-list'，见 useCategoryList.ts），
-  //   两者是【同一份数据的两个视图】。
-  //   ⚠️ 关键在于导航栏是【常驻】的：后台内部改完分类不会让它重新挂载，
-  //      所以它那份不会自己更新 —— 表现是新分类在导航的「文章」下拉里看不到，
-  //      而上面那段"新建后立刻能选到"的论证只覆盖了本页面的 ref。
-  //   （同目录的 SettingsPanel 早就是这么做的：save() 里刷 'site-settings'。
-  //     这里沿用同一套，不另造机制。）
+  // Keep the persistent site navigation in sync with this local list.
   try {
     await refreshNuxtData('category-list')
   } catch {
@@ -311,94 +185,60 @@ const fetchCategories = async () => {
   }
 }
 
-/** 带 loading 的刷新（切到分类菜单时用；面板里那个「刷新」按钮走 fetchCategories 也够） */
+/** Refresh categories with a loading state. */
 const loadCategories = async () => {
   categoryLoading.value = true
   await fetchCategories()
   categoryLoading.value = false
 }
 
-// ================================================================
-//  标签列表（后台接口 GET /admin/tag/list，需要 ADMIN）
-//
-//  【为什么后台不用前台的 GET /tag/list】两个接口形状一样，差别只有一条：
-//   前台那份**走了缓存**（标签是给访客看的导航，几乎不变），
-//   后台这份不走缓存 —— 管理员刚建完标签就要能在文章的标签下拉框里选到它。
-//   用前台那份的话，新建的标签可能几分钟内都选不到，
-//   而"是不是没保存成功"这种疑惑是后台最不该出现的东西。
-//
-//  【为什么这一个 ref 同时喂两处】文章弹窗的标签下拉框与「标签管理」页共用它：
-//   两处看到的必须是同一批标签，各拉一份迟早会有一处是旧的。
-// ================================================================
+// Use the uncached admin endpoint so newly created tags are immediately selectable.
 const tags = ref([])
 const tagLoading = ref(false)
 
 const fetchTags = async () => {
   const res = await request('/admin/tag/list')
-  // 和分类一样用 Array.isArray 兜一道：它会被 v-for 和 .find 用到，
-  // 接口挂了 / 结构变了（比如返回 {records:[]}）时兜成空数组，
-  // 最差只是下拉框是空的，不会把整个后台渲染带崩
+  // Keep consumers safe if the endpoint fails or returns an unexpected shape.
   tags.value = res.ok && Array.isArray(res.data) ? res.data : []
 }
 
-/** 带 loading 的刷新（切到标签菜单时用；面板里那个「刷新」按钮走 fetchTags 也够） */
+/** Refresh tags with a loading state. */
 const loadTags = async () => {
   tagLoading.value = true
   await fetchTags()
   tagLoading.value = false
 }
 
-// ================================================================
-//  待审核评论数（左侧菜单角标 + 评论管理页标题共用）
-//
-//  它和评论列表的 total 不是一回事：total 是"当前筛选条件下的条数"。
-//  所以这一份单独查、单独放在这里 —— 评论面板审核完一条之后会抛
-//  `refresh-pending` 让这里重查（在「已通过」里拒绝一条时列表 total 不变、待办却 +1）。
-// ================================================================
+// Pending count feeds both the sidebar badge and the comments panel.
 const pendingCommentCount = ref(0)
 
-/** 单独查一次"待审核有多少条" */
+/** Fetch only the pending total. */
 const fetchPendingCommentCount = async () => {
   // size=1：只要 total 这个总数，不需要真的把那一页数据拉回来
   const res = await request('/admin/comment/page', { params: { page: 1, size: 1, status: COMMENT_STATUS.PENDING } })
   if (res.ok) pendingCommentCount.value = Number(res.data?.total) || 0
 }
 
-// ---------- 刷新登录用户信息 ----------
-// useState('user') 刷新页面后会变回 null，此时 myId 是 undefined，
-// 「不能操作自己」的按钮就会失效，所以用 /auth/me 补一次
+// Hydrate the shared auth state after a full page reload.
 const ensureUser = async () => {
   if (user.value?.id) return
   const res = await request('/auth/me')
   if (res.ok) user.value = res.data
 }
 
-// 切菜单时需要补的那几次请求。
-// 【为什么这几条还留在这里，而不是各自在组件里 onMounted】这几份数据的宿主都是本页面
-//   （见模板上方那段"哪些状态留在这一层"）：
-//   · 切到文章管理时如果还没加载过，补一次（文章列表同时喂概览，不能无条件重拉）
-//   · 切到概览时刷新一次（比如刚从文章管理发布/删除了文章，回到概览看到的应该是新数字）
-//   · 标签 / 分类管理：在别处（文章弹窗、另一个标签页）改过之后切过来，
-//     看到的应该是当前的列表，而不是进页面那一刻的快照
-//   · 评论管理不在这里 —— 它那一页自己的加载跟着组件挂载走（见 CommentsPanel）
+// Refresh shared data when switching between menus.
 watch(cur, (v) => {
   if (v === 'articles' && articles.value.length === 0) fetchArticles()
   if (v === 'overview') loadOverview()
   if (v === 'tags') loadTags()
-  // 分类要多一次：列表是进后台时就并行拉好的，但"文章弹窗里改过分类"之后
-  // 切过来看到的应该是当前的（分类很少变，这一次刷新换的是"一定不过期"）
   if (v === 'categories') loadCategories()
 })
 
 onMounted(async () => {
-  // 这几件事互不依赖，并行发出去（Promise.all 而不是一个个 await，省几个来回的网络时间）。
-  // 【用户列表不在这一批里】用户管理是默认菜单，它的加载跟着 UsersPanel 的挂载走 ——
-  // 那一次挂载就发生在这次 onMounted 之前，一次不多一次不少。
+  // These requests are independent; keep them parallel and hydrate auth first.
   await ensureUser()
   await Promise.all([
     fetchCategories(), fetchTags(), fetchArticles(), loadOverview(),
-    // 待审核评论数：菜单上的角标。进后台就该看见"有几条要处理"，
-    // 而不是必须点进评论管理才知道
     fetchPendingCommentCount(),
   ])
 })
@@ -411,7 +251,8 @@ onMounted(async () => {
    scoped 生效；而面板、表格、弹窗的内容在子组件里（弹层还会被 teleport 到 body），
    父组件的 scoped 样式够不到它们 —— 那些统一放在下面的全局块里，见那里的说明。 */
 .admin { position: relative; isolation: isolate; display: flex; gap: 24px; max-width: 1440px; margin: 0 auto; padding: 32px; min-height: 70vh; }
-.admin::before { content: ''; position: fixed; inset: 0; z-index: -2; pointer-events: none; background: linear-gradient(180deg, rgba(8, 15, 25, .52), rgba(8, 15, 25, .86)), url('/assets/admin-studio-bg.png') center / cover; opacity: .74; image-rendering: pixelated; }
+.admin::before,
+.admin::after { display: none; }
 
 .side { width: 220px; flex-shrink: 0; border-radius: 20px; padding: 24px 18px; height: fit-content; }
 .side-brand { display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 15px; margin-bottom: 24px; }
@@ -793,5 +634,147 @@ onMounted(async () => {
   --md-scrollbar-thumb-color: rgba(150,190,240,.28);
   border-radius: 14px;
   overflow: hidden;
+}
+
+/* Shared voxel treatment for the studio shell. */
+.admin .side,
+.admin .panel,
+.admin .toolbar,
+.admin .top,
+.admin .glass {
+  border-radius: 0 !important;
+  border: 2px solid var(--line) !important;
+  background: var(--surface) !important;
+  box-shadow: 6px 6px 0 var(--pixel-shadow) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+.admin .side {
+  border-top: 5px solid var(--grass) !important;
+  padding: 18px 14px;
+}
+.admin .side-nav { gap: 4px; }
+.admin .side-nav a {
+  min-height: 42px;
+  padding: 8px 10px;
+  border-radius: 0;
+  border: 2px solid transparent;
+  background: transparent;
+}
+.admin .side-nav a:hover,
+.admin .side-nav a.active {
+  color: var(--ink);
+  background: var(--surface-2);
+  border-color: var(--line);
+  box-shadow: 3px 3px 0 var(--pixel-shadow);
+}
+.admin .admin-menu-icon {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  background-image: url('/assets/pixel-ui-icon-atlas.png');
+  background-size: 300% 300%;
+  background-repeat: no-repeat;
+  image-rendering: pixelated;
+}
+.admin .nv-badge {
+  border-radius: 0;
+  border: 2px solid var(--pixel-shadow);
+  box-shadow: 2px 2px 0 var(--pixel-shadow);
+}
+.admin .top { padding: 18px 20px; margin-bottom: 20px; }
+.admin .panel { padding: 20px; }
+.admin .toolbar { padding: 14px 16px; }
+.admin :is(.el-button, .el-input__wrapper, .el-select__wrapper, .el-textarea__inner, .el-tag, .el-dialog, .el-message-box) {
+  border-radius: 0 !important;
+}
+.admin :is(.el-button--primary, .el-button) { box-shadow: 3px 3px 0 var(--pixel-shadow); }
+.admin :is(.el-button--primary, .el-button):hover { transform: translate(1px, 1px); box-shadow: 2px 2px 0 var(--pixel-shadow); }
+
+/* 日间后台使用实色面板，避免工作台文字与场景背景混在一起。 */
+:root[data-theme="day"] .admin .side,
+:root[data-theme="day"] .admin .panel,
+:root[data-theme="day"] .admin .toolbar,
+:root[data-theme="day"] .admin .top,
+:root[data-theme="day"] .admin .glass {
+  background: var(--surface) !important;
+  color: var(--ink);
+  border-color: var(--line) !important;
+  box-shadow: 5px 5px 0 var(--pixel-shadow) !important;
+}
+:root[data-theme="day"] .admin .top h1,
+:root[data-theme="day"] .admin .panel-head,
+:root[data-theme="day"] .admin .side-brand,
+:root[data-theme="day"] .admin .el-table,
+:root[data-theme="day"] .admin .el-table th,
+:root[data-theme="day"] .admin .el-table td {
+  color: var(--ink) !important;
+}
+:root[data-theme="day"] .admin .top p,
+:root[data-theme="day"] .admin .empty,
+:root[data-theme="day"] .admin .tb-hint,
+:root[data-theme="day"] .admin .el-table th {
+  color: var(--muted) !important;
+}
+:root[data-theme="day"] .admin .side-nav a { color: var(--muted); }
+:root[data-theme="day"] .admin .side-nav a:hover,
+:root[data-theme="day"] .admin .side-nav a.active {
+  color: var(--ink) !important;
+  background: var(--surface-2) !important;
+  border-color: var(--line) !important;
+}
+:root[data-theme="day"] .admin .panel .el-table th.el-table__cell,
+:root[data-theme="day"] .admin .panel .el-table td.el-table__cell {
+  background: rgba(227,232,201,.72) !important;
+  border-bottom-color: var(--line) !important;
+}
+:root[data-theme="day"] .admin .panel .el-table tr:hover > td.el-table__cell {
+  background: rgba(214,225,190,.95) !important;
+}
+:root[data-theme="day"] .admin :is(.el-input__wrapper, .el-select__wrapper, .el-textarea__inner) {
+  background: var(--surface-2) !important;
+  color: var(--ink) !important;
+  border-color: var(--line) !important;
+  box-shadow: 3px 3px 0 var(--pixel-shadow) !important;
+}
+:root[data-theme="day"] .admin :is(.el-input__inner, .el-textarea__inner, .el-select__selected-item, .el-select__placeholder) {
+  color: var(--ink) !important;
+}
+:root[data-theme="day"] .admin .el-input__inner::placeholder,
+:root[data-theme="day"] .admin .el-textarea__inner::placeholder {
+  color: var(--muted) !important;
+}
+:root[data-theme="day"] .el-select-dropdown,
+:root[data-theme="day"] .el-message-box,
+:root[data-theme="day"] .el-dialog.user-edit-modal,
+:root[data-theme="day"] .el-dialog.art-edit-modal,
+:root[data-theme="day"] .el-dialog.cm-detail-modal,
+:root[data-theme="day"] .el-dialog.vs-ip-modal {
+  background: var(--panel) !important;
+  border-color: var(--line) !important;
+  color: var(--ink) !important;
+  box-shadow: 5px 5px 0 var(--pixel-shadow) !important;
+}
+:root[data-theme="day"] .el-select-dropdown__item,
+:root[data-theme="day"] .el-message-box__title,
+:root[data-theme="day"] .el-message-box__content,
+:root[data-theme="day"] .user-edit-modal .el-dialog__title,
+:root[data-theme="day"] .user-edit-modal .el-dialog__body,
+:root[data-theme="day"] .art-edit-modal .el-dialog__title,
+:root[data-theme="day"] .art-edit-modal .el-dialog__body,
+:root[data-theme="day"] .cm-detail-modal .el-dialog__title,
+:root[data-theme="day"] .cm-detail-modal .el-dialog__body,
+:root[data-theme="day"] .vs-ip-modal .el-dialog__title,
+:root[data-theme="day"] .vs-ip-modal .el-dialog__body {
+  color: var(--ink) !important;
+}
+:root[data-theme="day"] .el-select-dropdown__item.is-hovering {
+  color: var(--ink) !important;
+  background: var(--surface-2) !important;
+}
+@media (max-width: 1180px) {
+  .admin .side { padding-bottom: 12px; }
+  .admin .side-nav { overflow-x: auto; flex-wrap: nowrap; padding-bottom: 4px; }
+  .admin .side-nav a { flex: 0 0 auto; }
 }
 </style>

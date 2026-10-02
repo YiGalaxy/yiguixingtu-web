@@ -46,8 +46,9 @@ export const useSiteSettings = () => {
     // 只在服务端复用"本趟请求里已经取到的"那份，客户端保持 Nuxt 原本行为
     getCachedData: (key, nuxtApp, ctx) => {
       if (ctx?.cause === 'refresh:manual' || ctx?.cause === 'refresh:hook') return undefined
-      if (import.meta.server) return nuxtApp.payload.data[key] ?? nuxtApp.static.data[key]
-      return nuxtApp.static.data[key]
+      // Avoid carrying a previous client mount's settings into a new page mount.
+      if (import.meta.client && !nuxtApp.isHydrating) return undefined
+      return nuxtApp.payload.data[key] ?? nuxtApp.static.data[key]
     },
   })
 

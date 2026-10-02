@@ -48,7 +48,7 @@ v-for="t in tags" :key="t.id" class="tagp"
     <section class="toprow">
       <div id="profile" class="profile glass">
         <div class="pf-head">
-          <div class="pf-avatar"><img src="/cover-1.png" alt="avatar" ></div>
+          <div class="pf-avatar"><img src="/assets/avatar-catgirl-pixel.png" alt="猫娘像素头像" ></div>
           <!-- 同上：这里原来写的是 class="pf-info"，全项目也没有这条规则，
                只是包裹用的 div，去掉类名渲染结果完全相同。 -->
           <div>
@@ -153,7 +153,11 @@ v-for="t in tags" :key="t.id" class="tagp"
     <section id="articles" class="waterfall-wrap">
       <div class="w-head">
         <!-- 标题跟着筛选条件走：让用户一眼看出"现在看到的是哪一批文章" -->
-        <h2>{{ listTitle }}</h2>
+        <div>
+          <p class="w-kicker">RECENT PAGES</p>
+          <h2>{{ listTitle }}</h2>
+        </div>
+        <p class="w-intro">不追热点，只保存真正参与过的思考和过程。</p>
         <button v-if="isFiltered" class="w-clear" type="button" @click="clearAll">清除筛选</button>
       </div>
 
@@ -216,7 +220,7 @@ v-for="t in a.tags" :key="t.id" class="tg"
     </section>
 
     <!-- 右下浮动小角色 -->
-    <button class="mascot" type="button" aria-label="查看站点欢迎语" title="亿轨星途" @click="onMascot"><img src="/cover-2.png" alt="" ></button>
+    <button class="mascot" type="button" aria-label="查看站点欢迎语" title="亿轨星途" @click="onMascot"><img src="/assets/avatar-catgirl-pixel.png" alt="" ></button>
 
     <!-- 左下角原来有个「1 人正在看」的在线人数。
          那是写死的字符串：后端没有在线人数接口，这个数字永远不会变，
@@ -224,7 +228,7 @@ v-for="t in a.tags" :key="t.id" class="tg"
 
     <!-- 左侧吸附菜单 -->
     <div class="dock">
-      <button class="di" :class="{ on: open.clock }" @click="toggle('clock')"><span>◷</span><i>时钟</i></button>
+      <button class="di" :class="{ on: open.clock }" title="打开时钟" aria-label="打开时钟" @click="toggle('clock')"><span>◷</span><i>时钟</i></button>
     </div>
 
     <!-- 时钟面板 -->
@@ -907,9 +911,8 @@ useSeoMetaFor(() => ({
 .s-clear { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 14px; padding: 4px 6px; }
 .s-clear:hover { color: var(--accent); }
 
-.mascot { position: fixed; right: 22px; top: 45%; width: 84px; height: 84px; padding: 0; border-radius: 50%; overflow: hidden; cursor: pointer; border: 2px solid rgba(242,193,78,.5); box-shadow: 0 12px 30px rgba(0,0,0,.4); animation: bob 5s ease-in-out infinite; z-index: 5; }
-.mascot img { width: 100%; height: 100%; object-fit: cover; }
-@keyframes bob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-14px); } }
+.mascot { position: fixed; right: 22px; top: 45%; width: 68px; height: 68px; padding: 0; overflow: hidden; cursor: pointer; border: 3px solid var(--accent); background: var(--surface); box-shadow: 4px 4px 0 var(--pixel-shadow); z-index: 5; }
+.mascot img { width: 100%; height: 100%; object-fit: cover; image-rendering: pixelated; }
 /* .viewers / .dot / @keyframes pulseDot 随写死的「1 人正在看」一起删掉 */
 
 .dock { position: fixed; left: 0; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 10px; padding: 12px 10px; background: rgba(14,24,48,.72); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border-radius: 0 16px 16px 0; z-index: 10; border: 1px solid rgba(180,210,245,.12); border-left: none; }
@@ -934,5 +937,218 @@ useSeoMetaFor(() => ({
   .waterfall { columns: 1; }
   .dock { top: auto; bottom: 80px; }
   .mascot { display: none; }
+}
+
+/* Homepage voxel pass: keep the live page aligned with project-layout-demo. */
+.home {
+  width: min(1080px, calc(100% - 32px));
+  margin: 0 auto;
+}
+.search-wrap,
+.toprow,
+.waterfall-wrap {
+  width: 100%;
+  max-width: none;
+  padding-inline: 0;
+}
+.search-wrap { padding-top: 34px; padding-bottom: 12px; }
+.searchbox {
+  min-height: 50px;
+  height: auto;
+  padding: 0 16px;
+  border: 2px solid var(--line);
+  border-radius: 0;
+  background: var(--surface);
+  box-shadow: inset 2px 2px 0 rgba(255,255,255,.05), 4px 4px 0 var(--pixel-shadow);
+}
+.s-ico {
+  position: relative;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  color: transparent;
+  font-size: 0;
+}
+.s-ico::before {
+  content: '';
+  position: absolute;
+  left: 1px;
+  top: 1px;
+  width: 9px;
+  height: 9px;
+  border: 3px solid var(--accent);
+}
+.s-ico::after {
+  content: '';
+  position: absolute;
+  left: 12px;
+  top: 12px;
+  width: 7px;
+  height: 3px;
+  background: var(--accent);
+  transform: rotate(45deg);
+  transform-origin: left center;
+}
+.searchbox input { font-size: 16px; }
+.cats { gap: 8px; margin-top: 12px; }
+.cat,
+.tagp {
+  min-height: 38px;
+  padding: 6px 13px;
+  border: 2px solid var(--line);
+  border-radius: 0;
+  background: var(--surface);
+  box-shadow: 3px 3px 0 var(--pixel-shadow);
+}
+.cat:hover,
+.cat.on,
+.tagp:hover,
+.tagp.on {
+  color: var(--on-accent);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.tags { gap: 8px; margin-top: 10px; }
+.tagp { min-height: 34px; padding: 4px 10px; color: var(--cyan); border-style: dashed; }
+.tagp.on { border-style: solid; }
+
+.toprow { grid-template-columns: 1.35fr 1fr; gap: 18px; padding-top: 18px; padding-bottom: 12px; }
+.home .glass {
+  background: var(--surface);
+  border: 2px solid var(--line);
+  border-radius: 0;
+  box-shadow: 6px 6px 0 var(--pixel-shadow);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.profile { padding: 22px; }
+.pf-head { gap: 15px; }
+.pf-avatar {
+  width: 68px;
+  height: 68px;
+  border: 3px solid var(--accent);
+  border-radius: 0;
+  box-shadow: 4px 4px 0 var(--pixel-shadow);
+}
+.pf-avatar img { image-rendering: pixelated; }
+.pf-name { font: 900 24px/1.15 ui-monospace, Consolas, monospace; }
+.pf-sub { margin-top: 5px; font-size: 14px; }
+.pf-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-top: 22px;
+  padding: 8px;
+  background: rgba(7,18,32,.68);
+  border: 2px solid var(--pixel-shadow);
+}
+:global([data-theme="day"] .home .pf-stats) { background: rgba(212,223,189,.76); }
+.st {
+  min-height: 66px;
+  justify-content: center;
+  padding: 8px;
+  background: var(--surface-2);
+  border: 2px solid var(--line);
+  box-shadow: inset 2px 2px 0 rgba(255,255,255,.08);
+}
+.st b { font: 900 25px/1 ui-monospace, Consolas, monospace; }
+.music { padding: 20px; }
+.mu-badge { margin-bottom: 12px; font: 800 11px ui-monospace, Consolas, monospace; letter-spacing: .14em; }
+.mu-main { gap: 14px; margin: 0 0 14px; }
+.mu-disc {
+  width: 76px;
+  height: 76px;
+  border: 3px solid var(--line);
+  border-radius: 2px;
+  box-shadow: 4px 4px 0 var(--pixel-shadow);
+}
+.mu-disc-img { border: 3px solid var(--accent); border-radius: 0; image-rendering: pixelated; }
+.mu-progress { height: 8px; margin: 14px 0; border: 2px solid var(--line); border-radius: 0; background: var(--surface-2); }
+.mu-bar { background: var(--accent); }
+.mu-ctl { justify-content: space-between; margin-top: 0; }
+.mu-ctl .play { min-width: 46px; min-height: 42px; border: 2px solid var(--pixel-shadow); border-radius: 0; background: var(--accent); color: var(--on-accent); box-shadow: 3px 3px 0 var(--pixel-shadow); }
+.mu-more { color: var(--cyan); }
+
+.announce,
+.notice {
+  max-width: none;
+  border-radius: 0;
+  box-shadow: 4px 4px 0 var(--pixel-shadow);
+}
+.announce {
+  min-height: 46px;
+  margin: 18px 0 10px;
+  padding: 10px 15px;
+  border: 2px solid var(--line);
+  border-left: 8px solid var(--accent);
+  background: var(--surface);
+}
+.announce .an-mark { display: none; }
+.announce .an-text::before { content: '站长公告  '; color: var(--accent); font: 800 12px ui-monospace, Consolas, monospace; }
+.notice { min-height: 42px; margin: 0 0 18px; padding: 8px 15px; border: 2px dashed var(--line); background: rgba(8,20,36,.62); box-shadow: none; }
+:global([data-theme="day"] .home .notice) { background: rgba(243,241,218,.6); }
+.notice-track { color: var(--cyan); font: 13px ui-monospace, Consolas, monospace; padding: 0; }
+
+.waterfall-wrap { padding-top: 12px; padding-bottom: 40px; }
+.w-head { align-items: end; gap: 18px; margin-bottom: 18px; }
+.w-kicker { margin: 0 0 6px; color: var(--accent); font: 800 11px ui-monospace, Consolas, monospace; letter-spacing: .14em; }
+.w-head h2 { margin: 0; font: 900 27px/1.1 ui-monospace, Consolas, monospace; }
+.w-intro { max-width: 360px; margin: 0; color: var(--muted); font-size: 14px; text-align: right; }
+.waterfall { columns: 3 260px; column-gap: 16px; }
+.af {
+  margin-bottom: 16px;
+  border: 2px solid var(--line);
+  border-radius: 0;
+  background: var(--surface);
+  box-shadow: 5px 5px 0 var(--pixel-shadow);
+  transition: transform .2s ease, border-color .2s ease, box-shadow .2s ease;
+}
+.af:hover { transform: translateY(-4px); border-color: var(--accent); box-shadow: 7px 7px 0 var(--pixel-shadow); }
+.af-cover { background: var(--surface-2); border-bottom: 2px solid var(--line); }
+.af-cover img { image-rendering: pixelated; }
+.af-body { padding: 14px 15px 16px; }
+.af-tag { padding: 3px 8px; color: var(--cyan); border: 2px solid var(--cyan); border-radius: 0; font: 11px ui-monospace, Consolas, monospace; }
+.af-title { margin: 10px 0 7px; font-size: 18px; }
+.af-meta { font: 12px ui-monospace, Consolas, monospace; }
+.af-go { color: var(--accent); }
+.w-clear { padding: 6px 10px; border: 2px solid var(--line); background: var(--surface); box-shadow: 3px 3px 0 var(--pixel-shadow); }
+.w-empty { border: 2px dashed var(--line); background: var(--surface); }
+.more-btn { min-height: 46px; padding: 10px 18px; border: 2px solid var(--line); border-radius: 0; background: var(--surface); box-shadow: 3px 3px 0 var(--pixel-shadow); }
+
+/* Keep the utility dock tucked away until the pointer or keyboard reaches it. */
+.dock {
+  left: 0;
+  top: 50%;
+  z-index: 40;
+  padding: 10px 7px;
+  gap: 6px;
+  border: 2px solid var(--line);
+  border-left: 0;
+  border-radius: 0;
+  background: var(--surface);
+  box-shadow: 4px 4px 0 var(--pixel-shadow);
+  transform: translate(calc(-100% + 22px), -50%);
+  transition: transform .2s ease;
+}
+.dock:hover,
+.dock:focus-within { transform: translate(0, -50%); }
+.di { min-width: 52px; min-height: 50px; padding: 4px; border-radius: 0; }
+.di:hover,
+.di.on { background: var(--surface-2); }
+.wpanel { border-radius: 0; }
+.mascot { border-radius: 0; border: 3px solid var(--accent); box-shadow: 4px 4px 0 var(--pixel-shadow); }
+
+@media (max-width: 820px) {
+  .home { width: min(100% - 24px, 520px); }
+  .dock { top: auto; bottom: 10px; left: 50%; display: flex; transform: translate(-50%, calc(100% - 22px)); }
+  .dock:hover, .dock:focus-within { transform: translate(-50%, 0); }
+}
+@media (max-width: 560px) {
+  .search-wrap { padding-top: 22px; }
+  .w-head { display: block; }
+  .w-intro { margin-top: 10px; text-align: left; }
+  .profile, .music { padding: 18px; }
+  .pf-stats { gap: 8px; }
+  .w-head h2 { font-size: 20px; }
 }
 </style>

@@ -133,32 +133,7 @@
 </template>
 
 <script setup>
-// ================================================================
-// app/components/admin/SettingsPanel.vue
-//
-// 作用：后台「设置」面板，只对接两个接口：
-//   · GET /setting         —— 读（公开接口，但这就是这份数据的唯一读法）
-//   · PUT /admin/setting   —— 保存（单条更新，返回 Result<Void>：**没有 data**）
-//
-// 【为什么保存成功之后要重新读一次，而不是把表单值当成"已保存的内容"】
-//   与关于管理同一条理由：后端保存时会做归一化（空串 → null、trim），
-//   所以"我提交的"和"库里现在是什么"不一定完全一样。重读一次拿到的才是真实状态。
-//
-// 【⚠️ 保存之后还要让前台的站点外壳重新取一次数据】
-//   app.vue（页眉页脚）与首页读的是同一个 key 的 useAsyncData。
-//   不刷新的话，站长刚把站点名改掉、抬头一看页眉还是旧名字 —— 他会以为保存没生效，
-//   然后再点一次保存（于是审计里多一条无意义的记录）。
-//   所以下面 save() 里调了 refreshNuxtData('site-settings')。
-//
-// 【技术栈与关键字】
-//   · useApi().request    —— 统一请求入口（自动带 token、判 401/403、带追踪号）
-//   · refreshNuxtData     —— Nuxt 提供的"按 key 重新取 useAsyncData"，
-//                            这里用它把外壳那份设置刷新掉
-//   · SETTING_LIMITS / PAGE_SIZE_MIN / PAGE_SIZE_MAX / DEFAULT_SITE_SETTINGS
-//                            —— app/utils/siteSettings.ts 里的常量，与后端注解同一套数字
-//   · 站点设置的归一化（空串→null、条数夹取）在 app/utils/siteSettings.ts，
-//     不在这个组件里：它是纯函数、有单测，读它的还有外壳与页面
-// ================================================================
+// Settings are normalized by the shared utility; reload after save to reflect server state.
 
 import {
   DEFAULT_SITE_SETTINGS,
@@ -223,16 +198,7 @@ const fillForm = (data) => {
   updatedAt.value = data?.updateTime ? formatDateTime(data.updateTime) : ''
 }
 
-/**
- * 读一次站点设置。
- *
- * 【失败时保留表单里已有的内容，只提示一句】把表单清空的话，用户会以为
- * "我填的东西丢了"，而实际上只是这一次请求没成功。
- *
- * @param {{silent?: boolean}} [options] silent = 成功时不改面板上那句话
- *   （保存流程里会用到：那时该显示的是"保存成功"，而不是"已读取" —— 见 save 里的说明）
- * @returns {Promise<boolean>} 读到了没有（保存流程据此决定要显示哪句话）
- */
+/** Read settings without discarding unsaved form values on failure. */
 const load = async ({ silent = false } = {}) => {
   loading.value = true
   try {
@@ -251,13 +217,7 @@ const load = async ({ silent = false } = {}) => {
   }
 }
 
-/**
- * 保存。
- *
- * 【为什么站点名空着时一个请求都不发】它是必填（后端 @NotBlank），
- * 空着提交必然被拒；本地先拦一道能让用户立刻看到原因，而不是等一个来回。
- * 拦下之后**必须把原因写在面板上**，不能只弹 toast —— 不然用户会以为保存按钮坏了。
- */
+/** Validate and persist the settings form. */
 const save = async () => {
   const siteName = form.siteName.trim()
   if (!siteName) {
@@ -269,9 +229,6 @@ const save = async () => {
   try {
     const res = await request('/admin/setting', {
       method: 'PUT',
-      // 【为什么逐字段写而不是直接把 form 传过去】多传的字段后端会忽略，
-      // 但显式列出来能让"到底提交了什么"在这段代码里一眼看全，
-      // 也避免以后 form 里加了纯界面用的字段（比如 isDirty）被顺手提交上去
       body: {
         siteName,
         announcement: form.announcement,
@@ -290,10 +247,7 @@ const save = async () => {
       return
     }
 
-    // 重读一次：拿到的才是库里的真实状态（后端做了归一化）。
-    // ⚠️ silent：这一步**不能**覆盖"保存成功"那句话 —— 用户刚点完保存，
-    //    第一眼要看到的是"存进去了"。第一版没加这个参数，
-    //    结果是保存成功后提示变成了"已读取当前的站点设置"（用例抓到的）。
+    // Reload normalized server state without replacing the success notice.
     const reloaded = await load({ silent: true })
     setNotice(
       reloaded
@@ -301,18 +255,13 @@ const save = async () => {
         : '保存成功，但重新读取失败了 —— 表单里显示的还是上一次读到的内容。',
       'ok',
     )
-    // toast 与面板上那句话都要有：toast 给"我这一下点成功了"的即时反馈，
-    // 面板上那句留给"用户回头再看这个表单时"（toast 三秒就没了）
     ElMessage.success('保存成功')
 
-    // 让前台的站点外壳（页眉页脚 / 公告 / 评论开关 / 每页条数）立刻重新取一次。
-    // 【为什么单独 try/catch】刷新外壳失败不该让"保存成功"变成一个错误提示 ——
-    // 数据已经存进去了，那才是用户关心的事；外壳最迟下次刷新页面也会跟上。
-    // 把刷新失败说成"保存失败"，用户会再点一次保存（于是审计里多一条无意义的记录）。
+    // Refresh the persistent site shell; a refresh failure does not undo the save.
     try {
       await refreshNuxtData('site-settings')
     } catch {
-      // 只影响"立刻看到变化"，不影响数据是否保存成功，所以不打扰用户
+      // Best effort only; the persisted settings remain valid.
     }
   } finally {
     saving.value = false

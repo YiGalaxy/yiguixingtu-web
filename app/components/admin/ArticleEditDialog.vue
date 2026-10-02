@@ -144,25 +144,13 @@ import { ElMessage } from 'element-plus'
 import { MdEditor } from 'md-editor-v3'
 import 'md-editor-v3/lib/style.css'
 
-/**
- * 【这两个 prop 为什么是只读的】
- * 分类与标签的**数据源**在父页面（admin.vue）那一份 ref 上：分类同时喂
- * 文章筛选下拉框、这里的分类单选框与「分类管理」页，标签同时喂这里与「标签管理」页。
- * 弹窗只负责"把当前的全量选项画出来"，自己不拉也不改 ——
- * 各拉一份的话迟早有一处是旧的，而"刚建的标签选不到"是后台最不该出现的东西。
- */
+// Categories and tags are owned by the parent so all admin views share one source.
 defineProps({
   categories: { type: Array, default: () => [] },
   tags: { type: Array, default: () => [] },
 })
 
-/**
- * 【为什么要往父页面抛事件，而不是自己去拉那两个列表】
- * 打开弹窗时要重新拉一次标签选项（用户很可能刚在标签管理里建完标签就来写文章），
- * 而 `tags` 那份 ref 在父页面。这里抛 `refresh-tags`，父页面 × 面板转发给
- * admin.vue 的 fetchTags —— 数据只有一个来源，弹窗只负责"要求刷新"。
- * `saved` 同理：保存成功后要刷新文章表格，而表格数据也在父页面。
- */
+// The parent owns both refreshes and the shared article list.
 const emit = defineEmits(['refresh-tags', 'saved'])
 
 const { request } = useApi()
@@ -356,12 +344,7 @@ const openCreate = () => {
   visible.value = true
 }
 
-/**
- * 打开「编辑」。
- * 【这里有个容易踩的坑】列表接口【不返回正文】(后端特意排除了 content 这个大字段，
- * 为了省带宽)，所以点开编辑时必须再单独拉一次详情，否则编辑器里是空的，
- * 一保存就把正文清空了。
- */
+/** Open edit mode after loading the full article detail. */
 const openEdit = async (row) => {
   resetForm()
   form.id = row.id
@@ -376,41 +359,20 @@ const openEdit = async (row) => {
   // 一保存就把标签全清了）
   form.tagIds = tagIdsOf(row.tags)
 
-  // 标签选项与文章详情**同时**发出去（两者互不依赖，串行要等两个往返）。
-  // 注意：弹窗是**等详情回来之后**才打开的 —— 顺序不能反，
-  // 否则会先看到一个空编辑器、正文随后"跳"进来。
-  //
-  // 【与拆分前的唯一一处时序差异，写在这里免得后人以为是 bug】
-  //   拆分前那一句是 `await Promise.all([fetchTags(), request(详情)])`，
-  //   两个都等完才打开弹窗；现在标签那次是通过事件请父页面去拉的，
-  //   事件监听器的返回值拿不到 promise，所以只 await 了详情。
-  //   两者**同时**发出，所以差别只在"标签接口比详情接口还慢"时出现：
-  //   弹窗会比以前早那么几十毫秒出现，下拉框里的选项稍后补齐。
-  //   请求的形状、结果、界面内容都一样，只是"谁先到"。
+  // Refresh options in parallel; wait for the detail before opening the editor.
   emit('refresh-tags')
   const detail = await request('/admin/article/' + row.id)
 
-  // 【⚠️ 详情读不到就【不要】打开编辑器】
-  //   正文与附件都只存在于详情接口里（列表为了省带宽既不返回 content、也不返回附件）。
-  //   如果这里静默失败还让用户进编辑器：
-  //     · 编辑器是空的  ⇒ 一保存就把正文清空了
-  //     · 附件清单是空的 ⇒ 一保存就把附件（连同磁盘上的文件）全删了
-  //   两者都是"界面看起来一切正常"的静默数据丢失。
-  //   所以宁可不打开弹窗、直接报错 —— 用户重试一次就好，比丢数据强得多。
+  // Do not open an incomplete form: saving it could clear content and attachments.
   if (!detail.ok) {
     ElMessage.error(detail.message || '文章详情读取失败，已取消打开编辑器（避免保存时清空正文与附件）')
     return
   }
 
   form.content = detail.data.content || ''
-  // 【以详情为准】详情里的 tags 是这篇文章最新的标签；
-  // 列表那一份可能是几分钟前拉的（别人刚改过标签时就会不一致）。
-  // 注意要用 Array.isArray 兜底：tags 缺失时不能把已回显的标签清成空数组。
+  // Prefer fresh tags from the detail response when present.
   if (Array.isArray(detail.data.tags)) form.tagIds = tagIdsOf(detail.data.tags)
-  // 附件只认详情这一份（列表里根本没有这个字段）。
-  // 逐项兜底成 { name, url, size }，避免某个脏字段让整张清单渲染不出来。
-  // ⚠️ size 缺失时保留 null（而不是填 0）：0 字节的文件根本传不上来，
-  //    显示成 "0 B" 是假信息；formatFileSize(null) 会给「—」。
+  // Attachments exist only on the detail response; preserve unknown sizes as null.
   form.attachments = Array.isArray(detail.data.attachments)
     ? detail.data.attachments.map(a => ({ name: a?.name || '', url: a?.url || '', size: a?.size ?? null }))
     : []
@@ -425,12 +387,7 @@ const saveArticle = async () => {
     return
   }
 
-  // 【第一道防线：连点直接不理】
-  //   按钮上虽然有 :loading="saving"（加载中会禁用），
-  //   但那是"界面上的防线"——它依赖按钮真的被渲染成禁用态。
-  //   在极快连点（两次点击落在同一帧）时，第一次点击设置的 saving
-  //   还没来得及让浏览器重绘，第二次点击就已经进来了。
-  //   所以这里再拦一道：状态已经是"保存中"就直接返回。
+  // Guard against same-frame double clicks before the button re-renders.
   if (saving.value) return
 
   saving.value = true
@@ -444,21 +401,9 @@ const saveArticle = async () => {
     content: form.content || null,
     cover: form.cover || null,
     categoryId: form.categoryId,
-    // 【tagIds 永远传，一个都不选时是 []】
-    //   后端这两个接口对标签是【覆盖式】语义：不传这个字段、和传空数组，
-    //   结果都是"清空这篇文章的标签"（先删关联、再按传入的 id 重建）。
-    //   既然两者等价，那就显式传一个空数组 —— 它把"我就是要清空"这个意图
-    //   写在了请求体里，看日志的人一眼能分辨"用户清空了标签"
-    //   和"前端忘了传这个字段"（后者是 bug，两者在后端看起来一样）。
-    //   另外传一个不存在的标签 id 时后端返回 404 并且【不会动原有的标签】
-    //   （校验先于写入），所以这里不需要先自己校验一遍 id 是否存在。
+    // Tags use replacement semantics, so always send the complete id list.
     tagIds: [...form.tagIds],
-    // 【attachments 永远传，和 tagIds 同一个道理】
-    //   后端对附件是【整体替换】语义：不传这个字段、和传空数组，结果都是
-    //   "清空这篇文章的附件"（而且会连带删掉磁盘上的文件）。
-    //   既然两者等价，就显式传一份清单 —— 它把"我就是要清空"写在请求体里，
-    //   看日志的人一眼能分辨"用户移除了附件"和"前端忘了传"（后者是 bug）。
-    //   传一个不属于本项目的地址后端会拒（校验 url 前缀），所以这里不用自己先校验。
+    // Attachments are also replacement-based; send the full current list.
     attachments: form.attachments.map(a => ({ name: a.name, url: a.url, size: a.size })),
     status: form.status,
     isTop: form.isTop,
@@ -466,12 +411,7 @@ const saveArticle = async () => {
 
   const isEdit = !!form.id
 
-  // 【第二道防线：后端幂等】
-  //   上面那道只挡得住"同一个页面里的连点"，挡不住：
-  //     · 请求超时了、用户刷新页面又提交一次
-  //     · 代理/网关重试把同一个请求发了两次
-  //   所以新建时带上一个幂等键（后端认这个键去重，见 IdempotencyService）。
-  //   编辑（PUT）不带 —— 编辑本身就是幂等的，执行两次结果一样，加了没意义。
+  // New articles carry an idempotency key; PUT edits are already idempotent.
   const res = isEdit
     ? await request('/admin/article/' + form.id, { method: 'PUT', body })
     : await request('/admin/article', {
@@ -493,13 +433,7 @@ const saveArticle = async () => {
   }
 }
 
-/**
- * 【为什么用 defineExpose 暴露两个"打开弹窗"的方法，而不是父页面传一堆 props】
- * "新建"与"编辑"要做的事情不一样：新建要先清空表单并换幂等键，
- * 编辑要先拉一次详情（正文不在列表里）。这两种流程都是**弹窗自己**的事，
- * 父页面（文章面板那边）只需要说一句"打开新建"或"打开这篇"。
- * 如果改成"父页面准备好 form 再传进来"，那些流程就散到两个文件里了。
- */
+// Keep create/edit orchestration inside the dialog; the parent only triggers it.
 defineExpose({ openCreate, openEdit })
 </script>
 

@@ -1,39 +1,19 @@
 <template>
-  <!--
-    概览：四张数字卡片 + 最近文章。
-    【这个面板为什么一个事件都不往外抛】它只负责"把父页面已经拿到的数据画出来"：
-    四个数字是父页面在进入后台时就并行拉好的（见 admin.vue 的 onMounted），
-    最近文章用的是父页面那份 `articles`。所以这里没有任何请求，
-    也没有任何自己的状态 —— 纯展示，改起来不会牵动别处。
-  -->
+  <!-- Overview is a presentation component; data comes from the parent. -->
   <header class="top">
     <h1>概览</h1>
     <p>全站汇总数据（文章数与浏览量只统计已发布文章）</p>
   </header>
-  <!-- 四个数字的来源是【独立请求】，和下面各管理页当前的筛选条件无关：
-       文章 / 浏览 / 分类走公开接口 GET /article/stats（后端一条聚合 SQL 算好），
-       用户在 /user/page 里筛选了什么都不会影响这里。
-       接口失败时显示「—」，而不是假装是 0。 -->
   <div class="stats">
     <div class="stat glass"><span>文章（已发布）</span><b>{{ statText(stats.articleCount, statsFailed) }}</b></div>
     <div class="stat glass"><span>浏览量</span><b>{{ statText(stats.viewCount, statsFailed) }}</b></div>
     <div class="stat glass"><span>分类</span><b>{{ statText(stats.categoryCount, statsFailed) }}</b></div>
     <div class="stat glass"><span>用户</span><b>{{ statText(userCount, userCountFailed) }}</b></div>
   </div>
-  <!-- ==================== 访问统计 ====================
-       数据来自 GET /admin/stats/visits（独立请求，与上面那几个数字无关）。
-       【为什么整块用 v-if 而不是"没数据就画空图"】没数据时画一张空坐标系，
-       看起来像"图表坏了"；一句"还没有访问记录"才是准确的描述。 -->
   <div class="panel glass">
     <div class="panel-head">
       访问统计
       <span class="vs-days">
-        <!-- 下钻：上面那些图回答"这段时间怎么样"，点这里回答"都是谁"。
-             【为什么没有数据时是 disabled 而不是隐藏】隐藏会让这一块的高度随数据变，
-             而"这里本来有个按钮、只是现在点不了"比"按钮凭空消失"好理解 ——
-             何况旁边那三张饼图在没数据时也是整块换成了提示语。
-             【为什么是 disabled 而不是"点了给个空弹窗"】空弹窗要用户自己关掉，
-             是一次没有信息量的往返。 -->
         <el-button
           size="small"
           :disabled="!visits || visits.totalPv === 0"
@@ -177,12 +157,7 @@ const statText = (value, failed) => (failed ? '—' : value)
 // ---------------------------------------------------------------------
 const { request } = useApi()
 
-/**
- * 【这一块的数据是自己拉的，与上面那四个数字不同】
- *   上面那四个走的是公开的 GET /article/stats（进后台时就并行拉好了，由父页面给）；
- *   访问统计是后台接口、只有这一个面板用，所以在这里自己拉 ——
- *   让父页面为了一个面板去多拉一份接口，反而是把一个面板的细节漏到外壳里。
- */
+// Visit analytics is local to this panel and uses the admin endpoint.
 const visitDays = ref(30)
 const visits = ref(null)
 const visitsFailed = ref(false)
@@ -208,11 +183,7 @@ onMounted(loadVisits)
 //  访客 IP 列表（统计页下钻出来的那一层）
 // ---------------------------------------------------------------------
 
-/**
- * 列表最多显示多少个 IP。
- * ⚠️ 必须与后端 VisitLogServiceImpl.VISITOR_IP_LIMIT 保持一致 ——
- * 不一致的话，下面那行小字会在被截断时说错话（说"最多 200 个"而实际给了 100 个）。
- */
+/** Keep this in sync with the backend visitor IP limit. */
 const IP_LIMIT = 200
 
 const ipVisible = ref(false)
@@ -220,16 +191,7 @@ const ipLoading = ref(false)
 const ipFailed = ref(false)
 const ipRows = ref([])
 
-/**
- * 打开弹窗并拉数据。
- *
- * 【为什么是点开才拉】见模板里那段注释：这份列表带着完整 IP，
- *   不与统计报表合并就是为了让数据的传输范围与使用范围对齐。
- *
- * 【为什么 days 用上面那个 visitDays】两个请求共用同一个天数选择器，
- *   用户切到"近 7 天"再点开时看到的也是 7 天 —— 否则会出现
- *   "曲线是 7 天的、列表是 30 天的"这种看起来像 bug 的错位。
- */
+/** Open the drill-down and request IPs for the selected period. */
 const openIpList = async () => {
   ipVisible.value = true
   ipLoading.value = true
@@ -267,14 +229,7 @@ const AXIS_STYLE = {
   splitLine: { lineStyle: { color: 'rgba(150,190,240,.08)' } },
 }
 
-/**
- * 按天的曲线。
- *
- * 【为什么要自己补零】后端只返回**有记录的**那些天（没人的日子查不出来）。
- *   直接画的话，横轴会跳过空白的日期 —— 一个 7 天的图可能只显示 3 个点，
- *   而"中间那几天没人来"这个信息就丢了（看起来像是连续的）。
- *   这里按所选天数补出完整的日期序列，缺的补 0。
- */
+/** Build a complete date series, filling days without records with zero. */
 const dailyOption = computed(() => {
   const v = visits.value
   if (!v) return {}
@@ -317,15 +272,7 @@ const dailyOption = computed(() => {
   }
 })
 
-/**
- * 把一个分组数组画成饼图。
- *
- * 【为什么是环形图而不是饼图】环形中间那块空着，视觉上更轻，
- *   而且 3 个以下的分组看起来不会像"缺了一块"。
- *
- * 【为什么用 label 显示数值而不是只靠图例】饼图的占比一眼能看出来，
- *   但"到底多少个"必须标出来 —— 否则两个都很小的分组看不出差别。
- */
+/** Build a donut chart option with labels and values. */
 const pieOption = (slices, labels) => ({
   tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
   legend: { bottom: 0, textStyle: { color: '#8fa3bf', fontSize: 11 } },
