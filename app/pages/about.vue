@@ -61,7 +61,7 @@
            没写自我介绍时给一句说明，而不是留一片空白（会让人以为没加载出来）。 -->
       <section class="ac-bio">
         <h3 class="ac-bio-title">自我介绍</h3>
-        <MdPreview v-if="hasBio" :model-value="about.bio" theme="dark" language="zh-CN" />
+        <MdPreview v-if="hasBio" :model-value="about.bio" :theme="editorTheme" language="zh-CN" />
         <p v-else class="ac-bio-empty">站长还没有写自我介绍。</p>
       </section>
 
@@ -108,6 +108,8 @@
 // 样式引 preview.css 而不是 style.css —— 和文章详情页完全一致。
 import { MdPreview } from 'md-editor-v3'
 import 'md-editor-v3/lib/preview.css'
+const { themeMode } = useThemeMode()
+const editorTheme = computed(() => (themeMode.value === 'day' ? 'light' : 'dark'))
 
 const { request } = useApi()
 
@@ -255,13 +257,14 @@ useSeoMetaFor(() => ({
    与文章详情页同一套主题变量（保证同一段 Markdown 在文章页和关于页长得一样）。
    必须用 :deep()：预览区是 MdPreview 内部渲染的 DOM，scoped 的 scope 属性
    只打在组件根元素上，够不到里面的 .md-editor-preview。 */
-:deep(.md-editor-dark) {
+:deep(.md-editor-dark),
+:deep(.md-editor-light) {
   --md-bk-color: transparent;
-  --md-color: #dce7f8;
-  --md-border-color: rgba(150,190,240,.16);
-  --md-hover-color: #ffffff;
-  --md-scrollbar-bg-color: rgba(255,255,255,.04);
-  --md-scrollbar-thumb-color: rgba(150,190,240,.28);
+  --md-color: var(--ink);
+  --md-border-color: var(--line);
+  --md-hover-color: var(--accent);
+  --md-scrollbar-bg-color: transparent;
+  --md-scrollbar-thumb-color: var(--line);
 }
 :deep(.md-editor-preview) { background: transparent; font-size: 15px; line-height: 1.85; }
 :deep(.md-editor-preview h1),

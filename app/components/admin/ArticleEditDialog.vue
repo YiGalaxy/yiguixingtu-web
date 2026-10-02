@@ -123,7 +123,7 @@
     <div class="af-editor">
       <MdEditor
         v-model="form.content"
-        theme="dark"
+        :theme="editorTheme"
         language="zh-CN"
         :toolbars-exclude="['github', 'fullscreen', 'preview-html']"
         @on-upload-img="onEditorUploadImg" />
@@ -143,6 +143,8 @@ import { ElMessage } from 'element-plus'
 // 样式必须单独引一次 —— 这个库不带自动注入 CSS
 import { MdEditor } from 'md-editor-v3'
 import 'md-editor-v3/lib/style.css'
+const { themeMode } = useThemeMode()
+const editorTheme = computed(() => (themeMode.value === 'day' ? 'light' : 'dark'))
 
 // Categories and tags are owned by the parent so all admin views share one source.
 defineProps({
@@ -453,7 +455,7 @@ defineExpose({ openCreate, openEdit })
 /* 固定高度 + object-fit: cover：不同长宽比的封面在这里都显示成统一大小的缩略图，
    不用去裁剪原图，也不会把表单撑高 */
 .cover-preview { height: 64px; width: 96px; object-fit: cover; border-radius: 8px;
-  border: 1px solid rgba(150,190,240,.18); background: #0d1b38; }
+  border: 1px solid var(--line); background: var(--surface-2); }
 .cover-btns { display: flex; align-items: center; gap: 8px; }
 
 .af-editor { margin-top: 8px; }
@@ -466,7 +468,7 @@ defineExpose({ openCreate, openEdit })
 .af-attach-list li { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .af-attach-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); font-size: 13px; }
 .af-attach-size { flex: 0 0 auto; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
-.af-editor .md-editor { border: 1px solid rgba(150,190,240,.18); }
+.af-editor .md-editor { border: 1px solid var(--line); }
 
 /* 弹窗底部：提示语靠左，按钮靠右 */
 .af-foot-tip { color: var(--muted); font-size: 12px; margin-right: auto; }

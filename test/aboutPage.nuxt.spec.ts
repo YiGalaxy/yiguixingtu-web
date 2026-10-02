@@ -334,7 +334,7 @@ describe('关于页 · 站长是谁、怎么找我', () => {
     expect(article).toContain('MdPreview')
     expect(article).toContain('md-editor-v3')
     // 两处的主题参数也要一致（深色主题），否则一块亮一块暗
-    expect(read('app/pages/about.vue')).toContain('theme="dark"')
-    expect(article).toContain('theme="dark"')
+    expect(read('app/pages/about.vue')).toContain(':theme="editorTheme"')
+    expect(article).toContain(':theme="editorTheme"')
   })
 })

@@ -259,7 +259,7 @@ describe('useApi', () => {
   // 分支 ②：HTTP 401（token 过期）
   // ---------------------------------------------------------------
 
-  it('HTTP 401 时_should清掉 token、弹出登录框并返回 code 401', async () => {
+  it('公开请求 HTTP 401 时_should只清 token、不弹登录框', async () => {
     fetchMock.mockRejectedValue({ status: 401 })
     tokenRef.value = 'expired-token'
 
@@ -273,12 +273,11 @@ describe('useApi', () => {
     expect(res.code).toBe(401)
     // 通行证已经失效，必须清掉，否则下次请求还会带着这个没用的 token
     expect(tokenRef.value).toBeFalsy()
-    // 并且要把登录框弹出来，让用户能重新登录
-    expect(loginVisible.value).toBe(true)
-    expect(errorSpy).toHaveBeenCalledWith('登录已过期，请重新登录')
+    expect(loginVisible.value).toBe(false)
+    expect(errorSpy).not.toHaveBeenCalled()
   })
 
-  it('401 时_should走 401 分支而不是被当成网络异常', async () => {
+  it('需要登录的 401 时_should走 401 分支并提示重新登录', async () => {
     // 这条用例专门盯住一个容易写错的地方：
     // 如果把 status 的读取写错（比如只看 err.statusCode），
     // 401 会掉进最后的兜底分支，用户看到的是"网络异常"——
@@ -286,7 +285,7 @@ describe('useApi', () => {
     fetchMock.mockRejectedValue({ status: 401 })
 
     const { request } = useApi()
-    const res = await request('/auth/me')
+    const res = await request('/auth/me', { requiresAuth: true })
 
     expect(res.code).toBe(401)
     expect(res.code).not.toBe(-1)

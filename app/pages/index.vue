@@ -48,7 +48,7 @@ v-for="t in tags" :key="t.id" class="tagp"
     <section class="toprow">
       <div id="profile" class="profile glass">
         <div class="pf-head">
-          <div class="pf-avatar"><img src="/assets/avatar-catgirl-pixel.png" alt="猫娘像素头像" ></div>
+          <div class="pf-avatar"><img :src="profile.avatar" alt="站长像素头像" ></div>
           <!-- 同上：这里原来写的是 class="pf-info"，全项目也没有这条规则，
                只是包裹用的 div，去掉类名渲染结果完全相同。 -->
           <div>
@@ -219,9 +219,6 @@ v-for="t in a.tags" :key="t.id" class="tg"
       </div>
     </section>
 
-    <!-- 右下浮动小角色 -->
-    <button class="mascot" type="button" aria-label="查看站点欢迎语" title="亿轨星途" @click="onMascot"><img src="/assets/avatar-catgirl-pixel.png" alt="" ></button>
-
     <!-- 左下角原来有个「1 人正在看」的在线人数。
          那是写死的字符串：后端没有在线人数接口，这个数字永远不会变，
          连"当前访客自己"都不一定算得准。假装有实时数据比没有更糟，直接删掉。 -->
@@ -251,8 +248,6 @@ v-for="t in a.tags" :key="t.id" class="tg"
 </template>
 
 <script setup>
-import { ElMessage } from 'element-plus'
-
 // ================================================================
 //  背景音乐卡片（= 音乐页的缩影，只有一个音源：static-media/bg-music.mp3）
 //
@@ -446,6 +441,7 @@ const siteStats = computed(() => (statsResult.value?.ok
  *   这里只是拿到它（外加那段 getCachedData 保证服务端也只打一次，见那个组合式函数的注释）。
  */
 const { settings, ready: settingsReady } = useSiteSettings()
+const { profile } = useSiteProfile()
 
 // ---------------------------------------------------------------------
 //  滚动跑马灯：实测距离，让那句文案真的"跑完全程"
@@ -700,8 +696,6 @@ onBeforeUnmount(() => {
   document.removeEventListener('pointerup', onUp)
 })
 
-const onMascot = () => { ElMessage.info('欢迎来到亿轨星途 ✦') }
-
 // ================================================================
 //  首页的 SEO 元信息
 //
@@ -911,9 +905,6 @@ useSeoMetaFor(() => ({
 .s-clear { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 14px; padding: 4px 6px; }
 .s-clear:hover { color: var(--accent); }
 
-.mascot { position: fixed; right: 22px; top: 45%; width: 68px; height: 68px; padding: 0; overflow: hidden; cursor: pointer; border: 3px solid var(--accent); background: var(--surface); box-shadow: 4px 4px 0 var(--pixel-shadow); z-index: 5; }
-.mascot img { width: 100%; height: 100%; object-fit: cover; image-rendering: pixelated; }
-/* .viewers / .dot / @keyframes pulseDot 随写死的「1 人正在看」一起删掉 */
 
 .dock { position: fixed; left: 0; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 10px; padding: 12px 10px; background: rgba(14,24,48,.72); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border-radius: 0 16px 16px 0; z-index: 10; border: 1px solid rgba(180,210,245,.12); border-left: none; }
 .di { display: flex; flex-direction: column; align-items: center; gap: 4px; background: none; border: none; color: var(--muted); cursor: pointer; padding: 6px 8px; border-radius: 10px; }
@@ -936,7 +927,6 @@ useSeoMetaFor(() => ({
   .toprow { grid-template-columns: 1fr; }
   .waterfall { columns: 1; }
   .dock { top: auto; bottom: 80px; }
-  .mascot { display: none; }
 }
 
 /* Homepage voxel pass: keep the live page aligned with project-layout-demo. */
@@ -1136,7 +1126,6 @@ useSeoMetaFor(() => ({
 .di:hover,
 .di.on { background: var(--surface-2); }
 .wpanel { border-radius: 0; }
-.mascot { border-radius: 0; border: 3px solid var(--accent); box-shadow: 4px 4px 0 var(--pixel-shadow); }
 
 @media (max-width: 820px) {
   .home { width: min(100% - 24px, 520px); }

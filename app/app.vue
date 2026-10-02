@@ -63,7 +63,7 @@
         <template v-if="token">
           <!-- 登录状态提示：头像首字 + 昵称 + 角色标签 -->
           <div class="user-chip" :title="'当前登录：' + displayName">
-            <span class="uc-avatar"><img src="/assets/avatar-catgirl-pixel.png" alt=""></span>
+            <span class="uc-avatar"><img :src="profile.avatar" alt=""></span>
             <span class="uc-name">{{ displayName }}</span>
             <span class="uc-role" :class="{ 'is-admin': isAdmin }">{{ isAdmin ? '管理员' : '游客' }}</span>
           </div>
@@ -204,17 +204,10 @@ import { ElMessage } from 'element-plus'
 const { login, register, logout, token, user, coolingDown, cooldownLeft } = useAuth()
 const { loginVisible, registerVisible, openLogin, openRegister } = useAuthUi()
 const { request } = useApi()
-const themePreference = useCookie('site-theme', {
-  default: () => 'night',
-  maxAge: 60 * 60 * 24 * 365,
-  sameSite: 'lax',
-})
-const themeMode = computed(() => themePreference.value === 'day' ? 'day' : 'night')
+const { themeMode, toggleTheme } = useThemeMode()
+const { profile } = useSiteProfile()
 const route = useRoute()
 useHead(() => ({ htmlAttrs: { 'data-theme': themeMode.value } }))
-const toggleTheme = () => {
-  themePreference.value = themeMode.value === 'night' ? 'day' : 'night'
-}
 
 // ---------- 登录状态提示 ----------
 const isAdmin = computed(() => user.value?.role === 'ADMIN')
@@ -1118,11 +1111,11 @@ body { margin: 0; background: var(--bg); color: var(--ink); font-family: "PingFa
 .auth-sub { margin: 0 0 26px; color: var(--muted); font-size: 14px; }
 .auth-form .el-form-item { margin-bottom: 18px; }
 .auth-form .el-form-item__label { color: var(--muted); font-weight: 600; padding-bottom: 6px; }
-.auth-form .el-input__wrapper { background: #0d1b38 !important; box-shadow: none !important; border: 1px solid var(--line) !important; border-radius: 0; }
+.auth-form .el-input__wrapper { background: var(--surface-2) !important; box-shadow: none !important; border: 1px solid var(--line) !important; border-radius: 0; }
 .auth-form .el-input__wrapper.is-focus { box-shadow: none !important; border-color: var(--cyan) !important; }
 .auth-form .el-input__inner { color: var(--ink) !important; }
 .auth-form .el-input__inner::placeholder { color: var(--muted) !important; }
-.auth-form .el-input__inner:-webkit-autofill, .auth-form .el-input__inner:-webkit-autofill:hover, .auth-form .el-input__inner:-webkit-autofill:focus { -webkit-box-shadow: 0 0 0 1000px #0d1b38 inset !important; -webkit-text-fill-color: var(--ink) !important; caret-color: var(--ink); transition: background-color 9999s ease-out 0s; }
+.auth-form .el-input__inner:-webkit-autofill, .auth-form .el-input__inner:-webkit-autofill:hover, .auth-form .el-input__inner:-webkit-autofill:focus { -webkit-box-shadow: 0 0 0 1000px var(--surface-2) inset !important; -webkit-text-fill-color: var(--ink) !important; caret-color: var(--ink); transition: background-color 9999s ease-out 0s; }
 .auth-row { display: flex; align-items: center; justify-content: space-between; margin: 4px 0 22px; color: var(--muted); }
 .auth-row.center { justify-content: center; }
 .auth-row .el-checkbox__label { color: var(--muted); }
@@ -1299,12 +1292,12 @@ body .shell .nav-btn { min-height: 40px; }
   font-variant-numeric: tabular-nums;
   text-wrap: balance;
 }
-.home .pf-avatar, .home .pf-avatar img, .home .mascot,
+.home .pf-avatar, .home .pf-avatar img,
 .home .mu-disc, .home .mu-disc-img, .home .mu-disc-ph, .home .mu-disc-hole {
   border-radius: 0 !important;
 }
-.home .pf-avatar, .home .mascot { box-shadow: 4px 4px 0 var(--pixel-shadow); }
-.home .pf-avatar img, .home .mascot img, .home .af-cover img { image-rendering: pixelated; }
+.home .pf-avatar { box-shadow: 4px 4px 0 var(--pixel-shadow); }
+.home .pf-avatar img, .home .af-cover img { image-rendering: pixelated; }
 .home .mu-disc {
   background: var(--surface-2) !important;
   border: 3px solid var(--accent);

@@ -378,7 +378,7 @@ onMounted(load)
    头像是方的，所以这里做成 64×64 的圆角方块（不是文章封面那种 96×64） */
 .cover-preview {
   height: 64px; width: 64px; object-fit: cover; border-radius: 8px;
-  border: 1px solid rgba(150,190,240,.18); background: #0d1b38;
+  border: 1px solid var(--line); background: var(--surface-2);
 }
 /* 手填地址的输入框：吃掉剩下的宽度，但有个下限（窄屏时整体换行）。
    min-width: 0 是 flex 子项能被压窄的前提（默认 min-width:auto 会让长地址撑破这一行）。 */

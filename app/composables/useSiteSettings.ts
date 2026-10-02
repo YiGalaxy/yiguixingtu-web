@@ -61,3 +61,24 @@ export const useSiteSettings = () => {
 
   return { settings, ready: asyncData }
 }
+
+const DEFAULT_AVATAR = '/assets/avatar-catgirl-pixel.png'
+
+/** Public profile owned by the admin About panel. */
+export const useSiteProfile = () => {
+  const { request } = useApi()
+  const asyncData = useAsyncData('site-profile', async () => {
+    const res = await request('/about')
+    const data = res.ok && res.data && !Array.isArray(res.data) ? res.data : null
+    const avatar = typeof data?.avatar === 'string' && data.avatar.trim() ? data.avatar.trim() : DEFAULT_AVATAR
+    return { avatar }
+  }, {
+    getCachedData: (key, nuxtApp, ctx) => {
+      if (ctx?.cause === 'refresh:manual' || ctx?.cause === 'refresh:hook') return undefined
+      if (import.meta.client && !nuxtApp.isHydrating) return undefined
+      return nuxtApp.payload.data[key] ?? nuxtApp.static.data[key]
+    },
+  })
+  const profile = computed(() => asyncData.data.value ?? { avatar: DEFAULT_AVATAR })
+  return { profile, ready: asyncData }
+}

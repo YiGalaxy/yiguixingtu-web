@@ -635,6 +635,20 @@ onMounted(async () => {
   border-radius: 14px;
   overflow: hidden;
 }
+.md-editor-light {
+  --md-bk-color: var(--surface-2);
+  --md-bk-color-outstand: var(--surface);
+  --md-bk-hover-color: rgba(154,100,23,.12);
+  --md-border-color: var(--line);
+  --md-border-hover-color: var(--accent);
+  --md-border-active-color: var(--accent);
+  --md-color: var(--ink);
+  --md-hover-color: var(--accent);
+  --md-scrollbar-bg-color: transparent;
+  --md-scrollbar-thumb-color: var(--line);
+  border-radius: 14px;
+  overflow: hidden;
+}
 
 /* Shared voxel treatment for the studio shell. */
 .admin .side,

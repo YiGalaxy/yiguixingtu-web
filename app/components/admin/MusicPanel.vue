@@ -496,7 +496,7 @@ onMounted(load)
    不会把行高撑起来（表格里最怕行高参差不齐） */
 .mp-thumb-img {
   width: 44px; height: 44px; object-fit: cover; border-radius: 8px; display: block;
-  border: 1px solid rgba(150,190,240,.18); background: #0d1b38;
+  border: 1px solid var(--line); background: var(--surface-2);
 }
 /* 没有封面时的占位符：弱化色，和"这一格有图"在观感上区分开 */
 .mp-thumb-none { color: var(--muted); }
@@ -511,7 +511,7 @@ onMounted(load)
 .cover-field { flex: 1; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .cover-preview {
   height: 64px; width: 96px; object-fit: cover; border-radius: 8px;
-  border: 1px solid rgba(150,190,240,.18); background: #0d1b38;
+  border: 1px solid var(--line); background: var(--surface-2);
 }
 .cover-input { flex: 1 1 200px; min-width: 0; }
 .cover-btns { display: flex; align-items: center; gap: 8px; }

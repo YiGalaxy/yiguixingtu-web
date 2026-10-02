@@ -79,7 +79,7 @@
           <el-button v-if="form.avatar" plain @click="form.avatar = ''">移除</el-button>
         </div>
         <span class="af-hint">
-          支持 {{ ALLOWED_EXTENSIONS.join(' / ') }}，单张不超过 {{ MAX_SIZE_TEXT }}；也可以直接粘贴图片地址
+          支持 {{ ALLOWED_EXTENSIONS.join(' / ') }}，单张不超过 {{ MAX_SIZE_TEXT }}；首页个人卡片也会使用这张头像
         </span>
       </div>
     </div>
@@ -336,6 +336,8 @@ const save = async () => {
     notice.value = '已保存。'
     noticeKind.value = 'ok'
     ElMessage.success('已保存')
+    // Keep the shell avatar in sync after this save.
+    refreshNuxtData('site-profile')
     // keepNotice: true —— 否则这次重读会把刚写下的「已保存。」立刻清掉
     // （用户点完保存什么都没看到，与"点了没反应"长得一模一样）
     load({ keepNotice: true })
@@ -384,7 +386,7 @@ onMounted(load)
    （与前台关于页显示头像的尺寸相近，所见即所得） */
 .cover-preview {
   height: 72px; width: 72px; object-fit: cover; border-radius: 12px;
-  border: 1px solid rgba(150,190,240,.18); background: #0d1b38;
+  border: 1px solid var(--line); background: var(--surface-2);
 }
 /* 手填地址的输入框：吃掉剩下的宽度，但有个下限（窄屏时整体换行）。
    min-width: 0 是 flex 子项能被压窄的前提（默认 min-width:auto 会让长地址撑破这一行）。 */

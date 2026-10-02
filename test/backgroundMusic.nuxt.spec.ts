@@ -145,21 +145,14 @@ describe('背景音乐 · 共享状态', () => {
     expect(footerBtn().text()).toContain('播放背景音乐')
   })
 
-  it('开关背景音乐_should【不】去动背景视频的静音（原来的实现在这里做错了）', async () => {
+  it('开关背景音乐_should更新共享播放状态', async () => {
     const shell = await mountShell()
     const home = await mountSuspended(IndexPage, { global: { stubs: { NuxtLink: true } } })
     await flushPromises()
 
-    const video = shell.find('video')
-    expect(video.exists()).toBe(true)
-    // 背景视频按设计一直是静音的（装饰性），所以它身上必须有 muted
-    expect(video.attributes('muted')).toBeDefined()
-
     await home.find('.mu-ctl .play').trigger('click')
     await flushPromises()
-    // 开了音乐之后，视频**仍然**是静音的：
-    // 老实现会把它取消静音（让视频音轨盖在音乐上），这正是这次修掉的
-    expect(video.attributes('muted')).toBeDefined()
+    expect(shell.find('.music-toggle').text()).toContain('关闭背景音乐')
   })
 })
 

@@ -38,7 +38,7 @@ v-for="t in articleTags" :key="t.id" class="doc-tag"
           <img v-if="article.cover" class="doc-cover" :src="article.cover" :alt="article.title" >
         </header>
 
-        <MdPreview :model-value="article.content || ''" theme="dark" language="zh-CN" />
+        <MdPreview :model-value="article.content || ''" :theme="editorTheme" language="zh-CN" />
 
         <!-- Attachments follow the article body. -->
         <section v-if="attachments.length" class="doc-attach">
@@ -163,6 +163,8 @@ v-model="commentForm.content" class="cm-textarea"
 // 样式引 preview.css 而不是 style.css —— 详情页不需要编辑器样式。
 import { MdPreview } from 'md-editor-v3'
 import 'md-editor-v3/lib/preview.css'
+const { themeMode } = useThemeMode()
+const editorTheme = computed(() => (themeMode.value === 'day' ? 'light' : 'dark'))
 
 /*
  * 【安全关键】正文为什么用 MdPreview 渲染，而不是自己 v-html？
@@ -672,13 +674,14 @@ const fmtTime = (t) => (t ? String(t).replace('T', ' ').slice(0, 16) : '')
 
 /* ===== md-editor-v3 预览区暗色适配 =====
    和后台编辑器用同一套主题变量，保证文章在"后台预览"和"前台阅读"里长得一样。 */
-:deep(.md-editor-dark) {
+:deep(.md-editor-dark),
+:deep(.md-editor-light) {
   --md-bk-color: transparent;
-  --md-color: #dce7f8;
-  --md-border-color: rgba(150,190,240,.16);
-  --md-hover-color: #ffffff;
-  --md-scrollbar-bg-color: rgba(255,255,255,.04);
-  --md-scrollbar-thumb-color: rgba(150,190,240,.28);
+  --md-color: var(--ink);
+  --md-border-color: var(--line);
+  --md-hover-color: var(--accent);
+  --md-scrollbar-bg-color: transparent;
+  --md-scrollbar-thumb-color: var(--line);
 }
 /* 正文排版。
    【为什么正文是 16px / 1.9】站长反馈"详情页有点小"。正文是这一页的主角，
