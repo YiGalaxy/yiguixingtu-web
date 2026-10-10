@@ -1,6 +1,6 @@
 <template>
   <div class="art-page">
-    <div class="art-wrap">
+    <div class="art-wrap" :class="{ 'has-catalog': catalog?.length > 0 }">
 
       <!-- Back to article list. -->
       <a class="back" href="/" @click.prevent="goHome">← 返回首页</a>
@@ -38,7 +38,11 @@ v-for="t in articleTags" :key="t.id" class="doc-tag"
           <img v-if="article.cover" class="doc-cover" :src="article.cover" :alt="article.title" >
         </header>
 
-        <MdPreview :model-value="article.content || ''" :theme="editorTheme" language="zh-CN" />
+        <MdPreview
+          :key="article.id"
+          :model-value="article.content || ''" :theme="editorTheme" language="zh-CN"
+          :md-heading-id="headingId" @onGetCatalog="updateCatalog"
+        />
 
         <!-- Attachments follow the article body. -->
         <section v-if="attachments.length" class="doc-attach">
@@ -53,6 +57,8 @@ v-for="t in articleTags" :key="t.id" class="doc-tag"
           </ul>
         </section>
       </article>
+
+      <ArticleCatalog v-if="article && !pending" :headings="catalog" />
 
       <footer v-if="article" class="doc-foot">
         <span>── 完 ──</span>
@@ -251,6 +257,22 @@ const { data: commentRes, pending: commentsPending } = commentsAsync
 
 const article = computed(() => (res.value?.ok ? res.value.data : null))
 const errMsg = computed(() => res.value?.message || '它可能已被删除，或者还只是一篇没发布的草稿。')
+
+// 使用渲染器实际解析的标题，避免把代码块里的 # 误当作目录。
+// 序号从 1 开始，重复标题也有各自的锚点。
+const catalog = ref([])
+const headingId = ({ index }) => `article-${route.params.id}-heading-${index}`
+const updateCatalog = (headings) => {
+  catalog.value = headings.flatMap((heading, index) => (
+    heading.currentToken && heading.currentToken.level !== 0
+      ? []
+      : [{
+          id: headingId({ index: index + 1 }), text: heading.text,
+          level: Number(heading.currentToken?.tag?.slice(1)) || heading.level,
+        }]
+  ))
+}
+watch(() => route.params.id, () => { catalog.value = [] })
 
 /**
  * ================================================================
@@ -516,6 +538,10 @@ const fmtTime = (t) => (t ? String(t).replace('T', ' ').slice(0, 16) : '')
    ⚠️ 再宽就要开始伤可读性了（一行超过 ~45 个中文字，眼睛回行会找不准行）——
    所以这个数字不是越大越好，960 是"看起来大气"与"读起来不累"之间的取值。 */
 .art-wrap { max-width: 960px; margin: 0 auto; padding: 32px 24px 64px; }
+/* 宽屏给侧边悬浮目录留出位置，保持原来的正文宽度。 */
+@media (min-width: 1440px) {
+  .art-wrap.has-catalog { max-width: 1208px; padding-right: 272px; }
+}
 
 .back {
   display: inline-block; margin-bottom: 18px; color: var(--muted);
@@ -691,6 +717,8 @@ const fmtTime = (t) => (t ? String(t).replace('T', ' ').slice(0, 16) : '')
 :deep(.md-editor-preview h1),
 :deep(.md-editor-preview h2),
 :deep(.md-editor-preview h3) { color: var(--ink); }
+/* 全站 html 已有 76px 的滚动留白，再加 12px 让标题落在导航栏下方。 */
+:deep(.md-editor-preview :is(h1, h2, h3, h4, h5, h6)) { scroll-margin-top: 12px; }
 :deep(.md-editor-preview a) { color: var(--accent); }
 :deep(.md-editor-preview code) { color: #8be9fd; }
 :deep(.md-editor-preview blockquote) {
