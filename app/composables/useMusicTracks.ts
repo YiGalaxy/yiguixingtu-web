@@ -36,22 +36,12 @@ export const useMusicTracks = () => {
     // （见 test/musicTracks.spec.ts），而不用挂载页面。
     return res.ok ? resolveMusicTracks(res.data) : resolveMusicTracks(null)
   }, {
-    /**
-     * 【这段和 useCategoryList 里那段是同一个坑、同一个修法，不是抄的】
-     * 外壳（app.vue）与页面（pages/music.vue、pages/index.vue）各调一次这个组合式函数。
-     * Nuxt 默认的 getCachedData 在**服务端**只认 `nuxtApp.static.data`（预渲染载荷），
-     * 不认 `payload.data`（本次请求里已经取到的数据）—— 而外壳的 onServerPrefetch
-     * 会在子页面渲染**之前**就把数据拿完，于是页面那次调用既赶不上"请求在飞"、
-     * 也读不到缓存，结果就是每次打开音乐页都打两次 `GET /music/list`。
-     * 做法：**只在服务端**复用"本次请求里已经取到的数据"（payload 每趟请求都是新的，
-     * 不会跨请求变旧）；客户端保持 Nuxt 原本的行为（再进这一页会重新取一次，
-     * 免得"后台改了歌、整个会话里都是旧的、只有刷新才生效"）。
-     * `refresh:manual` / `refresh:hook` 两种 cause 一律不走缓存 —— 否则 refresh() 会拿到旧值。
-     */
+    // Reuse data within an SSR request and during hydration; refreshes fetch anew.
     getCachedData: (key, nuxtApp, ctx) => {
       if (ctx?.cause === 'refresh:manual' || ctx?.cause === 'refresh:hook') return undefined
-      if (import.meta.server) return nuxtApp.payload.data[key] ?? nuxtApp.static.data[key]
-      return nuxtApp.static.data[key]
+      // Hydration must reuse SSR data; later page mounts fetch the current list.
+      if (import.meta.client && !nuxtApp.isHydrating) return undefined
+      return nuxtApp.payload.data[key] ?? nuxtApp.static.data[key]
     },
   })
 
