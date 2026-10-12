@@ -40,7 +40,7 @@ const REAL_STATS = { articleCount: 2, viewCount: 28, categoryCount: 3 }
  * 后者用来模拟"请求层内部直接抛异常"这种最坏情况。
  */
 const mockBackend = (overrides = {}) => {
-  fetchMock.mockImplementation((url) => {
+  fetchMock.mockImplementation((url, options) => {
     const path = pathOf(url)
     const override = overrides[path]
     if (typeof override === 'function') return Promise.resolve(override())
@@ -49,7 +49,13 @@ const mockBackend = (overrides = {}) => {
     if (path === '/auth/me') return Promise.resolve(body({ id: 1, username: 'admin', role: 'ADMIN' }))
     if (path === '/user/page') return Promise.resolve(body({ records: [], total: 7 }))
     if (path === '/category/list') return Promise.resolve(body([{ id: 1, name: '技术' }]))
-    if (path === '/admin/article/page') return Promise.resolve(body({ records: [], total: 0 }))
+    if (path === '/admin/article/page') {
+      const recent = options?.params?.size === 5
+      return Promise.resolve(body({
+        records: recent ? [{ id: 8, title: 'Recent article', status: 1, createTime: '2026-10-12T10:00:00' }] : [],
+        total: recent ? 1 : 0,
+      }))
+    }
     return Promise.resolve(body(null))
   })
 }
@@ -120,6 +126,28 @@ describe('后台 · 概览数字', () => {
     await gotoOverview(wrapper)
 
     expect(callCount('/article/stats')).toBe(2)
+  })
+
+  it('概览最近文章_should独立于文章管理筛选列表加载', async () => {
+    const wrapper = await mountSuspended(AdminPage)
+    await flushPromises()
+    await gotoOverview(wrapper)
+
+    const recentCall = fetchMock.mock.calls.find(([url, options]) =>
+      pathOf(url) === '/admin/article/page' && options?.params?.size === 5,
+    )
+    expect(recentCall[1].params).toEqual({ page: 1, size: 5, sortField: 'createTime', sortOrder: 'desc' })
+    expect(wrapper.text()).toContain('Recent article')
+
+    await wrapper.findAll('.side-nav a')[1].trigger('click')
+    await flushPromises()
+    await wrapper.find('.toolbar input').setValue('filtered query')
+    await wrapper.find('.toolbar .el-button--primary').trigger('click')
+    await flushPromises()
+    await gotoOverview(wrapper)
+
+    expect(wrapper.text()).toContain('Recent article')
+    expect(recentCall[1].params).not.toHaveProperty('keyword')
   })
 
   // ---------------------------------------------------------------

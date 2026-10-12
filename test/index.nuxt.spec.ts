@@ -74,9 +74,12 @@ const SITE_STATS = { articleCount: 2, viewCount: 28, categoryCount: 3 }
 
 /** 默认的假后端：按接口名分发，并支持单独覆盖某一个接口的返回 */
 const mockBackend = (overrides = {}) => {
-  fetchMock.mockImplementation((url) => {
+  fetchMock.mockImplementation((url, options) => {
     const path = pathOf(url)
-    if (path in overrides) return Promise.resolve(overrides[path])
+    if (path in overrides) {
+      const value = overrides[path]
+      return Promise.resolve(typeof value === 'function' ? value(options) : value)
+    }
     if (path === '/category/list') return Promise.resolve(body(CATEGORIES))
     if (path === '/tag/list') return Promise.resolve(body(TAGS))
     if (path === '/article/stats') return Promise.resolve(body(SITE_STATS))
@@ -246,6 +249,88 @@ describe('首页 · 搜索与分类筛选', () => {
     // 换了筛选条件还停在第 3 页的话，后端那份数据根本不存在，用户只会看到空列表
     expect(lastArticleParams().page).toBe(1)
     expect(lastArticleParams().categoryId).toBe(1)
+  })
+
+  it('加载更多失败后再次点击应重试同一页', async () => {
+    mockBackend()
+    const baseFetch = fetchMock.getMockImplementation()
+    let secondPageAttempts = 0
+    fetchMock.mockImplementation((url, options) => {
+      if (pathOf(url) !== '/article/page' || options?.params?.page !== 2) {
+        return baseFetch(url, options)
+      }
+      secondPageAttempts += 1
+      if (secondPageAttempts === 1) {
+        return Promise.resolve({ code: 500, message: '暂时失败', data: null })
+      }
+      return Promise.resolve(body({
+        records: [{ id: 13, title: '第三篇', categoryName: '技术', tags: [] }],
+        total: 6,
+      }))
+    })
+    const wrapper = await mountSuspended(IndexPage)
+    await settleRoute()
+
+    await wrapper.find('.more-btn').trigger('click')
+    await flushPromises()
+    expect(wrapper.findAll('.af')).toHaveLength(2)
+
+    await wrapper.find('.more-btn').trigger('click')
+    await flushPromises()
+    expect(wrapper.findAll('.af')).toHaveLength(3)
+    expect(secondPageAttempts).toBe(2)
+  })
+
+  it('加载更多进行中_should忽略重复点击', async () => {
+    let release
+    let pageTwoCalls = 0
+    mockBackend({
+      '/article/page': (options) => {
+        if (options?.params?.page === 2) {
+          pageTwoCalls += 1
+          return new Promise(resolve => { release = resolve })
+        }
+        return body({ records: ARTICLES, total: 6 })
+      },
+    })
+
+    const wrapper = await mountSuspended(IndexPage)
+    await settleRoute()
+    const button = wrapper.find('.more-btn')
+    await Promise.all([button.trigger('click'), button.trigger('click')])
+
+    expect(pageTwoCalls).toBe(1)
+    release(body({ records: [{ id: 13, title: '第三篇', categoryName: '技术', tags: [] }], total: 6 }))
+    await flushPromises()
+  })
+
+  it('筛选切换后_should丢弃尚未返回的旧分页结果', async () => {
+    let releaseOldPage
+    mockBackend({
+      '/article/page': (options) => {
+        const params = options?.params || {}
+        if (params.page === 2 && params.categoryId === undefined) {
+          return new Promise(resolve => { releaseOldPage = resolve })
+        }
+        if (params.categoryId === 1) {
+          return body({ records: [{ id: 21, title: '筛选后的文章', categoryName: '技术', tags: [] }], total: 1 })
+        }
+        return body({ records: ARTICLES, total: 6 })
+      },
+    })
+
+    const wrapper = await mountSuspended(IndexPage)
+    await settleRoute()
+    await wrapper.find('.more-btn').trigger('click')
+    expect(releaseOldPage).toBeTypeOf('function')
+
+    await wrapper.findAll('.cat')[1].trigger('click')
+    await settleRoute()
+    releaseOldPage(body({ records: [{ id: 99, title: '旧筛选结果', categoryName: '技术', tags: [] }], total: 6 }))
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('筛选后的文章')
+    expect(wrapper.text()).not.toContain('旧筛选结果')
   })
 
   // ---------------------------------------------------------------

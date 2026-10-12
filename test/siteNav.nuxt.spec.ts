@@ -30,6 +30,7 @@ beforeEach(() => {
 
 const mountShell = async () => {
   const wrapper = await mountSuspended(AppShell, {
+    route: '/',
     global: { stubs: { NuxtPage: true, NuxtRouteAnnouncer: true } },
   })
   await flushPromises()
@@ -89,6 +90,18 @@ describe('窄屏导航', () => {
     await panelLinks(wrapper).find(a => a.text() === '文章').trigger('click')
     await flushPromises()
     expect(isPanelHidden(wrapper)).toBe(true)
+  })
+
+  it('其他入口切换路由时也会收起面板', async () => {
+    const wrapper = await mountShell()
+    await burgerBtn(wrapper).trigger('click')
+    expect(isPanelHidden(wrapper)).toBe(false)
+
+    await wrapper.vm.$router.push('/?from=menu')
+    await flushPromises()
+
+    expect(isPanelHidden(wrapper)).toBe(true)
+    expect(document.body.style.overflow).toBe('')
   })
 
   it('展开时锁定滚动，收起和卸载时恢复', async () => {

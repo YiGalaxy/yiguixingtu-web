@@ -296,18 +296,17 @@ watch(() => route.params.id, () => { catalog.value = [] })
 const viewCountOverride = ref(null)
 const viewCount = computed(() => viewCountOverride.value ?? article.value?.viewCount ?? 0)
 
-onMounted(async () => {
-  // 只有真的拿到文章才上报：草稿和已删除的文章这里 article 是 null，
-  // 后端那边也会抛 404 —— 不该为一次不存在的访问计数
-  // （后端的顺序也是"先校验可见性、再计数"，两边一致）
-  if (!article.value) return
+watch(() => route.params.id, () => { viewCountOverride.value = null })
 
-  const res = await request(`/article/${route.params.id}/view`, { method: 'POST' })
-  if (res.ok && typeof res.data === 'number') {
-    // 上报失败就保持原样显示（少算这一次浏览），不打扰用户 ——
-    // 浏览量是锦上添花的数据，不该因为它让页面报错
-    viewCountOverride.value = res.data
-  }
+onMounted(() => {
+  watch([() => route.params.id, () => article.value?.id], async ([routeId, articleId]) => {
+    // Wait for the matching article when the same page instance handles another id.
+    if (!articleId || String(articleId) !== String(routeId)) return
+    const res = await request(`/article/${routeId}/view`, { method: 'POST' })
+    if (String(route.params.id) === String(routeId) && res.ok && typeof res.data === 'number') {
+      viewCountOverride.value = res.data
+    }
+  }, { immediate: true })
 })
 
 /**
@@ -338,6 +337,7 @@ const commentTotal = computed(() => firstCommentPage.value.total)
 /** 「加载更多」追加进来的评论（公开列表是【时间正序】，所以下一页追加在后面是对的） */
 const moreComments = ref([])
 const commentsLoadingMore = ref(false)
+const nextCommentPage = ref(2)
 
 /** 页面上要显示的评论 = 第一页 + 追加的 */
 const allComments = computed(() => [...firstCommentPage.value.records, ...moreComments.value])
@@ -351,18 +351,15 @@ const hasMoreComments = computed(() => allComments.value.length < commentTotal.v
  * 服务端只渲染第一页，也不需要进 payload —— 追加语义用一次普通请求最直白。
  */
 const loadMoreComments = async () => {
+  if (commentsLoadingMore.value) return
+  const articleId = String(route.params.id)
+  const page = nextCommentPage.value
   commentsLoadingMore.value = true
-  // 【下一页是第几页】已经加载的条数 ÷ 每页条数，向上取整 = "已经取了几页"，
-  // 再 +1 就是下一页。
-  // 【为什么不能写成 floor(len / size) + 1】第一页只有 2 条（页大小是 10）时，
-  // floor(2/10)+1 = 1 —— 又把第 1 页拉了一遍，于是同两条评论在页面上出现两遍。
-  // 这个 bug 只在"某一页不满一整页"时才出现，而最后一页永远不满一整页。
-  // 【为什么要 max(1, ...)】万一第一页返回 0 条（后端异常）而 total 又是正的，
-  // ceil(0/10) 是 0，不兜一下就会重复请求第 1 页。
-  const nextPage = Math.max(1, Math.ceil(allComments.value.length / COMMENT_PAGE_SIZE)) + 1
-  const res = await requestComments(nextPage)
+  const res = await requestComments(page)
+  if (String(route.params.id) !== articleId) return
   commentsLoadingMore.value = false
   if (!res.ok) return
+  nextCommentPage.value = page + 1
   moreComments.value = [...moreComments.value, ...normalizeCommentPage(res).records]
 }
 
@@ -377,6 +374,18 @@ const commentPublished = ref(false)
 const commentSubmitting = ref(false)
 /** 本次会话里提交成功的评论（都是待审核状态，单独显示，不混进公开列表） */
 const myPending = ref([])
+
+watch(() => route.params.id, () => {
+  moreComments.value = []
+  nextCommentPage.value = 2
+  commentsLoadingMore.value = false
+  myPending.value = []
+  commentError.value = ''
+  commentDone.value = false
+  commentPublished.value = false
+  commentSubmitting.value = false
+  commentForm.content = ''
+})
 
 // ---------- 登录态：决定昵称从哪来（与后端同一套规则） ----------
 /**
@@ -419,12 +428,14 @@ const submitComment = async () => {
   // 评论接口有 20 次/分钟的限流，多打一次就少一次配额。
   if (commentSubmitting.value) return
   commentSubmitting.value = true
+  const articleId = String(route.params.id)
 
   const res = await request('/comment', {
     method: 'POST',
     body: normalizeCommentForm(commentForm, route.params.id),
   })
 
+  if (String(route.params.id) !== articleId) return
   commentSubmitting.value = false
 
   if (res.ok) {

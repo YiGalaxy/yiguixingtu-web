@@ -134,4 +134,37 @@ describe('详情页的浏览上报', () => {
     expect(wrapper.text()).toContain('7 次浏览')
     expect(wrapper.text()).toContain('一篇会被浏览的文章')
   })
+
+  it('同一页面切换文章时，应为新文章上报并显示它的最新浏览量', async () => {
+    mockBackend({
+      '/article/12/view': body(8),
+      '/article/13': body({ ...ARTICLE, id: 13, title: '第二篇文章', viewCount: 20 }),
+      '/article/13/view': body(21),
+    })
+
+    const wrapper = await mountArticle()
+    await wrapper.vm.$router.push('/article/13')
+    await flushPromises()
+
+    expect(callTo('POST', '/article/12/view')).toBeTruthy()
+    expect(callTo('POST', '/article/13/view')).toBeTruthy()
+    expect(wrapper.text()).toContain('第二篇文章')
+    expect(wrapper.text()).toContain('21 次浏览')
+  })
+
+  it('切换文章后上报失败时，应回退到新文章的浏览量快照', async () => {
+    mockBackend({
+      '/article/12/view': body(8),
+      '/article/13': body({ ...ARTICLE, id: 13, title: '第二篇文章', viewCount: 20 }),
+      '/article/13/view': { code: 500, message: '服务器开小差了', data: null },
+    })
+
+    const wrapper = await mountArticle()
+    expect(wrapper.text()).toContain('8 次浏览')
+    await wrapper.vm.$router.push('/article/13')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('20 次浏览')
+    expect(wrapper.text()).not.toContain('8 次浏览')
+  })
 })

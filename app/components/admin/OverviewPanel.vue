@@ -145,7 +145,7 @@ defineProps({
   /** 用户数是单独一次 page=1&size=1 查询的 total，不复用用户表格的 total */
   userCount: { type: Number, default: 0 },
   userCountFailed: { type: Boolean, default: false },
-  /** 父页面那份文章列表（最近文章取前 5 篇） */
+  /** 概览独立加载的最近文章 */
   articles: { type: Array, default: () => [] },
 })
 

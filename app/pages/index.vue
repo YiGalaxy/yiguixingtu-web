@@ -279,7 +279,7 @@ const { currentTrack } = useMusicTracks()
 
 /**
  * 外壳注入下来的播放器接口（只用到里面的封面地址）。
- * 【注入键 'bgMusicPlayer' 与 app/app.vue 里 provide 的字符串必须一致】
+ * 【注入键 'bgMusicPlayer' 与 useGlobalMusicPlayer.ts 里 provide 的字符串必须一致】
  * 这张卡片只需要封面：真正的播放动作由外壳照着 `enabled` 执行，
  * 秒数/时长/音量是音乐页才要的东西。
  * 【为什么允许为空】组件单测里（没有外壳）注入是空的，那时就用回落图。
@@ -311,31 +311,6 @@ const coverSrc = computed(() => id3CoverUrl.value || fallbackCoverSrc.value)
 // 第二首明明有封面也永远显示占位图案，而且不报任何错
 watch(coverSrc, () => { coverBroken.value = false })
 
-// ================================================================
-//  文章列表：从后端真实拉取
-//
-//  【为什么第一页要 useAsyncData，而不是 onMounted + ref（这次改的就是这里）】
-//   onMounted 只在浏览器里跑，所以服务端返回的 HTML 里【没有文章列表】：
-//   · 搜索引擎抓到的首页是一张空壳，文章等于没被收录 ——
-//     对一个"要被搜到"的博客来说这是硬伤
-//   · 首屏会先闪一下"加载中"再出内容
-//   useAsyncData 会在服务端【等数据回来再渲染】，并把结果写进 payload
-//   让浏览器端复用（不会重复请求），HTML 里直接带着文章列表。
-//
-//  【key 怎么定】key 是"这批数据是谁"的唯一标识，也是 payload 里的键：
-//   · 必须唯一：和站点统计、分类列表、标签列表各自的 key 不能撞（撞了会共用同一份缓存）
-//   · 必须带上筛选条件：固定写 'home-articles' 的话，
-//     "全部"与"分类 2"两个页面的数据会被当成同一份 —— 换了筛选条件却
-//     显示上一批文章。所以把 keyword / categoryId / tagId 三个条件都拼进 key，
-//     条件一变 key 就变，useAsyncData 会自动重新取（不用再写 watch）
-//   · 【标签尤其不能漏】分类和标签常常指向同一批文章，漏了 tagId 的表现是
-//     "标签 A"与"标签 B"共用同一份 payload 缓存：点了标签，地址栏变了、
-//     请求也该变，可列表还是上一批（而且不报任何错，最难查的一种）
-//
-//  【为什么"加载更多"不用 useAsyncData】它是在已有列表后面追加，
-//   不是"这一页的首屏数据"，也不需要写进 payload（服务端只渲染第一页）；
-//   用普通请求 + 一个 ref 追加更直白。
-// ================================================================
 const { request } = useApi()
 
 // 筛选条件（关键词 + 分类 + 标签）：状态、防抖、URL 同步全在 useArticleFilter 里，
@@ -349,8 +324,6 @@ const {
   keyword, keywordInput, categoryId, tagId,
   isFiltered, selectCategory, selectTag, clearAll, applyKeywordNow,
 } = useArticleFilter()
-
-const page = ref(1)
 
 // =====================================================================
 // 不依赖站点设置的那几份首屏数据 —— **必须先创建**，让它们立刻开始请求
@@ -485,90 +458,13 @@ onMounted(() => {
 })
 onBeforeUnmount(() => window.removeEventListener('resize', measureNotice))
 
-/**
- * ⚠️ 【为什么要在这里【等】站点设置到位，而不是"先发请求、到了再重发"】
- *
- *   每页条数是站点设置给的，而文章列表的请求要用它。不等的话会发生两件都不好的事：
- *     · 第一次请求会用归一化的默认值（12）发出去，等设置到位后 useAsyncData 的 key
- *       变了再发一次 —— 白打一个往返（首页本来就是最该省一次往返的页面）
- *     · 首屏会先按 12 条渲染、再跳成实际条数，用户能看见一次重排
- *   （第一版就是没等，被 `test/homeContent.nuxt.spec.ts` 里那条
- *     "请求列表时带上设置里的 size" 抓出来的：断言 20 却拿到 12。）
- *
- *   【代价说清楚】这一步让首屏多一个串行往返 —— 先拿设置、再拿文章。
- *   它是内部接口（SSR 直连后端容器），一次几毫秒；换来的是"只发一次请求、
- *   SEO 抓到的 HTML 里就是正确的条数"。为了保住其余几个请求的并行，
- *   下面把标签与统计两个 useAsyncData **放在这里之前**创建（它们不依赖设置）。
- *
- *   `await` 在服务端是"等这份数据到位再继续渲染"，在客户端数据已有、立即返回；
- *   而外壳已经取过同一份数据，所以这里不会多发一次 /setting。
- */
 await settingsReady
-
-/**
- * 每页文章条数：**由站点设置决定**（后台「设置」里可改，缺省 12）。
- * 【12 这个默认值为什么在前端】3 列瀑布流正好 4 行是**排版决策**，
- * 所以它属于这里（后端只在设置那一行缺失时返回 null，不重复写一份）。
- */
 const size = computed(() => settings.value.pageSize)
-
-/** 「加载更多」追加进来的文章（首屏那一页不在这里，见下面的 articles） */
-const moreArticles = ref([])
-const loadingMore = ref(false)
-
-/**
- * 拉文章列表。
- * @param pageNo 页码
- *
- * 这里请求的是【前台公开接口】/article/page —— 它只返回已发布的文章，
- * 所以你后台的草稿绝不会出现在首页上（这条在 ArticlePublicTest 里有测试守着）。
- *
- * 参数由 toArticleParams() 统一拼装：它保证「空关键词不发、没选分类不发、
- * 没选标签不发」，也就是后端 GET /article/page 里 keyword / categoryId / tagId
- * 三个都是可选参数，可以任意组合（后端按 AND 叠加）。
- */
-const requestArticles = (pageNo) => request('/article/page', {
-  params: toArticleParams({
-    keyword: keyword.value,
-    categoryId: categoryId.value,
-    tagId: tagId.value,
-    page: pageNo,
-    size: size.value,
-  }),
+const { articles, loading, hasMore, loadMore, ready: articlesReady } = useHomeArticleFeed({
+  keyword, categoryId, tagId, size,
 })
-
-// 首屏第一页：服务端取好、写进 payload（见上面那段说明）。
-// 几个请求互不依赖，所以先各自发起、再一起 await —— 串行 await 会让
-// 首屏多等几个往返（原来的 onMounted 写法就是并行的，这里不能退回去）。
-//
-// 【key 里为什么带上 size】每页条数是站点设置里的一项、后台随时可以改：
-// 它变了就该按新条数重新取。不带进 key 的话，后台把 12 改成 20 之后首页仍然
-// 拿着旧 key 的那一份数据（12 条），表现是"改了没生效"。
-const articlesAsync = useAsyncData(
-  () => `home-articles:${keyword.value || '-'}:${categoryId.value ?? '-'}:${tagId.value ?? '-'}:${size.value}`,
-  () => requestArticles(1),
-)
-
-// 等服务端把这几份数据都拿到（并行）再渲染页面
-await Promise.all([articlesAsync, categoriesAsync, tagsAsync, statsAsync])
-
-const { data: firstPage, pending: firstPending } = articlesAsync
+await Promise.all([articlesReady, categoriesAsync, tagsAsync, statsAsync])
 const tags = computed(() => tagsAsync.data.value ?? [])
-
-/** 首屏那一页的文章（useAsyncData 给的；接口失败时是空数组） */
-const firstPageArticles = computed(() => (firstPage.value?.ok ? (firstPage.value.data?.records ?? []) : []))
-
-/** 后端返回的【总条数】，不是当前页条数 */
-const total = computed(() => (firstPage.value?.ok ? Number(firstPage.value.data?.total) || 0 : 0))
-
-/** 页面上要显示的文章 = 首屏那一页 + 「加载更多」追加的 */
-const articles = computed(() => [...firstPageArticles.value, ...moreArticles.value])
-
-/**
- * 加载状态：首屏在取（服务端渲染时不会走到这里，客户端导航会），
- * 或者正在追加下一页 —— 「加载更多」按钮在加载期间要藏起来（原样保留这个行为）。
- */
-const loading = computed(() => firstPending.value || loadingMore.value)
 
 /**
  * 列表标题：让标题、空状态、清除按钮都跟着筛选条件走，
@@ -626,47 +522,6 @@ const statText = (count) => ((statsPending.value || statsFailed.value) ? '—' :
 const DEFAULT_COVERS = ['/cover-1.png', '/cover-2.png', '/cover-3.png']
 const coverOf = (a, i) => a.cover || DEFAULT_COVERS[i % DEFAULT_COVERS.length]
 
-// 还有没有下一页：已加载条数 < 总数 就说明还有
-const hasMore = computed(() => articles.value.length < total.value)
-
-// ---------- 筛选 / 分页 / 跳转 ----------
-// 筛选条件一变就【回到第 1 页】：
-// 否则会出现"第 3 页 + 新关键词"这种组合，而它在后端根本不存在，用户只会看到空列表。
-// 【为什么要清空 moreArticles】首屏那一页由 useAsyncData 按新条件重新取（key 变了），
-// 但"加载更多"追加进来的还是【旧筛选条件】下的文章 —— 不清掉就会出现
-// "新关键词的结果 + 老关键词的尾巴"这种混在一起的列表。
-// 【为什么这里不再手动发请求】重新取数的触发条件是 useAsyncData 的 key，
-// 而 key 就是由 keyword / categoryId / tagId 拼出来的 —— 条件一变它自己就会重新取，
-// 再多写一次请求就等于同一批数据打两次后端（/article/page 还有 300 次/分钟的限流）。
-// 这个 watch 同时也接住了浏览器的前进/后退 —— 那种情况下 useArticleFilter
-// 会把地址栏的参数写回状态，于是这里照样会清一次。
-watch([keyword, categoryId, tagId], () => {
-  page.value = 1
-  moreArticles.value = []
-})
-
-/**
- * 加载更多：把下一页追加到列表末尾。
- * 【为什么用普通请求而不是 useAsyncData】它不属于"这一页的首屏数据"，
- * 服务端只渲染第一页，也不需要进 payload；追加语义用一次普通请求最直白。
- */
-const loadMore = async () => {
-  // 【页码必须等请求成功之后再推进 —— 这是正确性问题，不是风格问题】
-  //   原来写的是 `page.value += 1` 打头，失败时直接 return、页码不回退。
-  //   于是失败之后用户再点一次，"下一页"就从 2 跳成了 3 ——
-  //   第 2 页那 12 篇文章【永远不会出现】，而按钮还在
-  //   （hasMore 是按"已加载条数 < 总数"算的，所以它照样显示），
-  //   也没有任何提示留下（useApi 的 toast 三秒就消失了）。
-  //   改成"先算下一页 → 成功了再提交页码"：失败时页码原地不动，重试就是重试。
-  const next = page.value + 1
-  loadingMore.value = true
-  const res = await requestArticles(next)
-  loadingMore.value = false
-  if (!res.ok) return
-  page.value = next
-  moreArticles.value = [...moreArticles.value, ...(res.data?.records ?? [])]
-}
-
 // 时间只显示到"天"，卡片上不需要精确到秒
 const fmtDate = (t) => (t ? String(t).replace('T', ' ').slice(0, 10) : '')
 
@@ -708,11 +563,11 @@ onBeforeUnmount(() => {
 //  同一批文章的筛选视图），告诉搜索引擎"我的正式地址只有 /"才不会
 //  被当成两个页面分别收录（重复内容）。分类页同理。
 //
-//  【标题为什么不传】传空就用站点默认标题（亿轨星途 · 那句自我介绍），
-//  这正是首页想要的 —— 默认值只在一处维护（app/utils/seo.ts）。
+//  首页标题说明目前的主要内容，便于搜索引擎与读者识别 Java 学习笔记。
 // ================================================================
 useSeoMetaFor(() => ({
   path: '/',
+  title: 'Java 编程学习笔记与技术实践',
   description: SITE_DESCRIPTION,
   type: 'website',
 }))

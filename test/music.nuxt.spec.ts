@@ -32,7 +32,7 @@ import { builtinTrack } from '~/utils/musicTracks'
 //
 // 【怎么把"外壳 + 页面"一起挂上】`mountSuspended(AppShell, { stubs: { NuxtPage: MusicPage } })`
 //   —— 用真实的音乐页替掉 NuxtPage 这个桩。这一步很关键：只有挂在**同一个组件树**里，
-//   `app.vue` 的 `provide('bgMusicPlayer', ...)` 与音乐页的 `inject` 才真的连上，
+//   `useGlobalMusicPlayer` 的 `provide('bgMusicPlayer', ...)` 与音乐页的 `inject` 才真的连上，
 //   断言"点歌词 → 外壳那个 audio 的 currentTime 变了"才不是自欺欺人
 //   （如果两边各挂各的、再自己造一个假的播放器对象，那测的就是"假播放器"，不是这条链路）。
 //

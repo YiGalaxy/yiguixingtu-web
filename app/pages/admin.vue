@@ -25,7 +25,7 @@
         :stats-failed="statsFailed"
         :user-count="userCount"
         :user-count-failed="userCountFailed"
-        :articles="articles" />
+        :articles="overviewArticles" />
 
       <AdminArticlesPanel
         v-else-if="cur === 'articles'"
@@ -132,8 +132,22 @@ const fetchUserCount = async () => {
   }
 }
 
-/** Load overview data in parallel on entry and when returning to the overview. */
-const loadOverview = () => Promise.all([loadSiteStats(), fetchUserCount()])
+const overviewArticles = ref([])
+
+const fetchOverviewArticles = async () => {
+  const res = await request('/admin/article/page', {
+    params: { page: 1, size: 5, sortField: 'createTime', sortOrder: 'desc' },
+  })
+  if (res.ok && res.data) {
+    overviewArticles.value = Array.isArray(res.data.records) ? res.data.records : []
+  }
+}
+
+const loadOverview = () => Promise.all([
+  loadSiteStats(),
+  fetchUserCount(),
+  fetchOverviewArticles(),
+])
 
 const articles = ref([])
 const artTotal = ref(0)

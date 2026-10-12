@@ -247,11 +247,11 @@ describe('SEO · 首页真的接到了 head 上', () => {
     await mountSuspended(IndexPage)
     await settleHead()
 
-    expect(document.title).toBe(SITE_TITLE)
+    expect(document.title).toBe('Java 编程学习笔记与技术实践 · 亿轨星途')
     expect(headContent('meta[name="description"]')).toBe(SITE_DESCRIPTION)
     expect(document.head.querySelector('link[rel="canonical"]')?.getAttribute('href'))
       .toBe('https://www.yigalaxy.xin/')
-    expect(ogOf('og:title')).toBe(SITE_TITLE)
+    expect(ogOf('og:title')).toBe('Java 编程学习笔记与技术实践 · 亿轨星途')
     expect(ogOf('og:description')).toBe(SITE_DESCRIPTION)
     expect(ogOf('og:type')).toBe('website')
     expect(ogOf('og:url')).toBe('https://www.yigalaxy.xin/')

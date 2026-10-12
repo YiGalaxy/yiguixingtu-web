@@ -22,8 +22,8 @@ describe('后台与登录框的日夜主题', () => {
   })
 
   it('登录框输入底色使用主题变量', () => {
-    const app = read('app/app.vue')
-    expect(app).toContain('background: var(--surface-2) !important')
-    expect(app).not.toContain('background: #0d1b38 !important')
+    const css = read('app/assets/css/site-shell.css')
+    expect(css).toContain('background: var(--surface-2) !important')
+    expect(css).not.toContain('background: #0d1b38 !important')
   })
 })

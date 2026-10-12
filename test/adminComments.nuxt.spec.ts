@@ -263,6 +263,63 @@ describe('后台 · 评论管理', () => {
     expect(rows(wrapper)[0].text()).toContain('老读者')
   })
 
+  it('旧筛选请求后返回_should保留最新筛选的列表和待审核数量', async () => {
+    const wrapper = await mountSuspended(AdminPage)
+    await flushPromises()
+    await gotoComments(wrapper)
+
+    let resolveOld
+    mockBackend({
+      '/admin/comment/page': (options) => {
+        if (options?.params?.size === 1) return body({ records: [], total: 1 })
+        if (options?.params?.status === 1) return body({ records: [APPROVED], total: 1 })
+        return new Promise(resolve => { resolveOld = resolve })
+      },
+    })
+
+    await wrapper.findAll('.toolbar .el-button').find(button => button.text() === '刷新').trigger('click')
+    expect(resolveOld).toBeTypeOf('function')
+    await pickStatus(wrapper, '已通过')
+    expect(rows(wrapper)[0].text()).toContain('老读者')
+
+    resolveOld(body({ records: [PENDING], total: 99 }))
+    await flushPromises()
+
+    expect(rows(wrapper)[0].text()).toContain('老读者')
+    expect(wrapper.find('.top p').text()).toContain('待审核 1 条')
+  })
+
+  it('旧分页请求后返回_should保留当前页的记录', async () => {
+    mockBackend({
+      '/admin/comment/page': (options) => body({
+        records: options?.params?.size === 1 ? [] : [PENDING], total: 20,
+      }),
+    })
+    const wrapper = await mountSuspended(AdminPage)
+    await flushPromises()
+    await gotoComments(wrapper)
+
+    let resolveOld
+    mockBackend({
+      '/admin/comment/page': (options) => {
+        if (options?.params?.size === 1) return body({ records: [], total: 20 })
+        if (options?.params?.page === 2) return body({ records: [{ ...PENDING, id: 20, nickname: '第二页读者' }], total: 20 })
+        return new Promise(resolve => { resolveOld = resolve })
+      },
+    })
+
+    await wrapper.findAll('.toolbar .el-button').find(button => button.text() === '刷新').trigger('click')
+    expect(resolveOld).toBeTypeOf('function')
+    await wrapper.find('.pager .btn-next').trigger('click')
+    await flushPromises()
+    expect(lastPageParams().page).toBe(2)
+    expect(rows(wrapper)[0].text()).toContain('第二页读者')
+
+    resolveOld(body({ records: [PENDING], total: 20 }))
+    await flushPromises()
+    expect(rows(wrapper)[0].text()).toContain('第二页读者')
+  })
+
   it('选「全部」_should【不发 status 参数】（发一个哨兵值会让后端去比不存在的状态）', async () => {
     const wrapper = await mountSuspended(AdminPage)
     await flushPromises()

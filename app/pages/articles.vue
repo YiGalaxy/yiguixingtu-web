@@ -4,7 +4,7 @@
       <div>
         <p class="eyebrow">ARTICLE ARCHIVE</p>
         <h1>文章图鉴</h1>
-        <p class="hero-copy">在像素世界里，按关键词、分类和标签寻找你的下一篇故事。</p>
+        <p class="hero-copy">阅读 Java 编程学习笔记与技术实践，按关键词、分类和标签寻找文章。</p>
       </div>
       <div class="hero-count" aria-label="文章总数">
         <strong>{{ total }}</strong>
@@ -132,7 +132,7 @@ const DEFAULT_COVERS = ['/cover-1.png', '/cover-2.png', '/cover-3.png']
 const coverOf = (article, index) => article.cover || DEFAULT_COVERS[index % DEFAULT_COVERS.length]
 const formatDate = value => value ? String(value).replace('T', ' ').slice(0, 10) : '未记录日期'
 
-useSeoMetaFor(() => ({ path: '/articles', title: '文章图鉴', description: '浏览亿轨星途全部已发布文章，按关键词、分类和标签筛选。', type: 'website' }))
+useSeoMetaFor(() => ({ path: '/articles', title: '文章图鉴 · Java 编程学习笔记', description: '浏览亿轨星途的 Java 编程系列与技术文章，涵盖基础语法、面向对象、集合、多线程、IO 与网络编程，支持按关键词、分类和标签筛选。', type: 'website' }))
 </script>
 
 <style scoped>

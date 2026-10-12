@@ -23,7 +23,7 @@
 // 【判定规则（关键是"作用域"）】
 //   一个类对某个组件"有定义"，只有两种情况：
 //     ① 定义在【该文件自己的】<style> 里（scoped 或非 scoped 都行）
-//     ② 定义在【全局】<style> 里（本项目里是 app.vue 与 admin.vue 的非 scoped 块）
+//     ② 定义在【全局】CSS 或非 scoped <style> 里
 //   特别注意 ② 里允许"带前缀的选择器"（例如 admin.vue 写的是 `.admin .panel`）：
 //   那确实能给后台面板里的 .panel 生效，所以算"有定义"。
 //   而【别的组件的 scoped 块】不算 —— 那正是归档页那个 bug 的成因。
@@ -88,6 +88,10 @@ const read = (rel) => readFileSync(join(ROOT, rel), 'utf8')
 const collectGlobalClasses = (files) => {
   const set = new Set()
   for (const rel of files) {
+    if (rel.endsWith('.css')) {
+      for (const c of classNamesInCss(read(rel))) set.add(c)
+      continue
+    }
     for (const block of extractStyleBlocks(read(rel))) {
       if (block.scoped) continue
       for (const c of classNamesInCss(block.css)) set.add(c)
@@ -107,8 +111,8 @@ const walkVue = (dir) => {
   return out
 }
 
-/** 本项目的全局样式就放在这两个文件的非 scoped 块里 */
-const GLOBAL_STYLE_FILES = ['app/app.vue', 'app/pages/admin.vue']
+/** Nuxt 全局 CSS 与后台页的非 scoped 样式。 */
+const GLOBAL_STYLE_FILES = ['app/assets/css/site-shell.css', 'app/pages/admin.vue']
 const GLOBAL_CLASSES = collectGlobalClasses(GLOBAL_STYLE_FILES)
 const COMPONENT_FILES = [...walkVue('app/pages'), ...walkVue('app/components')].sort()
 

@@ -41,9 +41,6 @@ export const FIELD_PLACEHOLDER = '—'
  */
 export const UNGROUPED_LABEL = '未分组'
 
-/** 未分组分组在 v-for 里用的 key（不能与真实分组名撞：用一对不可能出现在名字里的尖括号） */
-const UNGROUPED_KEY = '\u0000ungrouped'
-
 /**
  * 把后端返回的字符串收成"可以显示的文字"（去首尾空格；非字符串一律当空）。
  *
@@ -147,40 +144,19 @@ export const splitTech = (value) =>
     .map(item => item.trim())
     .filter(Boolean)
 
-/**
- * 把收藏列表按 `category` 分组。
- *
- * 【为什么分组在前端做（后端不做 GROUP BY）】后端 FavoriteMapper 的注释写明了理由：
- *   分组名是自由文本，SQL 的 GROUP BY 与前端分组会在"首尾空格 / 大小写"上不一致。
- *   后端因此一次返回全部（带 category），由前端分组 —— 这也是这个函数的由来。
- *
- * 【为什么【一次都不重排】】
- *   后端的顺序就是契约（`ORDER BY sort ASC, id ASC`，见 FavoriteServiceImpl.query）。
- *   这里要是顺手 sort 一遍（哪怕按分组名排），哪天后端改成别的规则就会被我盖掉 ——
- *   页面上看不出任何异常，只是顺序不对，没人会当成 bug 报上来。
- *   所以：分组本身按"在列表里第一次出现的顺序"排列，组内保持后端给的顺序。
- *
- * 【为什么空分组名要保留而不是丢弃】见 UNGROUPED_LABEL 的注释。
- *
- * @param {Array} list 后端给的收藏数组（顺序即展示顺序）
- * @returns {Array<{key: string, label: string, items: Array}>} 分组数组，永远是数组
- */
+/** Group by trimmed category, preserving item and first-seen group order. */
 export const groupFavorites = (list) => {
   const groups = []
-  // Map 里存的是"分组 key → 那个分组对象"，让"这条属于哪个分组"的查找是 O(1)。
-  // 用数组的 find 也能写，但列表长了就是 O(n²)（几十条时无所谓，
-  // 但这是"以后会变慢"的写法，没有理由留着）。
   const byKey = new Map()
 
   for (const item of Array.isArray(list) ? list : []) {
     const name = rawText(item?.category)
-    const key = name || UNGROUPED_KEY
-    if (!byKey.has(key)) {
-      const group = { key, label: name || UNGROUPED_LABEL, items: [] }
-      byKey.set(key, group)
+    if (!byKey.has(name)) {
+      const group = { key: name, label: name || UNGROUPED_LABEL, items: [] }
+      byKey.set(name, group)
       groups.push(group)
     }
-    byKey.get(key).items.push(item)
+    byKey.get(name).items.push(item)
   }
 
   return groups

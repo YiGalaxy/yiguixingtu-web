@@ -214,6 +214,8 @@ describe('sitemap · 文章记录', () => {
     const xml = buildSitemapXml({ siteUrl: SITE, articles: [] })
 
     expect(xml).toContain(`<loc>${SITE}/archive</loc>`)
+    expect(xml).toContain(`<loc>${SITE}/articles</loc>`)
+    expect(xml).toContain(`<loc>${SITE}/music</loc>`)
     // 收藏 / 项目 / 友链 / 关于（F5 新加的四页）
     expect(xml).toContain(`<loc>${SITE}/favorites</loc>`)
     expect(xml).toContain(`<loc>${SITE}/projects</loc>`)

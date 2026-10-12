@@ -1,14 +1,4 @@
 <template>
-  <!--
-    文章管理：筛选工具栏 + 表格 + 分页，外加一个「新建 / 编辑文章」弹窗。
-    【数据为什么从外面来】文章列表是**概览页的「最近文章」也要用的同一份数据**，
-    所以它由父页面持有（admin.vue 的 `articles` / `artTotal` / `artLoading` / `artQuery`），
-    这里只负责渲染 + 把交互变成事件抛回去：
-      · v-model:query  —— 筛选条件是同一个 reactive 对象，这里改的就是父页面那份
-      · refresh        —— "条件变了，重新拉一次"，父页面接的是 fetchArticles
-      · refresh-tags   —— 打开弹窗要刷新标签选项，那份数据也在父页面
-    这样"数据只有一个来源"，不会出现"表格里是 A、概览里是 B"。
-  -->
   <header class="top">
     <h1>文章管理</h1>
     <p>共 {{ total }} 篇文章</p>
@@ -111,17 +101,8 @@
 <script setup>
 import { ElMessage, ElMessageBox } from 'element-plus'
 
-/**
- * 【query 为什么用 v-model 而不是普通 prop】
- * 筛选条件是一个 reactive 对象，父页面的 `fetchArticles()` 读的就是它。
- * 这里必须改**同一个对象**：如果组件内复制一份再往上抛，就会出现
- * "输入框里的条件"和"真正发给后端的条件"两个来源，两者一旦不同步，
- * 表现是"界面筛选了但列表没变"，而且哪一份才是对的没人说得清。
- * 用 `v-model:query` 明确表达"这个对象是父子共用的"。
- */
 const query = defineModel('query', { type: Object, required: true })
 
-/** 列表数据与分页总数由父页面持有（概览页的「最近文章」用的是同一份） */
 defineProps({
   articles: { type: Array, default: () => [] },
   total: { type: Number, default: 0 },

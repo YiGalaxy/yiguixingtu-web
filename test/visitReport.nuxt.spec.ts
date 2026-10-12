@@ -105,6 +105,14 @@ describe('访问上报 · 什么时候报', () => {
     // 即使地址栏带着参数，报上去的也只有 path 部分
     expect(visitBodies()).toEqual([{ path: '/article/13' }])
   })
+
+  it('只修改查询串时不会重复上报同一页面', async () => {
+    const wrapper = await mountApp('/articles?q=one')
+
+    await navigate(wrapper, '/articles?q=two')
+
+    expect(visitBodies()).toEqual([{ path: '/articles' }])
+  })
 })
 
 describe('访问上报 · 失败了也不能影响用户', () => {

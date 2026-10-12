@@ -569,6 +569,95 @@ describe('文章详情 · 评论区', () => {
     expect(wrapper.findAll('.cm-item').length).toBe(2)
     expect(wrapper.find('.cm-more').exists()).toBe(true)
   })
+
+  it('后端返回不足一页时_should按成功请求的页号继续翻页', async () => {
+    const requestedPages = []
+    mockBackend({
+      '/comment/list': (options) => {
+        const page = options?.params?.page
+        requestedPages.push(page)
+        return body({
+          records: [{ id: 100 + page, articleId: 12, nickname: `第 ${page} 页`, content: '内容', status: 1 }],
+          total: 3,
+        })
+      },
+    })
+
+    const wrapper = await mountArticle()
+    await wrapper.find('.cm-more button').trigger('click')
+    await flushPromises()
+    await wrapper.find('.cm-more button').trigger('click')
+    await flushPromises()
+
+    expect(requestedPages).toEqual([1, 2, 3])
+    expect(wrapper.findAll('.cm-item').map(item => item.find('.cm-nick').text()))
+      .toEqual(['第 1 页', '第 2 页', '第 3 页'])
+  })
+
+  it('切换文章_should清掉旧评论、待审核留言和分页状态', async () => {
+    mockBackend({
+      '/article/13': body({ ...ARTICLE, id: 13, title: '另一篇文章' }),
+      '/comment': body({ id: 301, articleId: 12, nickname: '路过的读者', content: '只属于上一篇', status: 0 }),
+      '/comment/list': (options) => {
+        const articleId = Number(options?.params?.articleId)
+        const page = options?.params?.page
+        if (articleId === 12) return body({ records: page === 1 ? COMMENTS : [{ id: 103, articleId: 12, nickname: '旧文章续页', content: '旧内容' }], total: 3 })
+        return body({ records: [{ id: page === 1 ? 201 : 202, articleId: 13, nickname: page === 1 ? '新文章首页' : '新文章续页', content: '新内容' }], total: 2 })
+      },
+    })
+
+    const wrapper = await mountArticle()
+    await wrapper.find('.cm-more button').trigger('click')
+    await flushPromises()
+    await fillForm(wrapper, { content: '只属于上一篇' })
+    await submit(wrapper)
+    expect(wrapper.find('.cm-mine').exists()).toBe(true)
+
+    await wrapper.vm.$router.push('/article/13')
+    await flushPromises()
+
+    expect(wrapper.find('.doc-title').text()).toBe('另一篇文章')
+    expect(wrapper.findAll('.cm-item').map(item => item.find('.cm-nick').text())).toEqual(['新文章首页'])
+    expect(wrapper.find('.cm-mine').exists()).toBe(false)
+    expect(wrapper.find('.cm-alert').exists()).toBe(false)
+    expect(wrapper.find('.cm-textarea').element.value).toBe('')
+
+    await wrapper.find('.cm-more button').trigger('click')
+    await flushPromises()
+    const newArticlePages = fetchMock.mock.calls
+      .filter(([url, options]) => pathOf(url) === '/comment/list' && String(options?.params?.articleId) === '13')
+      .map(([, options]) => options.params.page)
+    expect(newArticlePages).toEqual([1, 2])
+    expect(wrapper.findAll('.cm-item').map(item => item.find('.cm-nick').text()))
+      .toEqual(['新文章首页', '新文章续页'])
+  })
+
+  it('切换文章后_should丢弃上一篇尚未返回的续页', async () => {
+    let resolveOldPage
+    mockBackend({
+      '/article/13': body({ ...ARTICLE, id: 13, title: '第二篇文章' }),
+      '/comment/list': (options) => {
+        const articleId = Number(options?.params?.articleId)
+        if (articleId === 12 && options?.params?.page === 2) {
+          return new Promise(resolve => { resolveOldPage = resolve })
+        }
+        return body({
+          records: [{ id: articleId, articleId, nickname: articleId === 12 ? '旧文章首页' : '新文章首页', content: '内容' }],
+          total: articleId === 12 ? 2 : 1,
+        })
+      },
+    })
+
+    const wrapper = await mountArticle()
+    await wrapper.find('.cm-more button').trigger('click')
+    expect(resolveOldPage).toBeTypeOf('function')
+    await wrapper.vm.$router.push('/article/13')
+    await flushPromises()
+    resolveOldPage(body({ records: [{ id: 102, articleId: 12, nickname: '旧文章续页', content: '旧内容' }], total: 2 }))
+    await flushPromises()
+
+    expect(wrapper.findAll('.cm-item').map(item => item.find('.cm-nick').text())).toEqual(['新文章首页'])
+  })
 })
 
 // =====================================================================
