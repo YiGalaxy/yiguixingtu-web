@@ -103,6 +103,7 @@ export const useGlobalMusicPlayer = (music) => {
   const onEnded = async () => {
     report({ playing: false, progress: 0 })
     const el = audioRef.value
+    const trackSrc = src.value
     const { index, bag } = advancePlayback({
       mode: music.mode.value,
       current: activeIndex.value,
@@ -125,7 +126,10 @@ export const useGlobalMusicPlayer = (music) => {
         await el.play()
         report({ playing: true })
       } catch {
-        report({ playing: false })
+        if (el === audioRef.value && src.value === trackSrc && el.paused) {
+          report({ playing: false })
+          music.setEnabled(false)
+        }
       }
       return
     }
@@ -201,7 +205,10 @@ export const useGlobalMusicPlayer = (music) => {
       await el.play()
       report({ playing: true })
     } catch {
-      report({ playing: false })
+      if (el === audioRef.value && src.value === trackSrc && el.paused) {
+        report({ playing: false })
+        music.setEnabled(false)
+      }
     }
     fetchCover()
   })

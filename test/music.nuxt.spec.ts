@@ -623,6 +623,108 @@ describe('音乐页 · 封面与控制条', () => {
 })
 
 describe('外壳里的播放器 · 状态回写', () => {
+  it('自动播放被拒绝后_should复位开关，再点一次即可播放', async () => {
+    const play = vi.spyOn(HTMLMediaElement.prototype, 'play')
+      .mockRejectedValueOnce(new DOMException('User gesture required', 'NotAllowedError'))
+    localStorage.setItem('bg-music-enabled', '1')
+    try {
+      const wrapper = await mountPlayer()
+      const music = useBackgroundMusic()
+      expect(audioEl(wrapper).paused).toBe(true)
+      expect(music.enabled.value).toBe(false)
+      expect(music.playing.value).toBe(false)
+
+      await wrapper.find('.mp-play').trigger('click')
+      await flushPromises()
+      expect(music.enabled.value).toBe(true)
+      expect(music.playing.value).toBe(true)
+      expect(audioEl(wrapper).paused).toBe(false)
+    } finally {
+      play.mockRestore()
+    }
+  })
+
+  it('旧音源的播放请求失败_should不关闭正在等待播放的新曲目', async () => {
+    mockBackend({ '/music/list': () => Promise.resolve(body([
+      { id: 1, title: '第一首', url: '/media/one.mp3' },
+      { id: 2, title: '第二首', url: '/media/two.mp3' },
+    ])) })
+    const wrapper = await mountPlayer()
+    const music = useBackgroundMusic()
+    const audio = audioEl(wrapper)
+    const realPlay = audio.play.bind(audio)
+    let rejectOld
+    let resolveNew
+    const play = vi.spyOn(audio, 'play')
+      .mockImplementationOnce(() => new Promise((_, reject) => { rejectOld = reject }))
+      .mockImplementationOnce(() => new Promise(resolve => { resolveNew = resolve }))
+    try {
+      await wrapper.find('.mp-play').trigger('click')
+      await flushPromises()
+      music.setTrack(1)
+      await flushPromises()
+      expect(wrapper.find('audio').attributes('src')).toBe('/media/two.mp3')
+      expect(audio.paused).toBe(true)
+
+      rejectOld(new DOMException('Source changed', 'AbortError'))
+      await flushPromises()
+      expect(music.enabled.value).toBe(true)
+      await realPlay()
+      resolveNew()
+      await flushPromises()
+      expect(music.playing.value).toBe(true)
+    } finally {
+      play.mockRestore()
+    }
+  })
+
+  it('旧播放请求失败但当前已在播放_should保留当前播放状态', async () => {
+    const wrapper = await mountPlayer()
+    const music = useBackgroundMusic()
+    const audio = audioEl(wrapper)
+    let rejectOld
+    const play = vi.spyOn(audio, 'play')
+      .mockImplementationOnce(() => new Promise((_, reject) => { rejectOld = reject }))
+    try {
+      await wrapper.find('.mp-play').trigger('click')
+      await flushPromises()
+      music.setEnabled(false)
+      await flushPromises()
+      music.setEnabled(true)
+      await flushPromises()
+      expect(audio.paused).toBe(false)
+
+      rejectOld(new DOMException('Play interrupted', 'AbortError'))
+      await flushPromises()
+      expect(music.enabled.value).toBe(true)
+      expect(music.playing.value).toBe(true)
+    } finally {
+      play.mockRestore()
+    }
+  })
+
+  it('单曲循环重播被拒绝_should复位开关，再点一次即可播放', async () => {
+    const wrapper = await mountPlayer()
+    const music = useBackgroundMusic()
+    await wrapper.find('.mp-play').trigger('click')
+    await flushPromises()
+    music.mode.value = 'repeat-one'
+    const audio = audioEl(wrapper)
+    audio.pause()
+    const play = vi.spyOn(audio, 'play')
+      .mockRejectedValueOnce(new DOMException('Replay denied', 'NotAllowedError'))
+    try {
+      await wrapper.find('audio').trigger('ended')
+      await flushPromises()
+      expect(music.enabled.value).toBe(false)
+      await wrapper.find('.mp-play').trigger('click')
+      await flushPromises()
+      expect(music.playing.value).toBe(true)
+    } finally {
+      play.mockRestore()
+    }
+  })
+
   it('播放进度_should节流回写共享状态（timeupdate 触发得比帧还勤）', async () => {
     const wrapper = await mountPlayer()
     const music = useBackgroundMusic()
