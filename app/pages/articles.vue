@@ -196,6 +196,12 @@ h1, h2, h3, p { margin-top: 0; }
 .article-pagination :deep(.el-pagination button:focus-visible),
 .article-pagination :deep(.el-pager li:focus-visible) { outline: 2px solid var(--accent); outline-offset: 4px; }
 @media (max-width: 700px) { .article-pagination { flex-direction: column; align-items: stretch; } .pagination-settings { justify-content: space-between; } .article-pagination :deep(.el-pagination) { align-self: center; max-width: 100%; } }
+@media (max-width: 400px) {
+  .article-pagination :deep(.el-pagination) { display: grid; grid-template-columns: repeat(5, 44px); justify-content: center; }
+  .article-pagination :deep(.el-pager) { grid-column: 1 / -1; grid-row: 1; }
+  .article-pagination :deep(.btn-prev) { grid-column: 2; grid-row: 2; }
+  .article-pagination :deep(.btn-next) { grid-column: 4; grid-row: 2; }
+}
 @media (max-width: 380px) { .article-pagination { padding: 12px; } .pagination-settings { gap: 12px; } .article-pagination :deep(.el-pagination), .article-pagination :deep(.el-pager) { gap: 6px; } }
 @media (max-width: 800px) { .article-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 560px) { .articles-page { padding: 22px 15px 44px; } .articles-hero { min-height: 165px; padding: 22px; } .hero-count { min-width: 88px; } .hero-count strong { font-size: 24px; } .article-grid { grid-template-columns: 1fr; } .list-heading { margin-top: 28px; } }
