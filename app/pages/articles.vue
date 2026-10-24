@@ -57,9 +57,21 @@
       </NuxtLink>
     </section>
 
-    <nav v-if="total > size" class="article-pagination" aria-label="文章分页">
+    <nav v-if="total > 0 || pending" class="article-pagination" aria-label="文章分页" :aria-busy="pending">
+      <div class="pagination-settings">
+        <span class="pagination-total">共 <strong>{{ total }}</strong> 篇文章</span>
+        <label class="page-size-label">
+          <span>每页显示</span>
+          <span class="page-size-control">
+            <select v-model.number="size" aria-label="每页显示条数" :disabled="pending">
+              <option v-for="option in pageSizes" :key="option" :value="option">{{ option }} 篇</option>
+            </select>
+            <svg viewBox="0 0 12 8" aria-hidden="true"><path d="m2 2 4 4 4-4" /></svg>
+          </span>
+        </label>
+      </div>
       <el-pagination
-        background layout="total, prev, pager, next"
+        background layout="prev, pager, next"
         :total="total" :current-page="page" :page-size="size" :pager-count="5"
         :disabled="pending" @current-change="page = $event" />
     </nav>
@@ -78,7 +90,8 @@ const tagsAsync = useAsyncData('articles-tags', async () => {
 })
 
 await settingsReady
-const size = computed(() => settings.value.pageSize)
+const size = ref(settings.value.pageSize)
+const pageSizes = computed(() => [...new Set([6, 12, 24, 48, settings.value.pageSize])].sort((a, b) => a - b))
 const page = ref(1)
 
 // 条件和每页条数变化时重新查询第一页，避免停留在不存在的页码。
@@ -157,8 +170,33 @@ h1, h2, h3, p { margin-top: 0; }
 .read-link { color: var(--accent); font-weight: 700; }
 .state-panel { display: grid; place-items: center; gap: 14px; min-height: 200px; padding: 28px; color: var(--muted); text-align: center; }
 .state-panel button { padding: 10px 18px; border: 1px solid var(--accent); color: var(--accent); background: rgba(8, 18, 29, .7); cursor: pointer; }
-.article-pagination { display: flex; justify-content: center; margin-top: 28px; }
-.article-pagination :deep(.el-pagination) { flex-wrap: wrap; justify-content: center; row-gap: 12px; --el-color-primary: var(--accent); --el-text-color-primary: var(--ink); --el-text-color-regular: var(--muted); --el-fill-color: var(--surface-2); --el-text-color-placeholder: var(--muted); }
+.article-pagination { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 20px; margin-top: 28px; padding: 16px; border: 2px solid var(--line); background: var(--surface); box-shadow: 6px 6px 0 var(--pixel-shadow); }
+.pagination-settings { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 24px; }
+.pagination-total, .page-size-label { color: var(--muted); font-size: 13px; white-space: nowrap; }
+.pagination-total strong { color: var(--ink); font: 700 16px monospace; }
+.page-size-label { display: flex; align-items: center; gap: 10px; }
+.page-size-control { position: relative; display: inline-flex; }
+.page-size-control select { appearance: none; min-width: 94px; min-height: 44px; padding: 8px 30px 8px 12px; border: 2px solid var(--line); border-radius: 0; color: var(--ink); background: var(--surface-2); box-shadow: 3px 3px 0 var(--pixel-shadow); font: inherit; cursor: pointer; }
+.page-size-control select:hover { border-color: var(--accent); }
+.page-size-control select:disabled { opacity: .45; cursor: wait; }
+.page-size-control option { color: var(--ink); background: var(--bg); }
+.page-size-control svg { position: absolute; top: 18px; right: 12px; width: 12px; height: 8px; fill: none; stroke: var(--accent); stroke-width: 2; pointer-events: none; }
+.article-pagination :deep(.el-pagination) { flex-wrap: wrap; justify-content: center; gap: 8px; padding: 0; --el-pagination-button-width: 44px; --el-pagination-button-height: 44px; --el-pagination-button-disabled-bg-color: var(--surface-2); --el-pagination-button-disabled-color: var(--muted); }
+.article-pagination :deep(.el-pager) { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.article-pagination :deep(.el-pagination.is-background .el-pager li),
+.article-pagination :deep(.el-pagination.is-background .btn-prev),
+.article-pagination :deep(.el-pagination.is-background .btn-next) { min-width: 44px; height: 44px; margin: 0; border: 2px solid var(--line); border-radius: 0; color: var(--ink); background: var(--surface-2); box-shadow: 3px 3px 0 var(--pixel-shadow); font-family: inherit; font-size: 14px; }
+.article-pagination :deep(.el-pagination.is-background .el-pager li:not(.is-disabled):hover),
+.article-pagination :deep(.el-pagination.is-background button:not(:disabled):hover) { border-color: var(--accent); color: var(--accent); }
+.article-pagination :deep(.el-pagination.is-background .el-pager li.is-active) { border-color: var(--accent); color: var(--nav-surface); background: var(--accent); font-weight: 800; }
+.article-pagination :deep(.el-pagination.is-background .el-pager li.is-active:hover) { color: var(--nav-surface); }
+.article-pagination :deep(.el-pagination.is-background button:disabled),
+.article-pagination :deep(.el-pagination.is-background .el-pager li.is-disabled) { opacity: .4; box-shadow: none; cursor: not-allowed; }
+.page-size-control select:focus-visible,
+.article-pagination :deep(.el-pagination button:focus-visible),
+.article-pagination :deep(.el-pager li:focus-visible) { outline: 2px solid var(--accent); outline-offset: 4px; }
+@media (max-width: 700px) { .article-pagination { flex-direction: column; align-items: stretch; } .pagination-settings { justify-content: space-between; } .article-pagination :deep(.el-pagination) { align-self: center; max-width: 100%; } }
+@media (max-width: 380px) { .article-pagination { padding: 12px; } .pagination-settings { gap: 12px; } .article-pagination :deep(.el-pagination), .article-pagination :deep(.el-pager) { gap: 6px; } }
 @media (max-width: 800px) { .article-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 560px) { .articles-page { padding: 22px 15px 44px; } .articles-hero { min-height: 165px; padding: 22px; } .hero-count { min-width: 88px; } .hero-count strong { font-size: 24px; } .article-grid { grid-template-columns: 1fr; } .list-heading { margin-top: 28px; } }
 

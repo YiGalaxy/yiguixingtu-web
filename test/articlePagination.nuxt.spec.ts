@@ -18,15 +18,16 @@ beforeEach(() => {
     if (path === '/tag/list') return Promise.resolve(body([]))
     if (path === '/article/page') {
       const page = options?.params?.page ?? 1
+      const size = options?.params?.size ?? 2
       const filtered = options?.params?.categoryId === 1
-      const start = (page - 1) * 2
+      const start = (page - 1) * size
       const total = filtered ? 3 : 5
-      const records = Array.from({ length: Math.min(2, total - start) }, (_, index) => ({
+      const records = Array.from({ length: Math.max(0, Math.min(size, total - start)) }, (_, index) => ({
         id: start + index + 1,
         title: `${filtered ? '分类文章' : '文章'} ${start + index + 1}`,
         categoryName: '技术',
       }))
-      return Promise.resolve(body({ records, total, current: page, size: 2 }))
+      return Promise.resolve(body({ records, total, current: page, size }))
     }
     return Promise.resolve(body(null))
   })
@@ -59,5 +60,34 @@ describe('文章图鉴分页', () => {
     await vi.waitFor(() => expect(requests().at(-1)).toMatchObject({ page: 1, categoryId: 1 }))
     await flushPromises()
     expect(wrapper.findAll('.article-card h3').map(title => title.text())).toEqual(['分类文章 1', '分类文章 2'])
+  })
+
+  it('修改每页条数时回到第一页，单页时仍可切回较少条数并保留分类', async () => {
+    const ArticleListPage = (await import('~/pages/articles.vue')).default
+    const wrapper = await mountSuspended(ArticleListPage, { route: '/articles' })
+    await flushPromises()
+
+    const lastRequest = () => fetchMock.mock.calls
+      .filter(([url]) => pathOf(url) === '/article/page').at(-1)?.[1]?.params
+    await wrapper.findAll('.el-pager li.number').find(item => item.text() === '2')!.trigger('click')
+    await vi.waitFor(() => expect(lastRequest()?.page).toBe(2))
+    await flushPromises()
+
+    await wrapper.get('select[aria-label="每页显示条数"]').setValue('6')
+    await vi.waitFor(() => expect(lastRequest()).toMatchObject({ page: 1, size: 6 }))
+    await flushPromises()
+    expect(wrapper.findAll('.article-card')).toHaveLength(5)
+    expect(wrapper.find('.card-index').text()).toBe('01')
+    expect(wrapper.find('nav[aria-label="文章分页"]').exists()).toBe(true)
+    expect(wrapper.find('select').element.value).toBe('6')
+
+    await wrapper.findAll('.filter-chip').find(item => item.text() === '技术')!.trigger('click')
+    await vi.waitFor(() => expect(lastRequest()).toMatchObject({ page: 1, size: 6, categoryId: 1 }))
+    await flushPromises()
+    await wrapper.get('select').setValue('2')
+    await vi.waitFor(() => expect(lastRequest()).toMatchObject({ page: 1, size: 2, categoryId: 1 }))
+    await flushPromises()
+    expect(wrapper.findAll('.article-card')).toHaveLength(2)
+    expect(wrapper.findAll('.el-pager li.number').map(item => item.text())).toEqual(['1', '2'])
   })
 })
