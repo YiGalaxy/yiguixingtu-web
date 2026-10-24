@@ -46,7 +46,7 @@
       <NuxtLink v-for="(article, index) in articles" :key="article.id" class="article-card glass" :to="`/article/${article.id}`" :prefetch="false">
         <div class="card-cover">
           <img :src="coverOf(article, index)" :alt="article.title" loading="lazy">
-          <span class="card-index">{{ String(index + 1).padStart(2, '0') }}</span>
+          <span class="card-index">{{ String((page - 1) * size + index + 1).padStart(2, '0') }}</span>
         </div>
         <div class="card-body">
           <div class="card-meta"><span>{{ article.categoryName || '未分类' }}</span><time>{{ formatDate(article.createTime) }}</time></div>
@@ -57,9 +57,12 @@
       </NuxtLink>
     </section>
 
-    <div v-if="hasMore" class="load-more">
-      <button type="button" :disabled="loadingMore" @click="loadMore">{{ loadingMore ? '加载中…' : '加载更多文章' }}</button>
-    </div>
+    <nav v-if="total > size" class="article-pagination" aria-label="文章分页">
+      <el-pagination
+        background layout="total, prev, pager, next"
+        :total="total" :current-page="page" :page-size="size" :pager-count="5"
+        :disabled="pending" @current-change="page = $event" />
+    </nav>
   </main>
 </template>
 
@@ -76,26 +79,25 @@ const tagsAsync = useAsyncData('articles-tags', async () => {
 
 await settingsReady
 const size = computed(() => settings.value.pageSize)
+const page = ref(1)
+
+// 条件和每页条数变化时重新查询第一页，避免停留在不存在的页码。
+watch([keyword, categoryId, tagId, size], () => { page.value = 1 })
+
 const requestArticles = (page) => request('/article/page', {
   params: toArticleParams({ keyword: keyword.value, categoryId: categoryId.value, tagId: tagId.value, page, size: size.value }),
 })
 
 const articlesAsync = useAsyncData(
-  () => `articles:${keyword.value || '-'}:${categoryId.value ?? '-'}:${tagId.value ?? '-'}:${size.value}`,
-  () => requestArticles(1),
+  () => `articles:${keyword.value || '-'}:${categoryId.value ?? '-'}:${tagId.value ?? '-'}:${size.value}:${page.value}`,
+  () => requestArticles(page.value),
 )
 await Promise.all([articlesAsync, categoriesReady, tagsAsync])
 
 const { data: firstPage, pending } = articlesAsync
 const tags = computed(() => Array.isArray(tagsAsync.data.value) ? tagsAsync.data.value : [])
-const firstArticles = computed(() => firstPage.value?.ok ? (firstPage.value.data?.records || []) : [])
+const articles = computed(() => firstPage.value?.ok ? (firstPage.value.data?.records || []) : [])
 const total = computed(() => firstPage.value?.ok ? Number(firstPage.value.data?.total) || 0 : 0)
-const moreArticles = ref([])
-const page = ref(1)
-const loadingMore = ref(false)
-let filterVersion = 0
-const articles = computed(() => [...firstArticles.value, ...moreArticles.value])
-const hasMore = computed(() => articles.value.length < total.value)
 
 const listTitle = computed(() => {
   const category = categories.value.find(item => item.id === categoryId.value)
@@ -106,27 +108,6 @@ const listTitle = computed(() => {
   if (scope) return `${scope}下的文章`
   return '最新文章'
 })
-
-watch([keyword, categoryId, tagId], () => {
-  filterVersion += 1
-  page.value = 1
-  moreArticles.value = []
-})
-
-const loadMore = async () => {
-  if (loadingMore.value || !hasMore.value) return
-  const version = filterVersion
-  loadingMore.value = true
-  const next = page.value + 1
-  try {
-    const response = await requestArticles(next)
-    if (!response.ok || version !== filterVersion) return
-    page.value = next
-    moreArticles.value = [...moreArticles.value, ...(response.data?.records || [])]
-  } finally {
-    loadingMore.value = false
-  }
-}
 
 const DEFAULT_COVERS = ['/cover-1.png', '/cover-2.png', '/cover-3.png']
 const coverOf = (article, index) => article.cover || DEFAULT_COVERS[index % DEFAULT_COVERS.length]
@@ -175,9 +156,9 @@ h1, h2, h3, p { margin-top: 0; }
 .card-foot { align-items: center; margin-top: auto; }
 .read-link { color: var(--accent); font-weight: 700; }
 .state-panel { display: grid; place-items: center; gap: 14px; min-height: 200px; padding: 28px; color: var(--muted); text-align: center; }
-.state-panel button, .load-more button { padding: 10px 18px; border: 1px solid var(--accent); color: var(--accent); background: rgba(8, 18, 29, .7); cursor: pointer; }
-.load-more { display: flex; justify-content: center; margin-top: 28px; }
-.load-more button:disabled { opacity: .6; cursor: wait; }
+.state-panel button { padding: 10px 18px; border: 1px solid var(--accent); color: var(--accent); background: rgba(8, 18, 29, .7); cursor: pointer; }
+.article-pagination { display: flex; justify-content: center; margin-top: 28px; }
+.article-pagination :deep(.el-pagination) { flex-wrap: wrap; justify-content: center; row-gap: 12px; --el-color-primary: var(--accent); --el-text-color-primary: var(--ink); --el-text-color-regular: var(--muted); --el-fill-color: var(--surface-2); --el-text-color-placeholder: var(--muted); }
 @media (max-width: 800px) { .article-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 560px) { .articles-page { padding: 22px 15px 44px; } .articles-hero { min-height: 165px; padding: 22px; } .hero-count { min-width: 88px; } .hero-count strong { font-size: 24px; } .article-grid { grid-template-columns: 1fr; } .list-heading { margin-top: 28px; } }
 
@@ -202,8 +183,7 @@ h1, h2, h3, p { margin-top: 0; }
 .articles-page .filter-panel { padding: 16px; }
 .articles-page .searchbox,
 .articles-page .filter-chip,
-.articles-page .state-panel button,
-.articles-page .load-more button {
+.articles-page .state-panel button {
   border: 2px solid var(--line);
   border-radius: 0;
   background: var(--surface-2);
@@ -211,8 +191,7 @@ h1, h2, h3, p { margin-top: 0; }
 }
 .articles-page .filter-chip:hover,
 .articles-page .filter-chip.active,
-.articles-page .state-panel button:hover,
-.articles-page .load-more button:hover { border-color: var(--accent); color: var(--on-accent); background: var(--accent); }
+.articles-page .state-panel button:hover { border-color: var(--accent); color: var(--on-accent); background: var(--accent); }
 .articles-page .article-card:hover { transform: translate(2px, -2px); border-color: var(--accent); box-shadow: 4px 4px 0 var(--pixel-shadow); }
 .articles-page .card-index { border: 2px solid var(--accent); border-radius: 0; }
 @media (max-width: 560px) { .articles-page { width: calc(100% - 24px); padding: 22px 0 44px; } }
